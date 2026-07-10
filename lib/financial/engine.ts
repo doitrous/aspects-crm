@@ -48,10 +48,21 @@ const CREDIT_KINDS: TransactionKind[] = ["credit_note", "cancellation_adjustment
 /** Kinds that take money back out of what was collected. */
 const REVERSAL_KINDS: TransactionKind[] = ["refund", "reversal", "chargeback"];
 
+/** Lifecycle of one payment line (§1C). Only `completed` money is real money. */
+export type TransactionStatus = "pending" | "completed" | "failed" | "cancelled";
+
 export interface TransactionInput {
   kind: TransactionKind;
   /** Always the positive magnitude; `kind` decides the direction. */
   amount: number;
+  /**
+   * Defaults to `"completed"`. A `pending` line is recorded and shown, but it
+   * has NOT settled: it must not reduce the patient's outstanding balance, or a
+   * moderator could clear a bill by entering a payment that never lands.
+   * `failed` / `cancelled` lines are retained (§1E: originals are never deleted)
+   * and contribute nothing.
+   */
+  status?: TransactionStatus;
 }
 
 /** What a percentage-based doctor compensation is a percentage OF (§6, §7). */
@@ -106,6 +117,8 @@ export interface FinancialSummary {
 
   // ── payments (§1C–E, H) ───────────────────────────────────
   grossPaid: number;
+  /** Payment lines still awaiting settlement. Excluded from every total below. */
+  pendingTotal: number;
   reversalsTotal: number;
   /** `grossPaid - reversalsTotal` — net patient cash actually kept. */
   actualPaid: number;
@@ -130,11 +143,16 @@ export interface FinancialSummary {
   netProfit: number;
 }
 
-/** Sum the positive magnitudes of every transaction whose kind is in `kinds`. */
+/** A line counts as real money only once it has settled. Absent status = settled. */
+function isSettled(t: TransactionInput): boolean {
+  return (t.status ?? "completed") === "completed";
+}
+
+/** Sum the positive magnitudes of every SETTLED transaction whose kind is in `kinds`. */
 function sumByKind(txns: TransactionInput[], kinds: TransactionKind[]): number {
   return addMoney(
     ...txns
-      .filter((t) => kinds.includes(t.kind))
+      .filter((t) => isSettled(t) && kinds.includes(t.kind))
       .map((t) => Math.abs(finite(t.amount))),
   );
 }
@@ -157,6 +175,11 @@ export function computeFinancials(input: FinancialInput): FinancialSummary {
 
   // Payments ledger
   const txns = input.transactions ?? [];
+  const pendingTotal = addMoney(
+    ...txns
+      .filter((t) => t.status === "pending" && t.kind === "payment")
+      .map((t) => Math.abs(finite(t.amount))),
+  );
   const grossPaid = sumByKind(txns, ["payment"]);
   const reversalsTotal = sumByKind(txns, REVERSAL_KINDS);
   const actualPaid = subMoney(grossPaid, reversalsTotal);
@@ -202,6 +225,7 @@ export function computeFinancials(input: FinancialInput): FinancialSummary {
     minAllowedQuotedPrice,
     isBelowAllowed,
     grossPaid,
+    pendingTotal,
     reversalsTotal,
     actualPaid,
     creditsTotal,

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { getLeads } from "@/lib/data";
 import { getReservations } from "@/lib/booking/reservations";
 import { bookingConfigured } from "@/lib/booking/client";
 import { RESERVATION_STATUS_META } from "@/lib/reservationStatus";
@@ -93,6 +94,15 @@ export default async function CalendarPage({
   for (const list of byDate.values()) list.sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   const inMonthCount = reservations.filter((r) => r.date.startsWith(monthPrefix)).length;
+
+  // Every booking on the calendar opens the lead that owns it. Leads carry the
+  // booking platform's appointment id, so the join happens here rather than in
+  // a second lead-detail component.
+  const leads = await getLeads();
+  const leadByAppointment = new Map<string, string>();
+  for (const l of leads) {
+    if (l.bookingAppointmentId) leadByAppointment.set(l.bookingAppointmentId, l.id);
+  }
 
   const prev = month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 };
   const next = month === 11 ? { year: year + 1, month: 0 } : { year, month: month + 1 };
@@ -194,16 +204,16 @@ export default async function CalendarPage({
                       )}
                     </div>
 
-                    <div className="flex flex-col gap-1">
-                      {dayRes.slice(0, 3).map((r) => {
+                    {/* Every booking is shown. A busy day scrolls inside its own
+                        cell rather than hiding appointments behind "+N more". */}
+                    <div className="flex max-h-[220px] flex-col gap-1 overflow-y-auto">
+                      {dayRes.map((r) => {
                         const meta = RESERVATION_STATUS_META[r.status];
-                        return (
-                          <div
-                            key={r.id}
-                            className="rounded-[5px] px-1.5 py-1 text-[10.5px] leading-tight"
-                            style={{ background: meta.bg }}
-                            title={`${formatClock(r.startTime)} · ${r.patientName} · ${r.doctorName ?? ""} · ${meta.label}`}
-                          >
+                        const leadId = leadByAppointment.get(r.id);
+                        const title = `${formatClock(r.startTime)} · ${r.patientName} · ${r.doctorName ?? ""} · ${meta.label}`;
+
+                        const body = (
+                          <>
                             <div className="flex items-center gap-1">
                               <span
                                 className="h-1.5 w-1.5 flex-none rounded-full"
@@ -217,14 +227,34 @@ export default async function CalendarPage({
                             {r.doctorName && (
                               <div className="truncate text-ink-400">{r.doctorName}</div>
                             )}
+                          </>
+                        );
+
+                        const cls = "block rounded-[5px] px-1.5 py-1 text-[10.5px] leading-tight";
+
+                        // A booking with no matching CRM lead stays inert rather
+                        // than linking somewhere that would 404.
+                        return leadId ? (
+                          <Link
+                            key={r.id}
+                            href={`/leads/${leadId}`}
+                            className={`${cls} text-left transition hover:ring-1 hover:ring-primary`}
+                            style={{ background: meta.bg }}
+                            title={title}
+                          >
+                            {body}
+                          </Link>
+                        ) : (
+                          <div
+                            key={r.id}
+                            className={cls}
+                            style={{ background: meta.bg }}
+                            title={`${title} · no CRM lead linked`}
+                          >
+                            {body}
                           </div>
                         );
                       })}
-                      {dayRes.length > 3 && (
-                        <div className="px-1 text-[10px] font-medium text-ink-400">
-                          +{dayRes.length - 3} more
-                        </div>
-                      )}
                     </div>
                   </div>
                 );

@@ -272,6 +272,9 @@ export interface Escalation {
 export interface Lead {
   id: string; // human Lead ID, e.g. L0001 (leads.lead_id)
   uid?: string; // DB primary key (leads.id, uuid) — used to join related tables
+  /** The booking platform's appointment id, when this lead has a reservation.
+   *  Lets a calendar booking resolve back to the lead that owns it. */
+  bookingAppointmentId?: string;
   mrn?: string;
   patientName: string;
   phone: string;

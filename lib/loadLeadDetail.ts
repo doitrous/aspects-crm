@@ -10,6 +10,22 @@ import {
   duplicatesFor,
 } from "@/lib/data";
 import type { LeadDetailData } from "@/components/lead/LeadDetail";
+import { leadFinancials, type LeadFinancials } from "@/lib/data/financials";
+
+/**
+ * The financial record is the one part of the drawer that can be missing for a
+ * reason other than "no data": the viewer may lack `financial.view`, the lead
+ * may predate the financial tables, or migration `0007` may not have been
+ * applied yet. None of those should take the whole lead detail down with them,
+ * so a failure here degrades to `null` and the Payments tab explains itself.
+ */
+async function loadFinancials(id: string): Promise<LeadFinancials | null> {
+  try {
+    return await leadFinancials(id);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Loads everything the lead detail view needs. Shared by the full-page route
@@ -20,7 +36,7 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
   const lead = await getLead(id);
   if (!lead) return null;
 
-  const [messages, comments, attribution, timeline, bookings, escalations, dupGroups, allLeads] =
+  const [messages, comments, attribution, timeline, bookings, escalations, dupGroups, allLeads, financials] =
     await Promise.all([
       messagesFor(id),
       commentsFor(id),
@@ -30,6 +46,7 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
       escalationsFor(id),
       duplicatesFor(id),
       getLeads(),
+      loadFinancials(id),
     ]);
 
   const duplicateGroups = dupGroups.map((g) => ({
@@ -40,5 +57,15 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
       .map((l) => ({ id: l.id, name: l.patientName, phone: l.phone })),
   }));
 
-  return { lead, messages, comments, attribution, timeline, bookings, escalations, duplicateGroups };
+  return {
+    lead,
+    messages,
+    comments,
+    attribution,
+    timeline,
+    bookings,
+    escalations,
+    duplicateGroups,
+    financials,
+  };
 }

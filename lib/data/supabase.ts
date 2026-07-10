@@ -274,6 +274,7 @@ function mapLead(row: LeadRow, lk: Lookups): Lead {
     createdAt: row.created_at,
     lostReason: row.lost_reason_id ? lk.lostReasonsById.get(row.lost_reason_id) : undefined,
     bookingStatus: row.booking_appointment_id ? "unconfirmed" : "none",
+    bookingAppointmentId: row.booking_appointment_id ?? undefined,
     note: buildNote(row),
     followUp: { status: "none" },
   };

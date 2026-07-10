@@ -14,6 +14,40 @@
 
 import { clamp } from "./money";
 
+/**
+ * A stable key for "which service is this?".
+ *
+ * The live schema stores a service as a soft `service_id` uuid (when it maps to
+ * a booking-website service) OR a bare `service_name` (when it does not). Rules
+ * and leads must be compared on the same key or a name-only rule would never
+ * match a name-only lead. The uuid wins when present; otherwise the trimmed,
+ * lower-cased name. Returns `null` when neither identifies a service.
+ */
+export function serviceKey(
+  serviceId: string | null | undefined,
+  serviceName: string | null | undefined,
+): string | null {
+  if (serviceId) return serviceId;
+  const name = serviceName?.trim().toLowerCase();
+  return name ? name : null;
+}
+
+/** An optional `[from, to]` validity window, inclusive on both ends. */
+export interface EffectiveWindow {
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+}
+
+/**
+ * Is a dated rule in force on `onDate`? Both bounds are optional and inclusive.
+ * Dates are ISO `YYYY-MM-DD`, which compares correctly as a string.
+ */
+export function isEffective(window: EffectiveWindow, onDate: string): boolean {
+  if (window.effectiveFrom && onDate < window.effectiveFrom) return false;
+  if (window.effectiveTo && onDate > window.effectiveTo) return false;
+  return true;
+}
+
 export type DiscountScope =
   | "moderator_service"
   | "moderator"

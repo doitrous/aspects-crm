@@ -30,6 +30,31 @@ UI view models. Selected at runtime by `CRM_DATA_SOURCE` (`supabase` | `mock`).
 The UI keeps a slightly shorter pipeline enum (`new`, `post_op`); the adapter
 translates both directions.
 
+## Apply order
+
+The live CRM schema was built in two stages, by two repositories. Filenames
+alone do not sort into apply order (`0002_` sorts before `014_`), so read this
+list, not `ls`:
+
+1. **`baseline/014_crm_schema.sql` … `baseline/029_*.sql`** — applied first.
+   These created the CRM tables (`leads`, `crm_users`, `escalations`,
+   `crm_conversations`, `crm_messages`, ingest logs, auditor reporting, …).
+   They were authored in the **booking-website repository** and are restored
+   here so this repo can describe its own database. Verified 2026-07-10: all
+   52 tables they create exist in the live CRM project.
+2. **`migrations/0002_*.sql` … `migrations/0006_*.sql`** — applied second, from
+   this repo. They add the financial source of truth, role history, and comment
+   metadata **on top of** the baseline (e.g. `crm_lead_financials` has an FK to
+   `leads`, created in `014`).
+
+`baseline/` is history, already applied — do not re-run it against the live
+database. New work goes in `migrations/` with the next `00NN_` number.
+
+> Migrations `001`–`013` are **not** in this repo on purpose: they belong to the
+> booking website's own Supabase project (`kuaoowjnatgixcupqdac`), which is a
+> different database from the CRM project (`wgczgrhcqishvhbitvml`). That is why
+> the CRM has no local `services` / `doctors` / `branches` tables.
+
 ## `archive/`
 
 `archive/0001_init.sql.obsolete` is an **early invented schema draft**. It does

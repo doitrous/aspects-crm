@@ -12,6 +12,26 @@ function toDate(input: string | Date): Date {
   return input instanceof Date ? input : new Date(input);
 }
 
+/**
+ * Money, always to the cent — e.g. "1,500.00 EGP".
+ *
+ * Two decimals even for round numbers: on a bill, "1,500" and "1,500.00" should
+ * not sit in the same column looking like different kinds of thing.
+ */
+export function formatMoney(amount: number, currency = "EGP"): string {
+  const n = Number.isFinite(amount) ? amount : 0;
+  return `${n.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} ${currency}`;
+}
+
+/** A discount/percentage, trimmed of trailing zeros — e.g. "12.5%", "20%". */
+export function formatPct(pct: number): string {
+  const n = Number.isFinite(pct) ? pct : 0;
+  return `${Number(n.toFixed(2))}%`;
+}
+
 /** e.g. "Jun 06, 2026" */
 export function formatDate(input: string | Date): string {
   const d = toDate(input);

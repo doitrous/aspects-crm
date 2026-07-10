@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "crm-dev",
+      "name": "aspects-crm-standalone",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3100

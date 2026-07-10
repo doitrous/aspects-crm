@@ -20,8 +20,31 @@ export const NAV: NavItem[] = [
   { label: "Calendar", href: "/calendar", icon: "📅" },
   { label: "Auditor", href: "/auditor", icon: "✓", roles: ["auditor", "admin"] },
   { label: "Reports", href: "/reports", icon: "▦", roles: ["auditor", "admin"] },
+  // Mirrors the `users.view` capability: auditors may read the roster + history,
+  // only admins may mutate access — enforced server-side, not by this list.
+  { label: "Users & Roles", href: "/settings/users", icon: "👥", roles: ["admin", "auditor"] },
   { label: "Settings", href: "/settings", icon: "⚙", roles: ["admin"] },
 ];
+
+/** Does `pathname` sit at or beneath `href`? `/settings` does not match `/settingsx`. */
+function matches(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(href + "/");
+}
+
+/**
+ * The href of the single nav item that should render as active, or `null`.
+ *
+ * The most *specific* match wins, so `/settings/users` highlights "Users & Roles"
+ * rather than lighting up both it and its "/settings" ancestor.
+ */
+export function activeHref(pathname: string, items: NavItem[] = NAV): string | null {
+  let best: string | null = null;
+  for (const item of items) {
+    if (!matches(pathname, item.href)) continue;
+    if (best === null || item.href.length > best.length) best = item.href;
+  }
+  return best;
+}
 
 export function visibleNav(role: Role): NavItem[] {
   return NAV.filter((n) => !n.roles || n.roles.includes(role));

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { addMoney, clamp, pctOf, pctRatio, roundMoney, subMoney } from "./money";
 import { computeFinancials, type FinancialInput } from "./engine";
-import { resolveMaxDiscount, type DiscountRule } from "./rules";
+import { isEffective, resolveMaxDiscount, serviceKey, type DiscountRule } from "./rules";
 
 /* ── money helpers ───────────────────────────────────────────── */
 
@@ -309,4 +309,115 @@ test("resolved rule feeds the engine's allowed-minimum check end-to-end", () => 
   const s = computeFinancials({ baseServicePrice: 1000, quotedPrice: 780, maxAllowedDiscountPct: maxDiscountPct });
   assert.equal(s.minAllowedQuotedPrice, 800);
   assert.equal(s.isBelowAllowed, true); // 780 < 800
+});
+
+/* ── payment-line status (§1C) ─────────────────────────────────── */
+
+test("a pending payment is recorded but does not reduce the outstanding balance", () => {
+  const s = computeFinancials({
+    baseServicePrice: 1000,
+    quotedPrice: 1000,
+    maxAllowedDiscountPct: 0,
+    transactions: [
+      { kind: "payment", amount: 400, status: "completed" },
+      { kind: "payment", amount: 600, status: "pending" },
+    ],
+  });
+  assert.equal(s.grossPaid, 400);
+  assert.equal(s.pendingTotal, 600);
+  assert.equal(s.totalCollected, 400);
+  assert.equal(s.outstanding, 600, "a pending payment must not clear the bill");
+});
+
+test("failed and cancelled lines are retained but contribute nothing", () => {
+  const s = computeFinancials({
+    baseServicePrice: 500,
+    quotedPrice: 500,
+    maxAllowedDiscountPct: 0,
+    transactions: [
+      { kind: "payment", amount: 500, status: "failed" },
+      { kind: "payment", amount: 500, status: "cancelled" },
+    ],
+  });
+  assert.equal(s.grossPaid, 0);
+  assert.equal(s.pendingTotal, 0);
+  assert.equal(s.outstanding, 500);
+});
+
+test("a transaction with no status is treated as completed (back-compat with pre-0007 rows)", () => {
+  const s = computeFinancials({
+    baseServicePrice: 300,
+    quotedPrice: 300,
+    maxAllowedDiscountPct: 0,
+    transactions: [{ kind: "payment", amount: 300 }],
+  });
+  assert.equal(s.grossPaid, 300);
+  assert.equal(s.outstanding, 0);
+});
+
+test("status gates refunds, credits and doctor-funded lines too", () => {
+  const s = computeFinancials({
+    baseServicePrice: 1000,
+    quotedPrice: 1000,
+    maxAllowedDiscountPct: 0,
+    transactions: [
+      { kind: "payment", amount: 1000, status: "completed" },
+      { kind: "refund", amount: 200, status: "pending" },
+      { kind: "credit_note", amount: 100, status: "cancelled" },
+      { kind: "doctor_funded", amount: 50, status: "failed" },
+    ],
+  });
+  assert.equal(s.reversalsTotal, 0, "an unsettled refund has not left the account");
+  assert.equal(s.creditsTotal, 0);
+  assert.equal(s.doctorFundedTotal, 0);
+  assert.equal(s.actualPaid, 1000);
+  assert.equal(s.pendingTotal, 0, "pendingTotal counts pending PAYMENTS only");
+});
+
+test("pendingTotal never double-counts against totalCollected", () => {
+  const s = computeFinancials({
+    baseServicePrice: 2000,
+    quotedPrice: 1800,
+    maxAllowedDiscountPct: 20,
+    transactions: [
+      { kind: "payment", amount: 500, status: "completed" },
+      { kind: "payment", amount: 300, status: "pending" },
+      { kind: "doctor_funded", amount: 200, status: "completed" },
+    ],
+  });
+  assert.equal(s.totalCollected, 700); // 500 cash + 200 doctor-funded
+  assert.equal(s.outstanding, 1100); // 1800 due - 700 collected
+  assert.equal(s.pendingTotal, 300);
+});
+
+/* ── service keys + effective windows (§ discount limits, § doctor comp) ── */
+
+test("a service key prefers the uuid and falls back to a normalized name", () => {
+  assert.equal(serviceKey("svc-1", "Hydrafacial"), "svc-1");
+  assert.equal(serviceKey(null, "  HydraFacial "), "hydrafacial");
+  assert.equal(serviceKey(undefined, undefined), null);
+  assert.equal(serviceKey(null, "   "), null, "a blank name identifies nothing");
+});
+
+test("a name-only rule matches a name-only lead through the shared key", () => {
+  const key = serviceKey(null, "Dental Scaling");
+  const r = resolveMaxDiscount(
+    [{ scope: "service", serviceId: key, maxDiscountPct: 15 }],
+    { serviceId: serviceKey(null, "dental scaling") },
+  );
+  assert.equal(r.maxDiscountPct, 15);
+});
+
+test("an effective window is inclusive on both ends", () => {
+  const w = { effectiveFrom: "2026-01-01", effectiveTo: "2026-12-31" };
+  assert.equal(isEffective(w, "2026-01-01"), true);
+  assert.equal(isEffective(w, "2026-12-31"), true);
+  assert.equal(isEffective(w, "2025-12-31"), false);
+  assert.equal(isEffective(w, "2027-01-01"), false);
+});
+
+test("an open-ended window is always in force", () => {
+  assert.equal(isEffective({}, "2026-07-10"), true);
+  assert.equal(isEffective({ effectiveFrom: "2026-01-01" }, "2030-01-01"), true);
+  assert.equal(isEffective({ effectiveTo: "2026-12-31" }, "1999-01-01"), true);
 });

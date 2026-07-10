@@ -2,6 +2,7 @@ import { Sidebar } from "@/components/shell/Sidebar";
 import { dashboardMetrics } from "@/lib/data";
 import { getReservations } from "@/lib/booking/reservations";
 import { isNewReservation } from "@/lib/reservationStatus";
+import { listAccounts, requireSession } from "@/lib/data/session";
 
 /** New/unread reservation count for the sidebar badge. Isolated from the shell:
  *  a booking-platform outage must never break CRM navigation. */
@@ -14,8 +15,28 @@ async function newReservationCount(): Promise<number> {
   }
 }
 
-export default async function CrmLayout({ children }: { children: React.ReactNode }) {
-  const [m, reservations] = await Promise.all([dashboardMetrics(), newReservationCount()]);
+/**
+ * CRM shell. Fills the whole viewport (no centered max-width card). The
+ * `modal` parallel slot hosts the lead slide-over so a lead can be opened as a
+ * drawer from anywhere in the app — not just the leads list — via the
+ * intercepting route at `@modal/(.)leads/[id]`.
+ */
+export default async function CrmLayout({
+  children,
+  modal,
+}: {
+  children: React.ReactNode;
+  modal: React.ReactNode;
+}) {
+  // Authenticate before touching any CRM data: an anonymous request must be
+  // redirected, not served a dashboard query.
+  const { effective: user, canImpersonate } = await requireSession();
+
+  const [m, reservations, accounts] = await Promise.all([
+    dashboardMetrics(),
+    newReservationCount(),
+    canImpersonate ? listAccounts() : Promise.resolve([]),
+  ]);
   const counts: Record<string, number> = {
     newLeads: m.newLeads,
     followUp: m.followUp,
@@ -25,11 +46,16 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
   };
 
   return (
-    <div className="mx-auto max-w-[1360px] px-5 py-6">
-      <div className="flex h-[calc(100vh-48px)] min-h-[760px] overflow-hidden rounded-card border border-line bg-panel shadow-card">
-        <Sidebar counts={counts} />
-        <main className="flex min-w-0 flex-1 flex-col">{children}</main>
-      </div>
+    <div className="flex h-screen overflow-hidden bg-panel">
+      <Sidebar
+        counts={counts}
+        user={user}
+        accounts={accounts}
+        canImpersonate={canImpersonate}
+        impersonating={user.impersonating}
+      />
+      <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+      {modal}
     </div>
   );
 }

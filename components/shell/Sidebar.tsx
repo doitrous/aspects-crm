@@ -2,13 +2,27 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { visibleNav } from "@/lib/nav";
-import { currentUser } from "@/lib/data/reference";
+import { activeHref, visibleNav } from "@/lib/nav";
+import type { User } from "@/lib/types";
+import { UserSwitcher, type SwitchableUser } from "@/components/shell/UserSwitcher";
 import { cn } from "@/lib/cn";
 
-export function Sidebar({ counts }: { counts: Record<string, number> }) {
+export function Sidebar({
+  counts,
+  user,
+  accounts,
+  canImpersonate,
+  impersonating,
+}: {
+  counts: Record<string, number>;
+  user: User;
+  accounts: SwitchableUser[];
+  canImpersonate: boolean;
+  impersonating: boolean;
+}) {
   const pathname = usePathname();
-  const nav = visibleNav(currentUser.role);
+  const nav = visibleNav(user.role);
+  const current = activeHref(pathname, nav);
 
   return (
     <aside className="flex w-[210px] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4">
@@ -23,7 +37,7 @@ export function Sidebar({ counts }: { counts: Record<string, number> }) {
       </div>
 
       {nav.map((n) => {
-        const active = pathname === n.href || pathname.startsWith(n.href + "/");
+        const active = current === n.href;
         const count = n.countKey ? counts[n.countKey] : undefined;
         return (
           <Link
@@ -52,16 +66,13 @@ export function Sidebar({ counts }: { counts: Record<string, number> }) {
         );
       })}
 
-      <div className="mt-auto flex items-center gap-2.5 border-t border-line-soft px-2 pt-3">
-        <div className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-primary-avatar text-[11px] font-bold text-primary">
-          {currentUser.initials}
-        </div>
-        <div className="text-[11.5px] font-semibold text-ink-700">
-          {currentUser.name}
-          <div className="text-[10.5px] font-normal capitalize text-ink-400">
-            {currentUser.role}
-          </div>
-        </div>
+      <div className="mt-auto">
+        <UserSwitcher
+          current={user}
+          accounts={accounts}
+          canImpersonate={canImpersonate}
+          impersonating={impersonating}
+        />
       </div>
     </aside>
   );

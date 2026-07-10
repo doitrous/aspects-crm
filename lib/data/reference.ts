@@ -1,4 +1,4 @@
-import type { Campaign, Doctor, Specialty, User } from "@/lib/types";
+import type { Campaign, Doctor, Specialty } from "@/lib/types";
 
 export const specialties: Specialty[] = [
   { id: "derm", name: "Dermatology" },
@@ -33,14 +33,9 @@ export const sources = [
   { id: "phone", name: "Phone" },
 ];
 
-export const users: User[] = [
-  { id: "u-mona", name: "Mona Khaled", role: "moderator", initials: "MK" },
-  { id: "u-nour", name: "Nour Hassan", role: "moderator", initials: "NH" },
-  { id: "u-yara", name: "Yara Samir", role: "auditor", initials: "YS" },
-  { id: "u-admin", name: "Admin", role: "admin", initials: "AD" },
-];
-
-export const currentUser: User = users[0]; // Mona Khaled — moderator (matches prototype)
+// NOTE: the operator list lives in the `crm_users` table, not here. Resolve the
+// signed-in user with `lib/data/session.ts`; there is deliberately no mock
+// `currentUser` to fall back on.
 
 export function doctorName(id?: string): string {
   return doctors.find((d) => d.id === id)?.name ?? "—";
