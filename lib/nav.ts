@@ -20,6 +20,7 @@ export const NAV: NavItem[] = [
   { label: "Escalations", i18nKey: "nav.escalations", href: "/escalations", icon: "⚑", countKey: "escalations" },
   { label: "Patient Reservations", i18nKey: "nav.reservations", href: "/reservations", icon: "🧾", countKey: "reservations" },
   { label: "Calendar", i18nKey: "nav.calendar", href: "/calendar", icon: "📅" },
+  { label: "Financial", i18nKey: "nav.financial", href: "/financial", icon: "₤", roles: ["auditor", "admin"] },
   { label: "Auditor", i18nKey: "nav.auditor", href: "/auditor", icon: "✓", roles: ["auditor", "admin"] },
   { label: "Reports", i18nKey: "nav.reports", href: "/reports", icon: "▦", roles: ["auditor", "admin"] },
   { label: "Emails", i18nKey: "nav.emails", href: "/emails", icon: "✉", roles: ["admin", "auditor"] },
