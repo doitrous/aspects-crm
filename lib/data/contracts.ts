@@ -48,6 +48,13 @@ export interface LeadListResult {
   pageSize: number;
 }
 
+export interface FollowUpListResult {
+  items: FollowUpItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 /** Operational KPI counts for the moderator dashboard cards. */
 export interface DashboardMetrics {
   newLeads: number;
@@ -86,7 +93,7 @@ export interface DataProvider {
   // Phase 3 — auditor queues + previous-day report
   escalationQueue(): Promise<EscalationQueueItem[]>;
   duplicateQueue(): Promise<DuplicatePair[]>;
-  followUpQueue(stage?: "follow_up" | "post_op"): Promise<FollowUpItem[]>;
+  followUpQueue(stage?: "follow_up" | "post_op", page?: number, pageSize?: number): Promise<FollowUpListResult>;
   auditorReport(date?: string): Promise<AuditReport | null>;
   auditorReportDates(): Promise<string[]>;
 

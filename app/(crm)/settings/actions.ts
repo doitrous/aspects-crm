@@ -38,7 +38,8 @@ function fail(err: unknown): SettingsActionState {
   if (err instanceof PermissionError) {
     return { ok: false, error: "You are not authorized to change this setting." };
   }
-  return { ok: false, error: err instanceof Error ? err.message : "Setting could not be saved." };
+  console.error("settings mutation failed", err);
+  return { ok: false, error: "The setting could not be saved. Please try again." };
 }
 
 function done(message: string): SettingsActionState {

@@ -1,7 +1,6 @@
 import {
   attributionFor,
   commentsFor,
-  getLead,
   messagesFor,
   leadTimeline,
   bookingsFor,
@@ -228,11 +227,21 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
 async function duplicateGroupsWithMembers(id: string): Promise<LeadDetailData["duplicateGroups"]> {
   const groups = await duplicatesFor(id);
   const ids = [...new Set(groups.flatMap((g) => g.leadIds))];
-  const leads = await Promise.all(ids.map((leadId) => getLead(leadId)));
+  if (!ids.length) return groups.map((g) => ({ ...g, members: [] }));
+  const { data: leads, error } = await supabaseAdmin()
+    .from("leads")
+    .select("lead_id,name,phone_country_code,phone_number,normalized_phone")
+    .in("lead_id", ids);
+  if (error) throw new Error(`duplicateGroupsWithMembers: ${error.message}`);
   const byId = new Map(
-    leads
-      .filter((l): l is NonNullable<typeof l> => Boolean(l))
-      .map((l) => [l.id, { id: l.id, name: l.patientName, phone: l.phone }]),
+    (leads ?? []).map((l) => [
+      l.lead_id as string,
+      {
+        id: l.lead_id as string,
+        name: (l.name as string | null)?.trim() || "Unnamed lead",
+        phone: buildPhone(l as { phone_country_code: string | null; phone_number: string | null; normalized_phone: string | null }),
+      },
+    ]),
   );
   return groups.map((g) => ({
     ...g,
@@ -244,7 +253,12 @@ export async function loadLeadTab(
   id: string,
   tab: "Overview" | "Messenger" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments" | "Payments / Financials" | "Log",
 ): Promise<Partial<LeadDetailData> | null> {
-  const lead = await getLead(id);
+  const { data: lead, error } = await supabaseAdmin()
+    .from("leads")
+    .select("id")
+    .eq("lead_id", id)
+    .maybeSingle();
+  if (error) throw new Error(`loadLeadTab: ${error.message}`);
   if (!lead) return null;
 
   if (tab === "Overview") {

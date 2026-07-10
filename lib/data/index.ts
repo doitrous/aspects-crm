@@ -8,7 +8,6 @@ import type {
   DuplicatePair,
   Escalation,
   EscalationQueueItem,
-  FollowUpItem,
   Lead,
   LeadAttribution,
   LeadSourceInfo,
@@ -20,6 +19,7 @@ import type {
 import type {
   DashboardMetrics,
   DataProvider,
+  FollowUpListResult,
   LeadListResult,
   LeadFilters,
 } from "@/lib/data/contracts";
@@ -89,8 +89,8 @@ export function escalationQueue(): Promise<EscalationQueueItem[]> {
 export function duplicateQueue(): Promise<DuplicatePair[]> {
   return provider.duplicateQueue();
 }
-export function followUpQueue(stage?: "follow_up" | "post_op"): Promise<FollowUpItem[]> {
-  return provider.followUpQueue(stage);
+export function followUpQueue(stage?: "follow_up" | "post_op", page?: number, pageSize?: number): Promise<FollowUpListResult> {
+  return provider.followUpQueue(stage, page, pageSize);
 }
 export function auditorReport(date?: string): Promise<AuditReport | null> {
   return provider.auditorReport(date);

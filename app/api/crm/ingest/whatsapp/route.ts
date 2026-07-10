@@ -171,8 +171,9 @@ export async function POST(req: Request) {
     const result = await Promise.all(records(body).map(ingestOne));
     return NextResponse.json({ ok: true, records: result });
   } catch (error) {
+    console.error("WhatsApp ingest failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "WhatsApp ingest failed." },
+      { ok: false, error: "WhatsApp ingest failed." },
       { status: 400 },
     );
   }

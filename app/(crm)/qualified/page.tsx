@@ -3,6 +3,7 @@ import { Topbar } from "@/components/shell/Topbar";
 import { LeadsToolbar } from "@/components/leads/LeadsToolbar";
 import { LeadsTable } from "@/components/leads/LeadsTable";
 import { getLeadsPage, dashboardMetrics, leadSourcesList, NOW, type LeadFilters } from "@/lib/data";
+import { financialDoctorCatalog } from "@/lib/booking/service";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export default async function QualifiedLeadsPage({ searchParams }: { searchParam
     pageSize: 30,
   };
 
-  const [leadPage, m, sources] = await Promise.all([getLeadsPage(filters), dashboardMetrics(), leadSourcesList()]);
+  const [leadPage, m, sources, catalog] = await Promise.all([getLeadsPage(filters), dashboardMetrics(), leadSourcesList(), financialDoctorCatalog()]);
   const { leads, total, page, pageSize } = leadPage;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const pageHref = (nextPage: number) => {
@@ -56,7 +57,7 @@ export default async function QualifiedLeadsPage({ searchParams }: { searchParam
     <>
       <Topbar title="Qualified Leads" search="Search qualified and booked patients" overdue={m.overdue} unread={m.unread} />
       <Suspense fallback={null}>
-        <LeadsToolbar sources={sources} basePath="/qualified" stageLocked />
+        <LeadsToolbar sources={sources} doctors={catalog.doctors.map((d) => ({ id: d.id, name: d.nameEn }))} specialties={catalog.specialties.map((s) => ({ id: s.id, name: s.nameEn }))} basePath="/qualified" stageLocked />
       </Suspense>
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">

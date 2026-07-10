@@ -37,6 +37,13 @@ test("moderator may edit a lead's financial record but not approve/force", () =>
   assert.equal(can("moderator", "financial.approveDiscount"), false);
 });
 
+test("lead mutations are server-authorized for operational roles only", () => {
+  assert.equal(can("admin", "leads.edit"), true);
+  assert.equal(can("auditor", "leads.edit"), true);
+  assert.equal(can("moderator", "leads.edit"), true);
+  assert.equal(can("viewer", "leads.edit"), false);
+});
+
 test("both admin and auditor may force exceptional price and approve discounts", () => {
   for (const role of ["admin", "auditor"] as const) {
     assert.equal(can(role, "financial.forceExceptionalPrice"), true);

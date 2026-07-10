@@ -3,6 +3,42 @@
 Date: 2026-07-10  
 Project: Aspects Clinica CRM only
 
+## Final Verification Pass — 2026-07-11
+
+Live read-only probes used the configured Aspects CRM Supabase project. It held
+27 leads during this pass; no 20,000-row production-sized database was available,
+so no 20,000-row latency is claimed.
+
+| Probe | Runs (ms) | Median | Result |
+|---|---|---:|---|
+| Server lead page (`range(0,29)`, exact count) | 832.5, 157.4, 119.9, 114.4, 118.8 | 119.9 ms | 27 rows total, at most 30 returned |
+| Server search across ID/MRN/name/phone/platform/chat link | 144.8, 121.4, 119.7, 119.8, 108.1 | 119.8 ms | 20 matches, at most 30 returned |
+| Six pipeline counts in parallel | 326.0, 501.6, 1103.3, 521.9, 328.8 | 501.6 ms | Counts computed in Postgres; no status universe downloaded |
+| Drawer lead-row shell query | 251.4, 247.9, 110.9, 108.9, 122.0 | 122.0 ms | One selected lead row |
+| Latest-message query (`limit(100)`) | 98.7, 229.0, 107.8, 102.0, 110.4 | 107.8 ms | Bounded per-lead history |
+
+Measured production drawer interaction was not accepted as evidence: the
+existing Chrome session expired during the intercepted-route navigation, so the
+drawer did not complete an authenticated render.
+
+Final query changes:
+
+- `pipelineCounts()` changed from downloading every `leads.status` row to six
+  parallel `count exact, head` queries.
+- Follow-Up and Post-Op queues now use genuine 30-row server pagination and only
+  query concrete follow-up stages for the current page's lead IDs.
+- Messenger/WhatsApp filtering now happens in SQL. Message and comment reads are
+  bounded to the latest 100 rows; Log timeline reads are bounded to 200 rows.
+- Drawer-tab lead existence is now one compact lookup instead of `getLead()`,
+  which previously loaded global users, lost reasons, duplicate flags, tags and
+  follow-ups before the tab-specific query.
+- Duplicate-group member display changed from one `getLead()` call per member to
+  one batched lead lookup.
+
+Remaining performance concern: older message/comment/log pages do not yet expose
+an incremental “load older” control. Reads are now bounded and cannot preload
+thousands, but complete-history navigation is PARTIAL rather than PASS.
+
 ## Measurements
 
 Measured against the configured Aspects Clinica CRM Supabase project from this workspace. The live CRM database currently has 26 leads, so these numbers verify code paths and remote latency, not 20,000-row production volume.

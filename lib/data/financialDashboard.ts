@@ -98,15 +98,25 @@ export interface CashFlowSummary {
 
 /** Cash-flow aggregation from the ledger, on the actual transaction date. */
 export async function cashFlowSummary(range: DateRange): Promise<CashFlowSummary> {
-  const { data, error } = await supabaseAdmin()
+  const db = supabaseAdmin();
+  const [{ data, error }, { data: funded, error: fundedError }] = await Promise.all([
+    db
     .from("crm_financial_transactions")
-    .select("amount,kind,method,occurred_on")
+      .select("amount,kind,method,occurred_on,status")
     .gte("occurred_on", range.from)
-    .lte("occurred_on", range.to);
+      .lte("occurred_on", range.to)
+      .eq("status", "completed"),
+    db
+      .from("crm_doctor_funded_payments")
+      .select("amount,occurred_on")
+      .gte("occurred_on", range.from)
+      .lte("occurred_on", range.to),
+  ]);
   if (error) throw new Error(`cashFlowSummary: ${error.message}`);
+  if (fundedError) throw new Error(`cashFlowSummary(doctor-funded): ${fundedError.message}`);
   const rows = (data ?? []) as Array<{ amount: number; kind: string; method: string | null; occurred_on: string }>;
 
-  let collected = 0, refunds = 0, reversals = 0, chargebacks = 0, doctorFunded = 0;
+  let collected = 0, refunds = 0, reversals = 0, chargebacks = 0;
   const method = new Map<string, number>();
   const day = new Map<string, number>();
   for (const r of rows) {
@@ -116,7 +126,6 @@ export async function cashFlowSummary(range: DateRange): Promise<CashFlowSummary
       case "refund": refunds = addMoney(refunds, a); break;
       case "reversal": reversals = addMoney(reversals, a); break;
       case "chargeback": chargebacks = addMoney(chargebacks, a); break;
-      case "doctor_funded": doctorFunded = addMoney(doctorFunded, a); break;
     }
     if (r.kind === "payment") {
       const m = r.method ?? "other";
@@ -124,6 +133,7 @@ export async function cashFlowSummary(range: DateRange): Promise<CashFlowSummary
       day.set(r.occurred_on, addMoney(day.get(r.occurred_on) ?? 0, a));
     }
   }
+  const doctorFunded = addMoney(...(funded ?? []).map((r) => Number(r.amount) || 0));
   const netCash = roundMoney(collected - refunds - reversals - chargebacks);
   return {
     collected: roundMoney(collected),
@@ -140,9 +150,10 @@ export async function cashFlowSummary(range: DateRange): Promise<CashFlowSummary
 /** Current portfolio outstanding across ALL leads: recognized − net collected. */
 async function outstandingCurrent(): Promise<number> {
   const db = supabaseAdmin();
-  const [{ data: fin }, { data: txns }] = await Promise.all([
+  const [{ data: fin }, { data: txns }, { data: funded }] = await Promise.all([
     db.from("crm_lead_financials").select("quoted_price"),
-    db.from("crm_financial_transactions").select("amount,kind"),
+    db.from("crm_financial_transactions").select("amount,kind,status").eq("status", "completed"),
+    db.from("crm_doctor_funded_payments").select("amount,reduces_patient_balance").eq("reduces_patient_balance", true),
   ]);
   const recognized = addMoney(...(fin ?? []).map((r) => Number(r.quoted_price) || 0));
   let net = 0;
@@ -151,6 +162,7 @@ async function outstandingCurrent(): Promise<number> {
     if (t.kind === "payment" || t.kind === "doctor_funded") net = addMoney(net, a);
     else if (t.kind === "refund" || t.kind === "reversal" || t.kind === "chargeback") net = subMoney(net, a);
   }
+  net = addMoney(net, ...(funded ?? []).map((r) => Number(r.amount) || 0));
   return roundMoney(Math.max(0, subMoney(recognized, net)));
 }
 
@@ -256,7 +268,7 @@ export async function exceptionalCases(status?: string): Promise<ExceptionalCase
   if (status && status !== "all") q = q.eq("status", status);
   const { data, error } = await q;
   if (error) throw new Error(`exceptionalCases: ${error.message}`);
-  const rows = (data ?? []) as Array<Record<string, unknown>>;
+  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
 
   const actorIds = [
     ...new Set(rows.flatMap((r) => [r.requested_by, r.decided_by]).filter((v): v is string => !!v)),
@@ -285,6 +297,194 @@ export async function exceptionalCases(status?: string): Promise<ExceptionalCase
       requestedByName: r.requested_by ? (names.get(r.requested_by as string) ?? "—") : null,
       decidedByName: r.decided_by ? (names.get(r.decided_by as string) ?? "—") : null,
       createdAt: r.created_at as string,
+    };
+  });
+}
+
+/* ── Metric drill-downs ──────────────────────────────────────── */
+
+export type FinancialDrilldownType =
+  | "outstanding"
+  | "doctor_compensation"
+  | "external_costs"
+  | "refunds"
+  | "reversals"
+  | "chargebacks";
+
+export interface FinancialDrilldownRow {
+  id: string;
+  leadHumanId: string | null;
+  leadName: string | null;
+  label: string;
+  amount: number;
+  date: string | null;
+  meta: string | null;
+}
+
+interface LeadJoin {
+  lead_id?: string | null;
+  name?: string | null;
+}
+
+function oneLead(v: unknown): LeadJoin | null {
+  if (!v) return null;
+  return Array.isArray(v) ? ((v[0] as LeadJoin | undefined) ?? null) : (v as LeadJoin);
+}
+
+export async function financialDrilldown(
+  type: FinancialDrilldownType,
+  range: DateRange,
+): Promise<FinancialDrilldownRow[]> {
+  if (type === "outstanding") return outstandingRows();
+  if (type === "doctor_compensation") return childRows("crm_lead_doctor_compensation", "computed_amount", "doctor");
+  if (type === "external_costs") return childRows("crm_external_costs", "amount", "external");
+  return transactionRows(type, range);
+}
+
+async function outstandingRows(): Promise<FinancialDrilldownRow[]> {
+  const db = supabaseAdmin();
+  const { data: records, error } = await db
+    .from("crm_lead_financials")
+    .select("id,service_name,quoted_price,leads(lead_id,name)")
+    .order("updated_at", { ascending: false })
+    .limit(1000);
+  if (error) throw new Error(`outstandingRows(records): ${error.message}`);
+  const finRows = (records ?? []) as Array<Record<string, unknown>>;
+  const ids = finRows.map((r) => r.id as string);
+  if (!ids.length) return [];
+
+  const [{ data: txns, error: txError }, { data: funded, error: fundedError }] = await Promise.all([
+    db
+      .from("crm_financial_transactions")
+      .select("lead_financials_id,amount,kind,status")
+      .in("lead_financials_id", ids)
+      .eq("status", "completed"),
+    db
+      .from("crm_doctor_funded_payments")
+      .select("lead_financials_id,amount,reduces_patient_balance")
+      .in("lead_financials_id", ids)
+      .eq("reduces_patient_balance", true),
+  ]);
+  if (txError) throw new Error(`outstandingRows(transactions): ${txError.message}`);
+  if (fundedError) throw new Error(`outstandingRows(doctor-funded): ${fundedError.message}`);
+
+  const collected = new Map<string, number>();
+  for (const t of txns ?? []) {
+    const id = t.lead_financials_id as string;
+    const amount = Number(t.amount) || 0;
+    const kind = t.kind as string;
+    const current = collected.get(id) ?? 0;
+    collected.set(
+      id,
+      kind === "payment" || kind === "doctor_funded"
+        ? addMoney(current, amount)
+        : ["refund", "reversal", "chargeback"].includes(kind)
+          ? subMoney(current, amount)
+          : current,
+    );
+  }
+  for (const f of funded ?? []) {
+    const id = f.lead_financials_id as string;
+    collected.set(id, addMoney(collected.get(id) ?? 0, Number(f.amount) || 0));
+  }
+
+  return finRows
+    .map((r) => {
+      const id = r.id as string;
+      const lead = oneLead(r.leads);
+      const quoted = Number(r.quoted_price) || 0;
+      const outstanding = roundMoney(Math.max(0, subMoney(quoted, collected.get(id) ?? 0)));
+      return {
+        id,
+        leadHumanId: lead?.lead_id ?? null,
+        leadName: lead?.name ?? null,
+        label: (r.service_name as string | null) ?? "Unspecified service",
+        amount: outstanding,
+        date: null,
+        meta: `Quoted ${roundMoney(quoted).toLocaleString("en-US")} EGP`,
+      };
+    })
+    .filter((r) => r.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 300);
+}
+
+async function recordMap(finIds: string[]): Promise<Map<string, { leadHumanId: string | null; leadName: string | null; serviceName: string | null }>> {
+  const map = new Map<string, { leadHumanId: string | null; leadName: string | null; serviceName: string | null }>();
+  if (!finIds.length) return map;
+  const { data, error } = await supabaseAdmin()
+    .from("crm_lead_financials")
+    .select("id,service_name,leads(lead_id,name)")
+    .in("id", finIds);
+  if (error) throw new Error(`recordMap: ${error.message}`);
+  for (const r of data ?? []) {
+    const lead = oneLead((r as Record<string, unknown>).leads);
+    map.set((r as Record<string, unknown>).id as string, {
+      leadHumanId: lead?.lead_id ?? null,
+      leadName: lead?.name ?? null,
+      serviceName: ((r as Record<string, unknown>).service_name as string | null) ?? null,
+    });
+  }
+  return map;
+}
+
+async function childRows(
+  table: "crm_lead_doctor_compensation" | "crm_external_costs",
+  amountColumn: "computed_amount" | "amount",
+  kind: "doctor" | "external",
+): Promise<FinancialDrilldownRow[]> {
+  const select =
+    kind === "doctor"
+      ? "id,lead_financials_id,doctor_name,doctor_id,kind,value,basis,computed_amount,created_at"
+      : "id,lead_financials_id,category,description,amount,vendor,occurred_on";
+  const { data, error } = await supabaseAdmin()
+    .from(table)
+    .select(select)
+    .order(kind === "doctor" ? "created_at" : "occurred_on", { ascending: false })
+    .limit(300);
+  if (error) throw new Error(`childRows(${table}): ${error.message}`);
+  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+  const records = await recordMap([...new Set(rows.map((r) => r.lead_financials_id as string))]);
+  return rows.map((r) => {
+    const rec = records.get(r.lead_financials_id as string);
+    const doctorMeta = `${r.kind ?? ""} ${r.value ?? ""}${r.kind === "percentage" ? "%" : " EGP"} · ${r.basis ?? ""}`;
+    const externalMeta = [r.category, r.vendor].filter(Boolean).join(" · ");
+    return {
+      id: r.id as string,
+      leadHumanId: rec?.leadHumanId ?? null,
+      leadName: rec?.leadName ?? null,
+      label:
+        kind === "doctor"
+          ? ((r.doctor_name as string | null) ?? (r.doctor_id as string) ?? "Unknown doctor")
+          : ((r.description as string | null) ?? "External cost"),
+      amount: Number(r[amountColumn]) || 0,
+      date: kind === "doctor" ? (r.created_at as string | null) : (r.occurred_on as string | null),
+      meta: kind === "doctor" ? doctorMeta : externalMeta || rec?.serviceName || null,
+    };
+  });
+}
+
+async function transactionRows(type: "refunds" | "reversals" | "chargebacks", range: DateRange): Promise<FinancialDrilldownRow[]> {
+  const kind = type === "refunds" ? "refund" : type === "reversals" ? "reversal" : "chargeback";
+  const { data, error } = await supabaseAdmin()
+    .from("crm_financial_transactions")
+    .select("id,lead_id,amount,method,status,occurred_on,reference,receipt_number,note,leads(lead_id,name)")
+    .eq("kind", kind)
+    .gte("occurred_on", range.from)
+    .lte("occurred_on", range.to)
+    .order("occurred_on", { ascending: false })
+    .limit(300);
+  if (error) throw new Error(`transactionRows(${kind}): ${error.message}`);
+  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => {
+    const lead = oneLead(r.leads);
+    return {
+      id: r.id as string,
+      leadHumanId: lead?.lead_id ?? null,
+      leadName: lead?.name ?? null,
+      label: kind,
+      amount: Number(r.amount) || 0,
+      date: (r.occurred_on as string | null) ?? null,
+      meta: [r.status, r.method, r.receipt_number ?? r.reference, r.note].filter(Boolean).join(" · ") || null,
     };
   });
 }

@@ -19,6 +19,7 @@ import {
   type DiscountScope,
 } from "@/lib/financial/rules";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { financialDoctorCatalog } from "@/lib/booking/service";
 
 /**
  * The lead-level financial source of truth (financial spec §1).
@@ -141,6 +142,12 @@ export interface DoctorFundedLine {
   reducesPatientBalance: boolean;
 }
 
+export interface FinancialDoctorOption {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
 export type ExternalCostCategory =
   | "lab"
   | "outside_facility"
@@ -225,6 +232,7 @@ export interface LeadFinancials {
   bundleItems: BundleItem[];
   approvals: ApprovalRequest[];
   auditTrail: AuditEntry[];
+  doctorOptions: FinancialDoctorOption[];
 
   /** Capability flags for the viewer, so the UI never offers a refused action. */
   canEdit: boolean;
@@ -252,6 +260,15 @@ async function nameMap(ids: (string | null)[]): Promise<Map<string, string>> {
     names.set(u.id, u.full_name?.trim() || u.email || "Unknown");
   }
   return names;
+}
+
+async function financialDoctorOptions(): Promise<FinancialDoctorOption[]> {
+  const catalog = await financialDoctorCatalog();
+  return catalog.doctors.map((doctor) => ({
+    id: doctor.id,
+    name: doctor.nameEn || doctor.nameAr || doctor.id,
+    active: doctor.active,
+  }));
 }
 
 /** Look a lead up by the human id the route carries (`L0001`), never by uuid. */
@@ -442,9 +459,10 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
   const record = await fetchRecord(lead.id);
   const onDate = record?.service_date ?? today();
   const ceiling = await resolveCeiling(lead, onDate);
-
   const canEdit = can(viewer.role, "financial.editLeadRecord");
   const canForce = can(viewer.role, "financial.forceExceptionalPrice");
+  const canEditRules = can(viewer.role, "financial.editRules");
+  const doctorOptions = canEditRules ? await financialDoctorOptions() : [];
 
   if (!record) {
     const { basePrice } = await lookupBasePrice(lead);
@@ -480,10 +498,11 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
       bundleItems: [],
       approvals: [],
       auditTrail: [],
+      doctorOptions,
       canEdit,
       canForce,
       canApprove: can(viewer.role, "financial.approveDiscount"),
-      canEditRules: can(viewer.role, "financial.editRules"),
+      canEditRules,
     };
   }
 
@@ -764,10 +783,11 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
       reason: a.reason,
       createdAt: a.created_at,
     })),
+    doctorOptions,
     canEdit,
     canForce,
     canApprove: can(viewer.role, "financial.approveDiscount"),
-    canEditRules: can(viewer.role, "financial.editRules"),
+    canEditRules,
   };
 }
 
@@ -1118,7 +1138,7 @@ export interface DoctorFundedInput {
 /** Record a payment the doctor personally made toward a patient's bill. */
 export async function addDoctorFundedPayment(input: DoctorFundedInput): Promise<void> {
   const actor = await writeActor();
-  assertCan(actor.role, "financial.editLeadRecord");
+  assertCan(actor.role, "financial.editRules");
 
   const amount = roundMoney(input.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -1128,13 +1148,18 @@ export async function addDoctorFundedPayment(input: DoctorFundedInput): Promise<
 
   const lead = await leadRow(input.leadId);
   const record = await ensureRecord(actor, lead);
+  let doctorName = input.doctorName?.trim() || null;
+  if (!doctorName) {
+    const doctors = await financialDoctorOptions();
+    doctorName = doctors.find((doctor) => doctor.id === input.doctorId)?.name ?? null;
+  }
   const { data, error } = await supabaseAdmin()
     .from("crm_doctor_funded_payments")
     .insert({
       lead_financials_id: record.id,
       lead_id: lead.id,
       doctor_id: input.doctorId,
-      doctor_name: input.doctorName ?? null,
+      doctor_name: doctorName,
       amount,
       occurred_on: input.occurredOn ?? today(),
       note: input.note?.trim() || null,
@@ -1152,6 +1177,7 @@ export async function addDoctorFundedPayment(input: DoctorFundedInput): Promise<
     action: "create",
     newValue: {
       doctorId: input.doctorId,
+      doctorName,
       amount,
       reducesPatientBalance: input.reducesPatientBalance,
     },
@@ -1165,7 +1191,7 @@ export async function addDoctorFundedPayment(input: DoctorFundedInput): Promise<
     field: "doctor_funded_payment",
     newValue: {
       doctor_id: input.doctorId,
-      doctor_name: input.doctorName ?? null,
+      doctor_name: doctorName,
       amount,
       reduces_patient_balance: input.reducesPatientBalance,
     },
@@ -1188,7 +1214,7 @@ export interface ConsumableInput {
 /** Add a consumable line (§ consumables). A patient-specific override needs a reason. */
 export async function addConsumable(input: ConsumableInput): Promise<void> {
   const actor = await writeActor();
-  assertCan(actor.role, "financial.editLeadRecord");
+  assertCan(actor.role, "financial.editRules");
 
   if (!input.description.trim()) throw new FinancialError("Describe the consumable.");
   const quantity = num(input.quantity);
@@ -1249,7 +1275,7 @@ export interface ExternalCostInput {
 /** Add an external cost line (§ external payments and costs). */
 export async function addExternalCost(input: ExternalCostInput): Promise<void> {
   const actor = await writeActor();
-  assertCan(actor.role, "financial.editLeadRecord");
+  assertCan(actor.role, "financial.editRules");
 
   if (!input.description.trim()) throw new FinancialError("Describe the external cost.");
   const amount = roundMoney(input.amount);

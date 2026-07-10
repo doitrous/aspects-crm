@@ -226,7 +226,7 @@ export function BookingTab({
   const [referralSource, setReferralSource] = useState("");
   const [primaryComplaint, setPrimaryComplaint] = useState("");
   const [notes, setNotes] = useState("");
-  const [status, setStatus] = useState<ReservationStatus>("reserved");
+  const status: ReservationStatus = "reserved";
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<{ ok?: string; error?: string }>({});
 

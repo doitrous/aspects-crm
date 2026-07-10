@@ -24,9 +24,9 @@ export interface FinancialActionState {
 }
 
 /**
- * Expected refusals (a bad amount, a below-allowed quote, a missing reason)
- * become form errors. Anything else — a dropped connection, a genuine bug — is
- * rethrown so it surfaces as a 500 rather than a misleading "could not save".
+ * Expected refusals become form errors. Unexpected failures are logged on the
+ * server and mapped to a safe retry message so database details never cross
+ * the Server Action boundary or turn into an opaque Server Components digest.
  */
 function toState(err: unknown): FinancialActionState {
   if (err instanceof FinancialError || err instanceof ActorError) {
@@ -35,7 +35,8 @@ function toState(err: unknown): FinancialActionState {
   if (err instanceof PermissionError) {
     return { error: "You do not have permission to change financial records.", ok: null };
   }
-  throw err;
+  console.error("financial mutation failed", err);
+  return { error: "The financial change could not be saved. Please try again.", ok: null };
 }
 
 /** Both the drawer and the full page render the same data, so revalidate both. */

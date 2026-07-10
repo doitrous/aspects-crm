@@ -25,7 +25,7 @@ export async function GET(
     if (!data) return NextResponse.json({ error: "Lead not found." }, { status: 404 });
     return NextResponse.json(data);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not load lead tab.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("lead tab load failed", { id, tab, error });
+    return NextResponse.json({ error: "Could not load this lead tab. Please try again." }, { status: 500 });
   }
 }

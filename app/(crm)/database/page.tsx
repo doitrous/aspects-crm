@@ -4,6 +4,7 @@ import { LeadsToolbar } from "@/components/leads/LeadsToolbar";
 import { LeadsTable } from "@/components/leads/LeadsTable";
 import { getLeadsPage, leadSourcesList, NOW, type LeadFilters } from "@/lib/data";
 import type { PipelineStage } from "@/lib/types";
+import { financialDoctorCatalog } from "@/lib/booking/service";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function Page({
     page: pageNumber(sp.page),
     pageSize: 30,
   };
-  const [leadPage, sources] = await Promise.all([getLeadsPage(filters), leadSourcesList()]);
+  const [leadPage, sources, catalog] = await Promise.all([getLeadsPage(filters), leadSourcesList(), financialDoctorCatalog()]);
   const { leads, total, page, pageSize } = leadPage;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const pageHref = (nextPage: number) => {
@@ -60,7 +61,7 @@ export default async function Page({
     <>
       <Topbar title="Database" search="All CRM leads" />
       <Suspense fallback={null}>
-        <LeadsToolbar sources={sources} basePath="/database" />
+        <LeadsToolbar sources={sources} doctors={catalog.doctors.map((d) => ({ id: d.id, name: d.nameEn }))} specialties={catalog.specialties.map((s) => ({ id: s.id, name: s.nameEn }))} basePath="/database" />
       </Suspense>
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">

@@ -4,7 +4,7 @@ import { bookingConfigured, bookingDb } from "@/lib/booking/client";
 import { assertCan } from "@/lib/auth/permissions";
 import { writeActor } from "@/lib/data/actor";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import type { BookingStatus, Reservation, ReservationStatus } from "@/lib/types";
+import type { BookingStatus, ReservationStatus } from "@/lib/types";
 
 export class BookingError extends Error {}
 
@@ -32,6 +32,13 @@ export interface BookingDoctor extends BookingName {
   schedules: BookingSchedule[];
 }
 
+export interface AdminDoctor extends BookingName {
+  specialtyId: string | null;
+  titleEn?: string;
+  consultationFee?: number | null;
+  active: boolean;
+}
+
 export interface BookingServiceItem extends BookingName {
   specialtyId: string;
   doctorId?: string | null;
@@ -52,6 +59,12 @@ export interface BookingCatalog {
     defaultDurationMinutes: number;
     firstComeDefaultCapacity: number;
   };
+}
+
+export interface FinancialDoctorCatalog {
+  configured: boolean;
+  doctors: AdminDoctor[];
+  specialties: BookingName[];
 }
 
 export interface BookingBlockedTime {
@@ -303,6 +316,83 @@ export async function bookingCatalog(): Promise<BookingCatalog> {
   }));
 
   return { configured: true, specialties, doctors, branches, services, settings };
+}
+
+export async function financialDoctorCatalog(): Promise<FinancialDoctorCatalog> {
+  if (!bookingConfigured()) return { configured: false, doctors: [], specialties: [] };
+  const db = bookingDb();
+  const [specialtiesRes, doctorsRes] = await Promise.all([
+    db.from("specialties").select("id,name_en,name_ar").order("display_order"),
+    db
+      .from("doctors")
+      .select("id,name_en,name_ar,title_en,specialty_id,consultation_fee,is_active")
+      .order("display_order"),
+  ]);
+  for (const res of [specialtiesRes, doctorsRes]) {
+    if (res.error) throw new BookingError(`Could not read Admin doctor catalog: ${res.error.message}`);
+  }
+  return {
+    configured: true,
+    specialties: ((specialtiesRes.data ?? []) as { id: string; name_en: string | null; name_ar: string | null }[])
+      .map((r) => ({ id: r.id, nameEn: name(r), nameAr: r.name_ar ?? undefined })),
+    doctors: ((doctorsRes.data ?? []) as {
+      id: string;
+      name_en: string | null;
+      name_ar: string | null;
+      title_en: string | null;
+      specialty_id: string | null;
+      consultation_fee: number | null;
+      is_active: boolean | null;
+    }[]).map((r) => ({
+      id: r.id,
+      nameEn: name(r),
+      nameAr: r.name_ar ?? undefined,
+      titleEn: r.title_en ?? undefined,
+      specialtyId: r.specialty_id,
+      consultationFee: r.consultation_fee,
+      active: Boolean(r.is_active),
+    })),
+  };
+}
+
+export async function createFinancialDoctor(input: {
+  nameEn: string;
+  nameAr?: string | null;
+  titleEn?: string | null;
+  specialtyId: string;
+  consultationFee?: number | null;
+}): Promise<{ id: string }> {
+  const actor = await schedulingActor();
+  if (!bookingConfigured()) throw new BookingError("Booking platform is not configured.");
+  const nameEn = input.nameEn.trim();
+  if (!nameEn) throw new BookingError("Doctor name is required.");
+  if (!input.specialtyId) throw new BookingError("Choose a specialty.");
+
+  const patch = {
+    name_en: nameEn,
+    name_ar: input.nameAr?.trim() || null,
+    title_en: input.titleEn?.trim() || null,
+    specialty_id: input.specialtyId,
+    consultation_fee: input.consultationFee ?? null,
+    is_active: false,
+    display_order: 999,
+  };
+  const { data, error } = await bookingDb()
+    .from("doctors")
+    .insert(patch)
+    .select("id")
+    .single<{ id: string }>();
+  if (error || !data) throw new BookingError(error?.message ?? "Could not add doctor.");
+  await logSchedulingChange(
+    actor.id,
+    "booking.doctor_created_for_finance",
+    "Doctor created for financial record-keeping",
+    {},
+    { id: data.id, ...patch, public_booking_default: "inactive_not_bookable" },
+  );
+  revalidatePath("/settings");
+  revalidatePath("/financial/settings");
+  return { id: data.id };
 }
 
 export async function bookingSchedulingSnapshot(): Promise<BookingSchedulingSnapshot> {

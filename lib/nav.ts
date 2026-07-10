@@ -23,6 +23,7 @@ export const NAV: NavItem[] = [
   { label: "Website Reservations", i18nKey: "nav.reservations", href: "/reservations", icon: "🧾", countKey: "reservations" },
   { label: "Calendar", i18nKey: "nav.calendar", href: "/calendar", icon: "📅" },
   { label: "Financial", i18nKey: "nav.financial", href: "/financial", icon: "₤", roles: ["auditor", "admin"] },
+  { label: "Financial Settings", i18nKey: "nav.financialSettings", href: "/financial/settings", icon: "⚙", roles: ["auditor", "admin"] },
   { label: "Bulk Import", i18nKey: "nav.bulkImport", href: "/bulk-import", icon: "⇪", roles: ["auditor", "admin"] },
   { label: "Auditor", i18nKey: "nav.auditor", href: "/auditor", icon: "✓", roles: ["auditor", "admin"] },
   { label: "Reports", i18nKey: "nav.reports", href: "/reports", icon: "▦", roles: ["auditor", "admin"] },

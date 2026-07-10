@@ -2,7 +2,6 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
-import { doctors, specialties } from "@/lib/data/reference";
 import { STAGE_META, STAGE_ORDER } from "@/lib/badges";
 import type { LeadSourceInfo } from "@/lib/types";
 
@@ -10,10 +9,14 @@ const PLATFORMS = ["facebook", "instagram", "whatsapp", "web", "referral"];
 
 export function LeadsToolbar({
   sources,
+  doctors,
+  specialties,
   basePath = "/leads",
   stageLocked = false,
 }: {
   sources: LeadSourceInfo[];
+  doctors: Array<{ id: string; name: string }>;
+  specialties: Array<{ id: string; name: string }>;
   basePath?: string;
   stageLocked?: boolean;
 }) {

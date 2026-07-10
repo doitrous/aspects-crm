@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState, type ReactNode } from "react";
 import {
   type SettingsActionState,
@@ -684,11 +685,20 @@ export function SettingsManager({
         {tab === "financial" && (
           <Card className="p-4">
             <h3 className="mb-1 text-[13px] font-bold text-ink-900">Financial Settings</h3>
+            <p className="mb-3 text-[11.5px] text-ink-500">
+              Financial configuration is managed in the dedicated Admin/Auditor financial settings area.
+            </p>
+            <Link
+              href="/financial/settings"
+              className="inline-flex h-8 items-center rounded-control bg-primary px-3 text-[12px] font-semibold text-white hover:bg-primary-hover"
+            >
+              Open Financial Settings
+            </Link>
             <InfoGrid
               rows={[
-                { label: "Quote rules", value: "crm_financial_service_settings", hint: "Manual entry and bulk import both use saveQuote/addTransaction." },
-                { label: "Ledger", value: "Append-only transactions", hint: "Refunds, reversals, and chargebacks are new rows, not edits." },
-                { label: "Import", value: "Canonical writes", hint: "Bulk Import creates/links leads and records quotes/payments through the same source of truth." },
+                { label: "Service pricing", value: "crm_financial_service_settings", hint: "Current prices feed lead quotes while historical records keep frozen base prices." },
+                { label: "Discount rules", value: "crm_discount_rules", hint: "Global, service, moderator, and moderator + service precedence is enforced server-side." },
+                { label: "Costs and compensation", value: "Canonical financial tables", hint: "Consumables, external costs, doctor compensation, and doctor-funded payments stay separate." },
               ]}
             />
           </Card>

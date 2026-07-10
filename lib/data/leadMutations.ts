@@ -2,6 +2,7 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { writeActor } from "@/lib/data/actor";
 import { ensureFollowUpPlanForLead } from "@/lib/data/followupPlans";
+import { assertCan } from "@/lib/auth/permissions";
 import type { PipelineStage, ReferenceOption } from "@/lib/types";
 
 type NoteKey = "clientNotes" | "medicalHistory" | "generalNotes";
@@ -37,6 +38,12 @@ const NOTE_LABEL: Record<NoteKey, string> = {
 };
 
 export class LeadMutationError extends Error {}
+
+async function writeLeadActor() {
+  const actor = await writeActor();
+  assertCan(actor.role, "leads.edit");
+  return actor;
+}
 
 function asNoteKey(value: string): NoteKey {
   if (value === "clientNotes" || value === "medicalHistory" || value === "generalNotes") {
@@ -135,7 +142,7 @@ export async function activeLostReasons(): Promise<ReferenceOption[]> {
 
 export async function saveLeadNote(leadId: string, rawKey: string, value: string): Promise<void> {
   const key = asNoteKey(rawKey);
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const lead = await resolveLead(leadId);
   const column = NOTE_COLUMN[key] as "notes" | "medical_history" | "medical_notes";
   const oldValue = lead[column] ?? "";
@@ -174,7 +181,7 @@ export async function updateLeadStage(params: {
   lostReasonId?: string;
   lostNotes?: string;
 }): Promise<void> {
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const lead = await resolveLead(params.leadId);
   const nextStatus = UI_TO_DB_STAGE[params.stage];
   const patch: Record<string, unknown> = { status: nextStatus };
@@ -232,7 +239,7 @@ export async function updateLeadStage(params: {
 }
 
 export async function setLeadTagAssignments(leadId: string, tagIds: string[]): Promise<void> {
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const lead = await resolveLead(leadId);
   const unique = [...new Set(tagIds.filter(Boolean))];
 
@@ -300,7 +307,7 @@ export async function escalateLead(params: {
 }): Promise<void> {
   const reason = params.reason.trim();
   if (!reason) throw new LeadMutationError("Escalation reason is required.");
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const lead = await resolveLead(params.leadId);
   const severity = ["low", "medium", "high", "critical"].includes(params.severity ?? "")
     ? params.severity
@@ -345,7 +352,7 @@ export async function escalateLead(params: {
 }
 
 export async function clearLeadEscalation(leadId: string, note?: string): Promise<void> {
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const lead = await resolveLead(leadId);
   const now = new Date().toISOString();
 
@@ -420,7 +427,7 @@ export async function scheduleFollowUp(params: {
   dueAt: string;
   notes?: string;
 }): Promise<void> {
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const lead = await resolveLead(params.leadId);
   const workflowType = normalizeWorkflowType(params.workflowType);
   const dueAt = new Date(params.dueAt);
@@ -490,7 +497,7 @@ export async function completeFollowUp(params: {
   followUpId?: string;
   outcome?: string;
 }): Promise<void> {
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const lead = await resolveLead(params.leadId);
   const stage = await activeFollowUpStage(lead.id, params.followUpId);
   const now = new Date().toISOString();
@@ -526,7 +533,7 @@ export async function snoozeFollowUp(params: {
   followUpId?: string;
   days?: number;
 }): Promise<void> {
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const lead = await resolveLead(params.leadId);
   const stage = await activeFollowUpStage(lead.id, params.followUpId);
   const days = Math.max(1, Math.min(30, Math.floor(params.days ?? 1)));
@@ -564,7 +571,7 @@ export async function resolveEscalationWorkflow(params: {
   resolution: "returned" | "resolved";
   note?: string;
 }): Promise<void> {
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const db = supabaseAdmin();
   const now = new Date().toISOString();
   const { data: escalation, error: loadError } = await db
@@ -630,7 +637,7 @@ export async function resolveEscalationWorkflow(params: {
 }
 
 export async function mergeDuplicateFlag(flagId: string, notes?: string): Promise<void> {
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const { error } = await supabaseAdmin().rpc("crm_merge_duplicate_flag", {
     target_flag_id: flagId,
     actor_id: actor.id,
@@ -646,7 +653,7 @@ export async function createManualLead(params: {
   sourceId?: string;
   serviceName?: string;
 }): Promise<string> {
-  const actor = await writeActor();
+  const actor = await writeLeadActor();
   const name = params.name.trim();
   const phone = params.phone.trim();
   if (!name) throw new LeadMutationError("Patient name is required.");

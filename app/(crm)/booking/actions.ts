@@ -21,8 +21,8 @@ export interface BookingActionState {
 
 function toState(err: unknown): BookingActionState {
   if (err instanceof BookingError) return { ok: null, error: err.message };
-  if (err instanceof Error) return { ok: null, error: err.message || "Booking action failed." };
-  return { ok: null, error: "Booking action failed." };
+  console.error("booking action failed", err);
+  return { ok: null, error: "The booking action failed. Please try again." };
 }
 
 export async function getBookingSlotsAction(

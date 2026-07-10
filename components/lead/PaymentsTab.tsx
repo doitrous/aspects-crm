@@ -710,7 +710,7 @@ function Consumables({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
         </ul>
       )}
 
-      {fin.canEdit && (
+      {fin.canEditRules && (
         <div className="mt-2">
           <AddPanel label="Add consumable">
             <form action={add} className="grid gap-2 sm:grid-cols-2">
@@ -786,7 +786,7 @@ function ExternalCosts({ fin, onChanged }: { fin: LeadFinancials; onChanged?: ()
         </ul>
       )}
 
-      {fin.canEdit && (
+      {fin.canEditRules && (
         <div className="mt-2">
           <AddPanel label="Add external cost">
             <form action={add} className="grid gap-2 sm:grid-cols-2">
@@ -899,18 +899,27 @@ function Doctors({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => vo
           </ul>
         )}
 
-        {fin.canEdit && (
+        {fin.canEditRules && (
           <div className="mt-2">
             <AddPanel label="Add doctor payment">
               <form action={add} className="grid gap-2 sm:grid-cols-2">
                 <input type="hidden" name="leadId" value={fin.leadId} />
                 <label className="text-[11px] text-ink-500">
-                  Doctor ID
-                  <input name="doctorId" required className={cn(inputCls, "mt-1")} />
-                </label>
-                <label className="text-[11px] text-ink-500">
-                  Doctor name
-                  <input name="doctorName" className={cn(inputCls, "mt-1")} />
+                  Doctor
+                  <select
+                    name="doctorId"
+                    required
+                    className={cn(inputCls, "mt-1")}
+                    disabled={fin.doctorOptions.length === 0}
+                  >
+                    <option value="">Select doctor...</option>
+                    {fin.doctorOptions.map((doctor) => (
+                      <option key={doctor.id} value={doctor.id}>
+                        {doctor.name}
+                        {doctor.active ? "" : " (inactive)"}
+                      </option>
+                    ))}
+                  </select>
                 </label>
                 <label className="text-[11px] text-ink-500">
                   Amount
@@ -933,9 +942,14 @@ function Doctors({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => vo
                   This reduces the patient&apos;s outstanding balance
                 </label>
                 <div className="sm:col-span-2">
-                  <button type="submit" className={btnCls} disabled={adding}>
+                  <button type="submit" className={btnCls} disabled={adding || fin.doctorOptions.length === 0}>
                     {adding ? "Recording…" : "Record doctor payment"}
                   </button>
+                  {fin.doctorOptions.length === 0 && (
+                    <p className="mt-2 text-[11px] text-warn">
+                      Admin doctor catalog is not configured or has no doctors.
+                    </p>
+                  )}
                   <Feedback state={state} />
                 </div>
               </form>
@@ -1060,24 +1074,30 @@ export function PaymentsTab({
 
       <Approvals fin={fin} onChanged={onChanged} />
       <PaymentsLedger fin={fin} onChanged={onChanged} />
-      <Consumables fin={fin} onChanged={onChanged} />
-      <Doctors fin={fin} onChanged={onChanged} />
-      <ExternalCosts fin={fin} onChanged={onChanged} />
+      {fin.canEditRules && (
+        <>
+          <Consumables fin={fin} onChanged={onChanged} />
+          <Doctors fin={fin} onChanged={onChanged} />
+          <ExternalCosts fin={fin} onChanged={onChanged} />
+        </>
+      )}
 
-      <section>
-        <SectionLabel>Profitability</SectionLabel>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <Stat label="Recognized revenue" value={formatMoney(s.quotedPrice, cur)} />
-          <Stat label="Consumables" value={formatMoney(s.consumablesTotal, cur)} />
-          <Stat label="Doctor compensation" value={formatMoney(s.doctorCompensationTotal, cur)} />
-          <Stat label="External costs" value={formatMoney(s.externalCostsTotal, cur)} />
-          <Stat
-            label="Net profit"
-            value={formatMoney(s.netProfit, cur)}
-            tone={s.netProfit < 0 ? "danger" : "success"}
-          />
-        </div>
-      </section>
+      {fin.canEditRules && (
+        <section>
+          <SectionLabel>Profitability</SectionLabel>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <Stat label="Recognized revenue" value={formatMoney(s.quotedPrice, cur)} />
+            <Stat label="Consumables" value={formatMoney(s.consumablesTotal, cur)} />
+            <Stat label="Doctor compensation" value={formatMoney(s.doctorCompensationTotal, cur)} />
+            <Stat label="External costs" value={formatMoney(s.externalCostsTotal, cur)} />
+            <Stat
+              label="Net profit"
+              value={formatMoney(s.netProfit, cur)}
+              tone={s.netProfit < 0 ? "danger" : "success"}
+            />
+          </div>
+        </section>
+      )}
 
       <AuditTrail fin={fin} />
     </div>

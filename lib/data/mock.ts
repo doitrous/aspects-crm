@@ -7,7 +7,6 @@ import type {
   DuplicatePair,
   Escalation,
   EscalationQueueItem,
-  FollowUpItem,
   Lead,
   LeadAttribution,
   LeadSourceInfo,
@@ -211,9 +210,9 @@ export const mockProvider: DataProvider = {
     });
   },
 
-  async followUpQueue(stage?: "follow_up" | "post_op"): Promise<FollowUpItem[]> {
+  async followUpQueue(stage?: "follow_up" | "post_op", requestedPage = 1, requestedPageSize = 30) {
     const now = NOW.getTime();
-    return leads
+    const all = leads
       .filter((l) => (stage ? l.stage === stage : l.stage === "follow_up" || l.stage === "post_op"))
       .map((l) => {
         const dueAt = l.followUp.nextDate;
@@ -227,6 +226,10 @@ export const mockProvider: DataProvider = {
           overdue: dueAt ? new Date(dueAt).getTime() < now : false,
         };
       });
+    const pageSize = Math.min(100, Math.max(1, Math.floor(requestedPageSize)));
+    const page = Math.max(1, Math.floor(requestedPage));
+    const from = (page - 1) * pageSize;
+    return { items: all.slice(from, from + pageSize), total: all.length, page, pageSize };
   },
 
   async auditorReport(): Promise<AuditReport | null> {

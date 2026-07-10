@@ -6,21 +6,24 @@ import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function PostOpFollowUpPage() {
-  const items = (await followUpQueue("post_op")).sort((a, b) => {
+export default async function PostOpFollowUpPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+  const requestedPage = Math.max(1, Number((await searchParams).page) || 1);
+  const result = await followUpQueue("post_op", requestedPage, 30);
+  const items = result.items.sort((a, b) => {
     if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
     const ad = a.dueAt ? new Date(a.dueAt).getTime() : Infinity;
     const bd = b.dueAt ? new Date(b.dueAt).getTime() : Infinity;
     return ad - bd;
   });
   const overdueCount = items.filter((i) => i.overdue).length;
+  const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
 
   return (
     <>
       <Topbar title="Post-Op Follow-Up" overdue={overdueCount} />
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
-          {items.length} in post-op follow-up · {overdueCount} overdue
+          Showing {items.length} of {result.total} in post-op follow-up · {overdueCount} overdue on this page
         </div>
 
         {items.length === 0 ? (
@@ -60,6 +63,15 @@ export default async function PostOpFollowUpPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {result.total > result.pageSize && (
+          <div className="flex items-center justify-between border-t border-line px-[18px] py-3 text-[12px] text-ink-500">
+            <span>Page {result.page} of {pageCount}</span>
+            <div className="flex gap-2">
+              <a href={`/post-op?page=${Math.max(1, result.page - 1)}`} aria-disabled={result.page <= 1} className={`rounded-control border border-line px-3 py-1.5 ${result.page <= 1 ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Previous</a>
+              <a href={`/post-op?page=${Math.min(pageCount, result.page + 1)}`} aria-disabled={result.page >= pageCount} className={`rounded-control border border-line px-3 py-1.5 ${result.page >= pageCount ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Next</a>
+            </div>
           </div>
         )}
       </div>

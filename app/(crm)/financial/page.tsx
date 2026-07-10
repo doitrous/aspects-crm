@@ -7,6 +7,8 @@ import { requireSession } from "@/lib/data/session";
 import {
   financialDashboard,
   exceptionalCases,
+  financialDrilldown,
+  type FinancialDrilldownType,
   type RevenueBreakdownRow,
 } from "@/lib/data/financialDashboard";
 import { formatDate } from "@/lib/format";
@@ -90,6 +92,22 @@ const STATUS_CLS: Record<string, string> = {
   rejected: "bg-line-faint text-ink-500",
   resolved: "bg-line-faint text-ink-500",
 };
+const DRILLDOWN_LABEL: Record<FinancialDrilldownType, string> = {
+  outstanding: "Outstanding balances",
+  doctor_compensation: "Doctor compensation lines",
+  external_costs: "External costs",
+  refunds: "Refunds",
+  reversals: "Reversals",
+  chargebacks: "Chargebacks",
+};
+const DRILLDOWN_TYPES = new Set<FinancialDrilldownType>([
+  "outstanding",
+  "doctor_compensation",
+  "external_costs",
+  "refunds",
+  "reversals",
+  "chargebacks",
+]);
 
 /**
  * Financial Dashboard (§1). Admin/Auditor only. Every figure is aggregated from
@@ -100,7 +118,7 @@ const STATUS_CLS: Record<string, string> = {
 export default async function FinancialPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; tab?: string; status?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; tab?: string; status?: string; type?: string }>;
 }) {
   const { effective: user } = await requireSession();
   if (!can(user.role, "financial.viewReports")) notFound();
@@ -108,7 +126,10 @@ export default async function FinancialPage({
   const sp = await searchParams;
   const def = defaultRange();
   const range = { from: parseDay(sp.from, def.from), to: parseDay(sp.to, def.to) };
-  const tab = sp.tab === "exceptions" ? "exceptions" : "overview";
+  const tab = sp.tab === "exceptions" ? "exceptions" : sp.tab === "drilldown" ? "drilldown" : "overview";
+  const drilldownType: FinancialDrilldownType = DRILLDOWN_TYPES.has(sp.type as FinancialDrilldownType)
+    ? (sp.type as FinancialDrilldownType)
+    : "outstanding";
 
   const fieldCls = "rounded-control border border-line-soft bg-panel px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary";
 
@@ -119,6 +140,7 @@ export default async function FinancialPage({
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <form method="get" action="/financial" className="flex flex-wrap items-center gap-2">
             <input type="hidden" name="tab" value={tab} />
+            {tab === "drilldown" && <input type="hidden" name="type" value={drilldownType} />}
             <label className="text-[11px] font-semibold text-ink-500">From</label>
             <input type="date" name="from" defaultValue={range.from} className={fieldCls} />
             <label className="text-[11px] font-semibold text-ink-500">To</label>
@@ -136,6 +158,8 @@ export default async function FinancialPage({
 
         {tab === "overview" ? (
           <OverviewTab range={range} />
+        ) : tab === "drilldown" ? (
+          <DrilldownTab range={range} type={drilldownType} />
         ) : (
           <ExceptionsTab status={sp.status} />
         )}
@@ -158,9 +182,12 @@ async function OverviewTab({ range }: { range: { from: string; to: string } }) {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
           <Kpi label="Net cash collected" value={egp(c.netCash)} />
           <Kpi label="Gross collected" value={egp(c.collected)} />
-          <Kpi label="Refunds" value={egp(c.refunds)} flag={c.refunds > 0} />
-          <Kpi label="Reversals" value={egp(c.reversals)} flag={c.reversals > 0} />
-          <Kpi label="Chargebacks" value={egp(c.chargebacks)} flag={c.chargebacks > 0} />
+          <Kpi label="Refunds" value={egp(c.refunds)} flag={c.refunds > 0}
+               href={`/financial?from=${range.from}&to=${range.to}&tab=drilldown&type=refunds`} />
+          <Kpi label="Reversals" value={egp(c.reversals)} flag={c.reversals > 0}
+               href={`/financial?from=${range.from}&to=${range.to}&tab=drilldown&type=reversals`} />
+          <Kpi label="Chargebacks" value={egp(c.chargebacks)} flag={c.chargebacks > 0}
+               href={`/financial?from=${range.from}&to=${range.to}&tab=drilldown&type=chargebacks`} />
           <Kpi label="Doctor-funded" value={egp(c.doctorFunded)} />
         </div>
         {c.byMethod.length > 0 && (
@@ -184,12 +211,15 @@ async function OverviewTab({ range }: { range: { from: string; to: string } }) {
           <Kpi label="Discounts given" value={egp(p.totalDiscounts)} />
           <Kpi label="Recognized revenue" value={egp(p.recognizedRevenue)} sub={`${p.recordCount} records`} />
           <Kpi label="Consumables" value={egp(p.consumablesTotal)} />
-          <Kpi label="Doctor compensation" value={egp(p.doctorCompensationTotal)} />
-          <Kpi label="External costs" value={egp(p.externalCostsTotal)} />
+          <Kpi label="Doctor compensation" value={egp(p.doctorCompensationTotal)}
+               href={`/financial?from=${range.from}&to=${range.to}&tab=drilldown&type=doctor_compensation`} />
+          <Kpi label="External costs" value={egp(p.externalCostsTotal)}
+               href={`/financial?from=${range.from}&to=${range.to}&tab=drilldown&type=external_costs`} />
           <Kpi label="Total direct costs" value={egp(p.totalDirectCosts)} />
           <Kpi label="Net revenue" value={egp(p.netRevenue)} flag={p.netRevenue < 0} />
           <Kpi label="Net margin %" value={pct(p.netMarginPercent)} flag={p.netMarginPercent < 0} />
-          <Kpi label="Outstanding (all leads)" value={egp(d.outstandingCurrent)} />
+          <Kpi label="Outstanding (all leads)" value={egp(d.outstandingCurrent)}
+               href={`/financial?from=${range.from}&to=${range.to}&tab=drilldown&type=outstanding`} />
         </div>
       </section>
 
@@ -209,6 +239,54 @@ async function OverviewTab({ range }: { range: { from: string; to: string } }) {
         <Breakdown title="Revenue by source" rows={d.bySource} />
       </section>
     </div>
+  );
+}
+
+async function DrilldownTab({ range, type }: { range: { from: string; to: string }; type: FinancialDrilldownType }) {
+  const rows = await financialDrilldown(type, range);
+  return (
+    <Card className="overflow-x-auto">
+      <div className="border-b border-line-soft px-3 py-2">
+        <div className="text-[13px] font-bold text-ink-900">{DRILLDOWN_LABEL[type]}</div>
+        <div className="text-[11px] text-ink-500">
+          {type === "outstanding" ? "Current balances across recent financial records." : `Rows from ${range.from} to ${range.to}.`}
+        </div>
+      </div>
+      <table className="w-full min-w-[760px] text-[12px]">
+        <thead>
+          <tr className="border-b border-line-soft text-left text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+            <th className="px-3 py-2">Lead</th>
+            <th className="px-3 py-2">Patient</th>
+            <th className="px-3 py-2">Label</th>
+            <th className="px-3 py-2">Amount</th>
+            <th className="px-3 py-2">Date</th>
+            <th className="px-3 py-2">Details</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr><td colSpan={6} className="px-3 py-6 text-center text-ink-400">No records for this metric.</td></tr>
+          ) : (
+            rows.map((row) => (
+              <tr key={row.id} className="border-b border-line-faint align-top">
+                <td className="px-3 py-2">
+                  {row.leadHumanId ? (
+                    <Link href={`/leads/${row.leadHumanId}?tab=Payments`} className="font-mono text-[11px] font-semibold text-primary hover:underline">
+                      {row.leadHumanId}
+                    </Link>
+                  ) : "—"}
+                </td>
+                <td className="px-3 py-2 text-ink-700">{row.leadName ?? "—"}</td>
+                <td className="px-3 py-2 text-ink-700">{row.label}</td>
+                <td className="px-3 py-2 font-semibold tabular-nums text-ink-900">{egp(row.amount)}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-ink-500">{row.date ? formatDate(row.date) : "—"}</td>
+                <td className="px-3 py-2 text-ink-500">{row.meta ?? "—"}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </Card>
   );
 }
 

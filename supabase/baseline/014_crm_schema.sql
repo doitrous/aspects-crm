@@ -883,6 +883,12 @@ on conflict (field_key, role) do update set
   can_edit = excluded.can_edit,
   updated_at = now();
 
+-- Optional fixtures for explicitly marked development/test databases only.
+-- A missing environment setting is production-safe and inserts nothing.
+do $$
+begin
+if coalesce(current_setting('app.environment', true), '') in ('development', 'test') then
+
 insert into leads (
   status,
   chat_link,
@@ -975,3 +981,6 @@ select 'new_lead', 'https://example.com/chat/same-name-b', 'manual', 'same-name-
 from lead_sources
 where lead_sources.key = 'manual'
   and not exists (select 1 from leads where chat_link = 'https://example.com/chat/same-name-b');
+
+end if;
+end $$;

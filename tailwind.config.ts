@@ -80,7 +80,7 @@ const config: Config = {
           "Segoe UI",
           "sans-serif",
         ],
-        display: ["var(--font-playfair)", "Playfair Display", "Georgia", "serif"],
+        display: ["Georgia", "Times New Roman", "serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       borderRadius: {

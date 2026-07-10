@@ -177,8 +177,7 @@ export function parseMoney(v: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-const METHODS = ["cash", "visa", "instapay", "mobile_wallet", "bank_transfer", "other"] as const;
-export type ImportMethod = (typeof METHODS)[number];
+export type ImportMethod = "cash" | "visa" | "instapay" | "mobile_wallet" | "bank_transfer" | "other";
 
 /** Map a free-text method cell onto the payment-method enum. */
 export function normalizeMethod(v: string | undefined): ImportMethod | null {

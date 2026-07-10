@@ -4,6 +4,7 @@ import { bookingStatusForReservation } from "@/lib/booking/service";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { nestComments } from "@/lib/data/comments";
 import { writeActor } from "@/lib/data/actor";
+import { assertCan } from "@/lib/auth/permissions";
 import type {
   AuditReport,
   Booking,
@@ -18,7 +19,6 @@ import type {
   EscalationSeverity,
   EscalationStatus,
   FollowUp,
-  FollowUpItem,
   Lead,
   LeadAttribution,
   LeadNote,
@@ -326,7 +326,11 @@ function pageParams(filters: LeadFilters): { page: number; pageSize: number; fro
   return { page, pageSize, from, to: from + pageSize - 1 };
 }
 
+// Supabase's fluent query builder changes its generic result type after every
+// filter; keeping it opaque here preserves that chain without lying about rows.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyLeadFilters(query: any, filters: LeadFilters) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let q = query as any;
   if (filters.stages?.length) {
     q = q.in("status", filters.stages.map((stage) => UI_TO_DB_STAGE[stage]));
@@ -560,7 +564,7 @@ export const supabaseProvider: DataProvider = {
     // `is_conversation_content` is the gate that keeps delivery receipts, read
     // receipts, reactions and referrals out of the chat thread. Those live in
     // `crm_conversation_events` and are rendered as timeline cards, not bubbles.
-    const { data, error } = await db
+    let query = db
       .from("crm_messages")
       .select(
         "id,platform,direction,message_text,sent_by_name,message_at,platform_message_id,message_type," +
@@ -570,10 +574,13 @@ export const supabaseProvider: DataProvider = {
       )
       .eq("lead_id", uid)
       .eq("is_conversation_content", true)
-      .order("message_at", { ascending: true });
+      .order("message_at", { ascending: false })
+      .limit(100);
+    if (channels?.length) query = query.in("platform", channels);
+    const { data, error } = await query;
     if (error) throw new Error(`messagesFor: ${error.message}`);
 
-    const rows = (data ?? []) as unknown as Row[];
+    const rows = ((data ?? []) as unknown as Row[]).reverse();
     if (rows.length === 0) return [];
 
     const ids = rows.map((m) => m.id as string);
@@ -676,7 +683,7 @@ export const supabaseProvider: DataProvider = {
       };
     });
 
-    return channels ? out.filter((m) => channels.includes(m.channel)) : out;
+    return out;
   },
 
   async commentsFor(leadId: string): Promise<Comment[]> {
@@ -693,10 +700,11 @@ export const supabaseProvider: DataProvider = {
           "comment_link,attachment_count,is_edited,is_deleted,edit_count",
       )
       .eq("lead_id", uid)
-      .order("comment_timestamp", { ascending: true });
+      .order("comment_timestamp", { ascending: false })
+      .limit(100);
     if (error) throw new Error(`commentsFor: ${error.message}`);
 
-    const rows = (data ?? []) as unknown as Row[];
+    const rows = ((data ?? []) as unknown as Row[]).reverse();
     if (rows.length === 0) return [];
 
     const attachments = rows.some((c) => ((c.attachment_count as number | null) ?? 0) > 0)
@@ -791,12 +799,18 @@ export const supabaseProvider: DataProvider = {
 
   async bookingsFor(leadId: string): Promise<Booking[]> {
     if (!bookingConfigured()) return [];
-    const lead = await this.getLead(leadId);
-    if (!lead?.bookingAppointmentId) return [];
+    const { data: leadRow, error: leadError } = await supabaseAdmin()
+      .from("leads")
+      .select("booking_appointment_id")
+      .eq("lead_id", leadId)
+      .maybeSingle();
+    if (leadError) throw new Error(`bookingsFor(lead): ${leadError.message}`);
+    const appointmentId = leadRow?.booking_appointment_id as string | null | undefined;
+    if (!appointmentId) return [];
     const { data, error } = await bookingDb()
       .from("appointments")
       .select("id,doctor_id,specialty_id,branch_id,appointment_date,start_time,end_time,duration_at_booking,status,branches(name_en,name_ar)")
-      .eq("id", lead.bookingAppointmentId)
+      .eq("id", appointmentId)
       .maybeSingle();
     if (error) throw new Error(`bookingsFor: ${error.message}`);
     if (!data) return [];
@@ -895,7 +909,8 @@ export const supabaseProvider: DataProvider = {
         .from("lead_timeline_events")
         .select("id,event_type,title,actor_user_id,event_at")
         .eq("lead_id", uid)
-        .order("event_at", { ascending: false }),
+        .order("event_at", { ascending: false })
+        .limit(200),
     ]);
     if (events.error) throw new Error(`leadTimeline: ${events.error.message}`);
 
@@ -965,8 +980,7 @@ export const supabaseProvider: DataProvider = {
   },
 
   async pipelineCounts(): Promise<Record<PipelineStage, number>> {
-    const { data, error } = await supabaseAdmin().from("leads").select("status");
-    if (error) throw new Error(`pipelineCounts: ${error.message}`);
+    const db = supabaseAdmin();
     const base: Record<PipelineStage, number> = {
       new: 0,
       qualified: 0,
@@ -975,7 +989,13 @@ export const supabaseProvider: DataProvider = {
       post_op: 0,
       lost: 0,
     };
-    for (const r of data ?? []) base[toUiStage(r.status as string)]++;
+    const statuses = ["new_lead", "qualified", "booked", "follow_up", "post_op_follow_up", "lost"] as const;
+    const counts = await Promise.all(statuses.map(async (status) => {
+      const { count, error } = await db.from("leads").select("id", { count: "exact", head: true }).eq("status", status);
+      if (error) throw new Error(`pipelineCounts(${status}): ${error.message}`);
+      return count ?? 0;
+    }));
+    statuses.forEach((status, index) => { base[toUiStage(status)] = counts[index]; });
     return base;
   },
 
@@ -1039,18 +1059,22 @@ export const supabaseProvider: DataProvider = {
     }));
   },
 
-  async followUpQueue(stage?: "follow_up" | "post_op"): Promise<FollowUpItem[]> {
+  async followUpQueue(stage?: "follow_up" | "post_op", requestedPage = 1, requestedPageSize = 30) {
     const usersById = await loadUserMap();
+    const pageSize = Math.min(100, Math.max(1, Math.floor(requestedPageSize)));
+    const page = Math.max(1, Math.floor(requestedPage));
+    const from = (page - 1) * pageSize;
     const statuses = stage === "post_op"
       ? ["post_op_follow_up"]
       : stage === "follow_up"
         ? ["follow_up"]
         : ["follow_up", "post_op_follow_up"];
-    const { data, error } = await supabaseAdmin()
+    const { data, error, count } = await supabaseAdmin()
       .from("leads")
-      .select(SUMMARY_COLUMNS)
+      .select(SUMMARY_COLUMNS, { count: "exact" })
       .in("status", statuses)
-      .order("updated_at", { ascending: false });
+      .order("updated_at", { ascending: false })
+      .range(from, from + pageSize - 1);
     if (error) throw new Error(`followUpQueue: ${error.message}`);
     const leadRows = (data as unknown as SummaryRow[]) ?? [];
     const uuids = leadRows.map((r) => r.id);
@@ -1093,7 +1117,7 @@ export const supabaseProvider: DataProvider = {
     }
 
     const now = Date.now();
-    return leadRows.map((r) => {
+    const items = leadRows.map((r) => {
       const s = stageByLead.get(r.id);
       const dueAt = s?.due_at ?? undefined;
       return {
@@ -1107,6 +1131,7 @@ export const supabaseProvider: DataProvider = {
         overdue: dueAt ? new Date(dueAt).getTime() < now : false,
       };
     });
+    return { items, total: count ?? items.length, page, pageSize };
   },
 
   async auditorReport(date?: string): Promise<AuditReport | null> {
@@ -1150,6 +1175,7 @@ export const supabaseProvider: DataProvider = {
     notes?: string,
   ): Promise<void> {
     const actor = await writeActor();
+    assertCan(actor.role, "leads.edit");
     if (decision === "merged") {
       const { error } = await supabaseAdmin().rpc("crm_merge_duplicate_flag", {
         target_flag_id: flagId,
@@ -1186,6 +1212,7 @@ export const supabaseProvider: DataProvider = {
 
   async resolveEscalation(id: string, note?: string): Promise<void> {
     const actor = await writeActor();
+    assertCan(actor.role, "leads.edit");
     const db = supabaseAdmin();
     const nowIso = new Date().toISOString();
     const { error } = await db

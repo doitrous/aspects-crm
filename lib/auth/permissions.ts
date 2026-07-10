@@ -42,7 +42,8 @@ export type Capability =
   | "email.view" // open the Emails log
   | "email.manage" // create / edit email rules
   // ── audit ───────────────────────────────────────────────────
-  | "audit.view"; // read financial + role-change audit logs
+  | "audit.view" // read financial + role-change audit logs
+  | "leads.edit"; // mutate lead stage, tags, notes, follow-ups and escalations
 
 /**
  * Capability grants per role. Absent = denied. This is the whole authorization
@@ -74,6 +75,7 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "email.view",
     "email.manage",
     "audit.view",
+    "leads.edit",
   ]),
   auditor: new Set<Capability>([
     "financial.view",
@@ -94,6 +96,7 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "email.view",
     "email.manage",
     "audit.view",
+    "leads.edit",
   ]),
   moderator: new Set<Capability>([
     // Operational only: may record a lead's agreed price / payments, and may
@@ -101,6 +104,7 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     // rules or approve exceptions.
     "financial.view",
     "financial.editLeadRecord",
+    "leads.edit",
   ]),
   viewer: new Set<Capability>([
     "financial.view",
