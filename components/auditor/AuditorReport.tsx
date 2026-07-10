@@ -2,7 +2,6 @@
 
 import { useActionState, useState } from "react";
 import {
-  AUDITOR_IDLE,
   type AuditorActionState,
   generateReportAction,
   saveOverrideAction,
@@ -14,6 +13,8 @@ import type { AuditReportDetail, DroppedLead, AuditorFilterOptions } from "@/lib
 import type { AuditorMetrics } from "@/lib/auditor/kpi";
 
 type Fmt = "int" | "pct" | "egp";
+
+const AUDITOR_IDLE: AuditorActionState = { ok: false };
 
 const FMT: Record<string, Fmt> = {
   total_leads: "int",

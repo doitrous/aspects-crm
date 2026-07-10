@@ -18,7 +18,7 @@ function workflowLabel(w?: string): string {
 
 export default async function FollowUpPage() {
   // Overdue first, then by soonest due date; undated items sink to the bottom.
-  const items = (await followUpQueue()).sort((a, b) => {
+  const items = (await followUpQueue("follow_up")).sort((a, b) => {
     if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
     const ad = a.dueAt ? new Date(a.dueAt).getTime() : Infinity;
     const bd = b.dueAt ? new Date(b.dueAt).getTime() : Infinity;
@@ -29,7 +29,7 @@ export default async function FollowUpPage() {
 
   return (
     <>
-      <Topbar title="Follow-Up" overdue={overdueCount} />
+      <Topbar title="Follow-Up Leads" overdue={overdueCount} />
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
           {items.length} in follow-up · {overdueCount} overdue
@@ -38,7 +38,7 @@ export default async function FollowUpPage() {
         {items.length === 0 ? (
           <EmptyState
             title="No follow-ups scheduled"
-            hint="Leads move here when they enter the follow-up or post-op stage."
+            hint="Leads move here when they enter the regular follow-up stage."
           />
         ) : (
           <div className="overflow-x-auto">

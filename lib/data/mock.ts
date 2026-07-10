@@ -211,10 +211,10 @@ export const mockProvider: DataProvider = {
     });
   },
 
-  async followUpQueue(): Promise<FollowUpItem[]> {
+  async followUpQueue(stage?: "follow_up" | "post_op"): Promise<FollowUpItem[]> {
     const now = NOW.getTime();
     return leads
-      .filter((l) => l.stage === "follow_up" || l.stage === "post_op")
+      .filter((l) => (stage ? l.stage === stage : l.stage === "follow_up" || l.stage === "post_op"))
       .map((l) => {
         const dueAt = l.followUp.nextDate;
         return {

@@ -89,8 +89,8 @@ export function escalationQueue(): Promise<EscalationQueueItem[]> {
 export function duplicateQueue(): Promise<DuplicatePair[]> {
   return provider.duplicateQueue();
 }
-export function followUpQueue(): Promise<FollowUpItem[]> {
-  return provider.followUpQueue();
+export function followUpQueue(stage?: "follow_up" | "post_op"): Promise<FollowUpItem[]> {
+  return provider.followUpQueue(stage);
 }
 export function auditorReport(date?: string): Promise<AuditReport | null> {
   return provider.auditorReport(date);

@@ -22,6 +22,7 @@ import type {
 export interface LeadFilters {
   q?: string; // search: id, mrn, phone, name, chat link, platform id
   stage?: PipelineStage | "all";
+  stages?: PipelineStage[];
   platform?: string;
   doctorId?: string;
   specialtyId?: string;
@@ -71,7 +72,7 @@ export interface DataProvider {
   getLeadsPage?(filters?: LeadFilters): Promise<LeadListResult>;
   getLead(id: string): Promise<Lead | undefined>;
   messagesFor(leadId: string, channels?: Message["channel"][]): Promise<Message[]>;
-  /** Comments live in their own table; the Conversation thread never contains them. */
+  /** Comments live in their own table; Messenger/WhatsApp threads never contain them. */
   commentsFor(leadId: string): Promise<Comment[]>;
   /** First-/latest-touch ad attribution, or `null` for a lead with no referral. */
   attributionFor(leadId: string): Promise<LeadAttribution | null>;
@@ -85,7 +86,7 @@ export interface DataProvider {
   // Phase 3 — auditor queues + previous-day report
   escalationQueue(): Promise<EscalationQueueItem[]>;
   duplicateQueue(): Promise<DuplicatePair[]>;
-  followUpQueue(): Promise<FollowUpItem[]>;
+  followUpQueue(stage?: "follow_up" | "post_op"): Promise<FollowUpItem[]>;
   auditorReport(date?: string): Promise<AuditReport | null>;
   auditorReportDates(): Promise<string[]>;
 

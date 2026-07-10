@@ -2,10 +2,10 @@
 
 import { useActionState, useState, type ReactNode } from "react";
 import {
-  SETTINGS_IDLE,
   type SettingsActionState,
   upsertTagAction,
   upsertLostReasonAction,
+  upsertEscalationReasonAction,
   updateSlaRuleAction,
   upsertFollowUpStageAction,
   deleteFollowUpStageAction,
@@ -18,12 +18,16 @@ import { Card } from "@/components/ui/Card";
 import type {
   TagSetting,
   LostReasonSetting,
+  EscalationReasonSetting,
   SlaRuleSetting,
   FollowUpStageSetting,
   AuditorSettingsRow,
   AiPromptSetting,
   EmailRuleSetting,
 } from "@/lib/data/settingsData";
+import type { LeadSourceInfo } from "@/lib/types";
+
+const SETTINGS_IDLE: SettingsActionState = { ok: false };
 
 const field =
   "rounded-control border border-line-soft bg-white px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary disabled:opacity-60";
@@ -62,6 +66,10 @@ function TagForm({ tag, canManage }: { tag?: TagSetting; canManage: boolean }) {
         Color
         <input type="color" name="color" defaultValue={tag?.color ?? "#4338ca"} disabled={!canManage} className="h-8 w-12 rounded-control border border-line-soft" />
       </label>
+      <label className={label}>
+        Order
+        <input type="number" name="displayOrder" defaultValue={tag?.displayOrder ?? 0} disabled={!canManage} className={`${field} w-20`} />
+      </label>
       <label className="flex items-center gap-1.5 pb-2 text-[12px] text-ink-700">
         <input type="checkbox" name="isActive" defaultChecked={tag?.isActive ?? true} disabled={!canManage} /> Active
       </label>
@@ -80,6 +88,38 @@ function LostReasonForm({ reason, canManage }: { reason?: LostReasonSetting; can
       <label className={label}>
         Reason
         <input name="label" defaultValue={reason?.label ?? ""} required disabled={!canManage} className={`${field} min-w-[220px]`} />
+      </label>
+      <label className={label}>
+        Order
+        <input type="number" name="displayOrder" defaultValue={reason?.displayOrder ?? 0} disabled={!canManage} className={`${field} w-20`} />
+      </label>
+      <label className="flex items-center gap-1.5 pb-2 text-[12px] text-ink-700">
+        <input type="checkbox" name="isActive" defaultChecked={reason?.isActive ?? true} disabled={!canManage} /> Active
+      </label>
+      {canManage && <SaveButton pending={pending}>{reason ? "Save" : "Add reason"}</SaveButton>}
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+/* ── Escalation reasons ──────────────────────────────────────── */
+function EscalationReasonForm({ reason, canManage }: { reason?: EscalationReasonSetting; canManage: boolean }) {
+  const [state, action, pending] = useActionState(upsertEscalationReasonAction, SETTINGS_IDLE);
+  return (
+    <form action={action} className="flex flex-wrap items-end gap-2 border-b border-line-faint py-2.5 last:border-0">
+      {reason && <input type="hidden" name="id" value={reason.id} />}
+      <label className={label}>
+        Reason
+        <input name="label" defaultValue={reason?.label ?? ""} required disabled={!canManage} className={`${field} min-w-[220px]`} />
+      </label>
+      <label className={label}>
+        Severity
+        <select name="severity" defaultValue={reason?.severity ?? "medium"} disabled={!canManage} className={field}>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </select>
       </label>
       <label className={label}>
         Order
@@ -122,7 +162,15 @@ function SlaForm({ rule, canManage }: { rule: SlaRuleSetting; canManage: boolean
 }
 
 /* ── Follow-up workflow stages ────────────────────────────────── */
-function FollowUpStageForm({ stage, canManage }: { stage?: FollowUpStageSetting; canManage: boolean }) {
+function FollowUpStageForm({
+  stage,
+  canManage,
+  tags,
+}: {
+  stage?: FollowUpStageSetting;
+  canManage: boolean;
+  tags: TagSetting[];
+}) {
   const [state, action, pending] = useActionState(upsertFollowUpStageAction, SETTINGS_IDLE);
   const [del, delAction, delPending] = useActionState(deleteFollowUpStageAction, SETTINGS_IDLE);
   return (
@@ -154,6 +202,35 @@ function FollowUpStageForm({ stage, canManage }: { stage?: FollowUpStageSetting;
             <option value="hours">hours</option>
             <option value="days">days</option>
             <option value="weeks">weeks</option>
+          </select>
+        </label>
+        <label className={label}>
+          Anchor
+          <select name="anchor" defaultValue={stage?.anchor ?? "stage_entry"} disabled={!canManage} className={field}>
+            <option value="stage_entry">Stage entry</option>
+            <option value="plan_start">Plan start</option>
+            <option value="previous_step">Previous step</option>
+            <option value="booking_date">Booking date</option>
+            <option value="procedure_date">Procedure date</option>
+          </select>
+        </label>
+        <label className={label}>
+          Status
+          <select name="applicableStatus" defaultValue={stage?.applicableStatus ?? ""} disabled={!canManage} className={field}>
+            <option value="">Any</option>
+            <option value="follow_up">Follow-Up</option>
+            <option value="post_op">Post-Op Follow-Up</option>
+            <option value="qualified">Qualified</option>
+            <option value="booked">Booked</option>
+          </select>
+        </label>
+        <label className={label}>
+          Tag
+          <select name="applicableTagId" defaultValue={stage?.applicableTagId ?? ""} disabled={!canManage} className={field}>
+            <option value="">Any</option>
+            {tags.filter((tag) => tag.isActive).map((tag) => (
+              <option key={tag.id} value={tag.id}>{tag.name}</option>
+            ))}
           </select>
         </label>
         <label className="flex items-center gap-1.5 pb-2 text-[12px] text-ink-700">
@@ -306,42 +383,126 @@ function EmailRuleForm({ rule, canManage }: { rule?: EmailRuleSetting; canManage
   );
 }
 
+const SOURCE_TYPE_META: Record<string, { bg: string; fg: string }> = {
+  social: { bg: "#eef2ff", fg: "#4338ca" },
+  messaging: { bg: "#ecfdf3", fg: "#067647" },
+  manual: { bg: "#f2f4f7", fg: "#475467" },
+};
+
+function SourceCard({ src }: { src: LeadSourceInfo }) {
+  const tm = SOURCE_TYPE_META[src.sourceType] ?? { bg: "#f2f4f7", fg: "#475467" };
+  return (
+    <div className="flex items-center gap-3 rounded-control border border-line-soft p-3">
+      <div className="flex-1">
+        <div className="text-[13px] font-semibold text-ink-900">{src.label}</div>
+        <div className="font-mono text-[10.5px] text-ink-400">{src.key}</div>
+      </div>
+      <span className="rounded-pill px-2 py-0.5 text-[10px] font-semibold capitalize" style={{ background: tm.bg, color: tm.fg }}>
+        {src.sourceType}
+      </span>
+      <span className={"flex items-center gap-1.5 text-[11px] font-semibold " + (src.active ? "text-emerald-600" : "text-ink-400")}>
+        <span className={"h-1.5 w-1.5 rounded-full " + (src.active ? "bg-emerald-500" : "bg-ink-300")} />
+        {src.active ? "Active" : "Off"}
+      </span>
+    </div>
+  );
+}
+
+function InfoGrid({ rows }: { rows: Array<{ label: string; value: ReactNode; hint?: string }> }) {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {rows.map((r) => (
+        <div key={r.label} className="rounded-control border border-line-soft p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">{r.label}</div>
+          <div className="mt-1 text-[13px] font-semibold text-ink-900">{r.value}</div>
+          {r.hint && <div className="mt-1 text-[11.5px] text-ink-500">{r.hint}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConnectedBadge({ ok }: { ok: boolean }) {
+  return (
+    <span className={"rounded-pill px-2.5 py-1 text-[11px] font-semibold " + (ok ? "bg-emerald-100 text-emerald-700" : "bg-line-faint text-ink-500")}>
+      {ok ? "Configured" : "Not configured"}
+    </span>
+  );
+}
+
 /* ── Shell ────────────────────────────────────────────────────── */
-type TabKey = "tags" | "lost" | "sla" | "followup" | "targets" | "ai" | "email" | "scheduling";
+type TabKey =
+  | "general"
+  | "leadFields"
+  | "tags"
+  | "lost"
+  | "escalation"
+  | "followup"
+  | "rules"
+  | "sources"
+  | "idRules"
+  | "duplicates"
+  | "reporting"
+  | "ai"
+  | "integrations"
+  | "scheduling"
+  | "financial"
+  | "email";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
-  { key: "tags", label: "Tags" },
-  { key: "lost", label: "Lost reasons" },
-  { key: "sla", label: "SLA rules" },
-  { key: "followup", label: "Follow-up rules" },
-  { key: "targets", label: "Target CPL" },
-  { key: "ai", label: "AI prompt" },
-  { key: "email", label: "Email rules" },
+  { key: "general", label: "General CRM Settings" },
+  { key: "leadFields", label: "Lead Fields" },
+  { key: "tags", label: "Tags & Colors" },
+  { key: "lost", label: "Lost Reasons" },
+  { key: "escalation", label: "Escalation Reasons" },
+  { key: "followup", label: "Follow-Up Stages" },
+  { key: "rules", label: "Rules" },
+  { key: "sources", label: "Sources & Campaigns" },
+  { key: "idRules", label: "ID / MRN Rules" },
+  { key: "duplicates", label: "Duplicate Rules" },
+  { key: "reporting", label: "Reporting Settings" },
+  { key: "ai", label: "AI Reply Assistant" },
+  { key: "integrations", label: "Integrations" },
   { key: "scheduling", label: "Scheduling" },
+  { key: "financial", label: "Financial Settings" },
+  { key: "email", label: "Email Rules" },
 ];
+
+export interface IntegrationStatus {
+  key: string;
+  label: string;
+  configured: boolean;
+  evidence: string;
+}
 
 export function SettingsManager({
   canManage,
   tags,
   lostReasons,
+  escalationReasons,
   slaRules,
   followUpStages,
   auditorSettings,
   aiPrompt,
   emailRules,
+  sources,
+  integrations,
   scheduling,
 }: {
   canManage: boolean;
   tags: TagSetting[];
   lostReasons: LostReasonSetting[];
+  escalationReasons: EscalationReasonSetting[];
   slaRules: SlaRuleSetting[];
   followUpStages: FollowUpStageSetting[];
   auditorSettings: AuditorSettingsRow;
   aiPrompt: AiPromptSetting;
   emailRules: EmailRuleSetting[];
+  sources: LeadSourceInfo[];
+  integrations: IntegrationStatus[];
   scheduling: ReactNode;
 }) {
-  const [tab, setTab] = useState<TabKey>("tags");
+  const [tab, setTab] = useState<TabKey>("general");
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[200px_1fr]">
@@ -367,9 +528,41 @@ export function SettingsManager({
           </p>
         )}
 
+        {tab === "general" && (
+          <Card className="p-4">
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">General CRM Settings</h3>
+            <p className="mb-3 text-[11.5px] text-ink-500">Operational settings that are actually consumed by the current CRM runtime.</p>
+            <InfoGrid
+              rows={[
+                { label: "Lead list page size", value: "30 leads", hint: "Used by server-side list pagination." },
+                { label: "Canonical lead drawer", value: "Single drawer", hint: "Overview, Messenger, WhatsApp, Comments, Notes, Follow-Up, Booking, Payments / Financials, Log." },
+                { label: "Primary stages", value: "Exclusive", hint: "New, Qualified/Booked, Follow-Up, Post-Op Follow-Up, Lost." },
+                { label: "Booking source", value: "Booking platform database", hint: "Public booking, CRM Booking, Website Reservations, Calendar, and Scheduling read the same source." },
+              ]}
+            />
+          </Card>
+        )}
+
+        {tab === "leadFields" && (
+          <Card className="p-4">
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Lead Fields</h3>
+            <p className="mb-3 text-[11.5px] text-ink-500">
+              These are the current persisted lead fields. Arbitrary schema-changing fields are intentionally not exposed from the browser.
+            </p>
+            <InfoGrid
+              rows={[
+                { label: "Identity", value: "Lead ID, MRN, name, phone", hint: "Lead ID generation uses the database function crm_generate_lead_id." },
+                { label: "Attribution", value: "Platform, source, campaign-ready metadata", hint: "Source filters use lead_sources; platform remains the communication channel." },
+                { label: "Workflow", value: "Status, tags, unread, SLA, escalations", hint: "Status is a single primary stage; follow-up tasks are separate records." },
+                { label: "Clinical notes", value: "Client Notes, Medical History, Notes", hint: "Saved directly on the lead and audited." },
+              ]}
+            />
+          </Card>
+        )}
+
         {tab === "tags" && (
           <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Tags</h3>
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Tags & Colors</h3>
             <p className="mb-2 text-[11.5px] text-ink-500">Moderators may only apply tags from this list — they cannot invent new ones.</p>
             {tags.map((t) => <TagForm key={t.id} tag={t} canManage={canManage} />)}
             {canManage && <div className="mt-2"><TagForm canManage={canManage} /></div>}
@@ -378,16 +571,30 @@ export function SettingsManager({
 
         {tab === "lost" && (
           <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Lost reasons</h3>
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Lost Reasons</h3>
             <p className="mb-2 text-[11.5px] text-ink-500">The controlled list a moderator must choose from when marking a lead Lost.</p>
             {lostReasons.map((r) => <LostReasonForm key={r.id} reason={r} canManage={canManage} />)}
             {canManage && <div className="mt-2"><LostReasonForm canManage={canManage} /></div>}
           </Card>
         )}
 
-        {tab === "sla" && (
+        {tab === "escalation" && (
           <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">SLA / response rules</h3>
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Escalation Reasons</h3>
+            <p className="mb-2 text-[11.5px] text-ink-500">Controlled reasons and default severity for escalation workflows. Moderator details are still required when escalating.</p>
+            {escalationReasons.length === 0 && (
+              <p className="mb-2 rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800">
+                Run migration 0013_crm_escalation_reasons.sql to enable persisted escalation reason management.
+              </p>
+            )}
+            {escalationReasons.map((r) => <EscalationReasonForm key={r.id} reason={r} canManage={canManage} />)}
+            {canManage && <div className="mt-2"><EscalationReasonForm canManage={canManage} /></div>}
+          </Card>
+        )}
+
+        {tab === "rules" && (
+          <Card className="p-4">
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Rules</h3>
             <p className="mb-2 text-[11.5px] text-ink-500">Reply deadlines per lead stage. Drive overdue / unanswered highlighting.</p>
             {slaRules.length === 0 && <p className="text-[12px] text-ink-400">No stage reply rules configured.</p>}
             {slaRules.map((r) => <SlaForm key={r.id} rule={r} canManage={canManage} />)}
@@ -396,16 +603,53 @@ export function SettingsManager({
 
         {tab === "followup" && (
           <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Follow-up rules</h3>
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Follow-Up Stages</h3>
             <p className="mb-2 text-[11.5px] text-ink-500">Flexible sequences — any number of steps, arbitrary delays, per workflow type. Consumed by the Follow-Up tab.</p>
-            {followUpStages.map((s) => <FollowUpStageForm key={s.id} stage={s} canManage={canManage} />)}
-            {canManage && <div className="mt-2"><FollowUpStageForm canManage={canManage} /></div>}
+            {followUpStages.map((s) => <FollowUpStageForm key={s.id} stage={s} canManage={canManage} tags={tags} />)}
+            {canManage && <div className="mt-2"><FollowUpStageForm canManage={canManage} tags={tags} /></div>}
           </Card>
         )}
 
-        {tab === "targets" && (
+        {tab === "sources" && (
           <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Auditor targets</h3>
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Sources & Campaigns</h3>
+            <p className="mb-3 text-[11.5px] text-ink-500">
+              CRM-visible sources from lead_sources. Platform remains the communication channel; source is marketing/intake attribution.
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {sources.map((s) => <SourceCard key={s.id} src={s} />)}
+            </div>
+          </Card>
+        )}
+
+        {tab === "idRules" && (
+          <Card className="p-4">
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">ID / MRN Rules</h3>
+            <InfoGrid
+              rows={[
+                { label: "Lead ID generation", value: "crm_generate_lead_id()", hint: "New manual/imported leads call the database function. Existing IDs are never rewritten." },
+                { label: "MRN", value: "Persisted field", hint: "Used for search and import matching when supplied; no retroactive auto-generation is enabled." },
+              ]}
+            />
+          </Card>
+        )}
+
+        {tab === "duplicates" && (
+          <Card className="p-4">
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Duplicate Rules</h3>
+            <InfoGrid
+              rows={[
+                { label: "Phone", value: "Normalized phone tail", hint: "Search/import matching use normalized phone digits." },
+                { label: "Platform ID", value: "Exact channel-scoped ID", hint: "Facebook, Instagram, and WhatsApp identifiers are not merged across channels." },
+                { label: "Name similarity", value: "Review signal", hint: "No fake confidence slider is exposed; merge decisions stay explicit." },
+              ]}
+            />
+          </Card>
+        )}
+
+        {tab === "reporting" && (
+          <Card className="p-4">
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Reporting Settings</h3>
             <p className="mb-3 text-[11.5px] text-ink-500">Target CPL feeds the Auditor Dashboard finance section and red-flag detection.</p>
             <TargetsForm settings={auditorSettings} canManage={canManage} />
           </Card>
@@ -413,9 +657,40 @@ export function SettingsManager({
 
         {tab === "ai" && (
           <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">AI assistant prompt</h3>
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">AI Reply Assistant</h3>
             <p className="mb-3 text-[11.5px] text-ink-500">The system prompt used to generate CRM suggested replies. Saving bumps the version.</p>
             <AiPromptForm prompt={aiPrompt} canManage={canManage} />
+          </Card>
+        )}
+
+        {tab === "integrations" && (
+          <Card className="p-4">
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Integrations</h3>
+            <p className="mb-3 text-[11.5px] text-ink-500">Server-side configuration status only. Secrets are never sent to the browser.</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {integrations.map((item) => (
+                <div key={item.key} className="rounded-control border border-line-soft p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-[13px] font-semibold text-ink-900">{item.label}</div>
+                    <ConnectedBadge ok={item.configured} />
+                  </div>
+                  <div className="text-[11.5px] text-ink-500">{item.evidence}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {tab === "financial" && (
+          <Card className="p-4">
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Financial Settings</h3>
+            <InfoGrid
+              rows={[
+                { label: "Quote rules", value: "crm_financial_service_settings", hint: "Manual entry and bulk import both use saveQuote/addTransaction." },
+                { label: "Ledger", value: "Append-only transactions", hint: "Refunds, reversals, and chargebacks are new rows, not edits." },
+                { label: "Import", value: "Canonical writes", hint: "Bulk Import creates/links leads and records quotes/payments through the same source of truth." },
+              ]}
+            />
           </Card>
         )}
 

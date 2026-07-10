@@ -3,7 +3,9 @@
 import { useActionState, useState } from "react";
 import type { Role } from "@/lib/types";
 import { ASSIGNABLE_ROLES } from "@/lib/auth/roles";
-import { changeRoleAction, setActiveAction, IDLE } from "./actions";
+import { changeRoleAction, setActiveAction, type UserActionState } from "./actions";
+
+const IDLE: UserActionState = { error: null, ok: null };
 
 export interface UserRow {
   id: string;

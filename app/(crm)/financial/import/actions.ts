@@ -1,10 +1,13 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { writeActor, ActorError } from "@/lib/data/actor";
 import { assertCan, PermissionError } from "@/lib/auth/permissions";
 import { FinancialError, saveQuote, addTransaction } from "@/lib/data/financials";
+import { createManualLead } from "@/lib/data/leadMutations";
+import { logActivity } from "@/lib/audit/log";
 import type { ImportMethod } from "@/lib/financial/importMapping";
 
 export interface ImportRowInput {
@@ -12,12 +15,25 @@ export interface ImportRowInput {
   leadId?: string;
   mrn?: string;
   phone?: string;
+  name?: string;
+  age?: string;
+  patientType?: string;
+  source?: string;
+  doctorCode?: string;
+  doctorName?: string;
+  specialtyName?: string;
+  serviceCode?: string;
   serviceName?: string;
   serviceDate?: string;
   basePrice: number | null;
   quotedPrice: number | null;
+  consumables?: number | null;
+  doctorPercent?: number | null;
+  netAfterConsumablesDoctorPercent?: number | null;
   amountPaid: number | null;
   method: ImportMethod | null;
+  paymentByDoctor?: number | null;
+  externalPayments?: number | null;
 }
 
 export interface ImportRowResult {
@@ -42,9 +58,9 @@ function digits(v: string | undefined): string {
 }
 
 /**
- * Resolve a spreadsheet row to an EXISTING lead by Lead ID → MRN → phone.
- * Deliberately match-only: unmatched rows are reported for review, never
- * auto-created, so a bulk import cannot spawn duplicate leads (§36).
+ * Resolve a spreadsheet row to an existing lead by Lead ID -> MRN -> phone.
+ * Creation happens only later, after match attempts fail and the row contains
+ * a patient name + phone. That keeps duplicate prevention first.
  */
 async function resolveLead(row: ImportRowInput): Promise<string | null> {
   const db = supabaseAdmin();
@@ -69,6 +85,51 @@ async function resolveLead(row: ImportRowInput): Promise<string | null> {
   return null;
 }
 
+async function resolveSourceId(source: string | undefined): Promise<string | undefined> {
+  const label = source?.trim();
+  if (!label) return undefined;
+  const { data: byKey } = await supabaseAdmin()
+    .from("lead_sources")
+    .select("id,key,label")
+    .ilike("key", label)
+    .limit(1)
+    .maybeSingle();
+  if (byKey?.id) return byKey.id as string;
+  const { data: byLabel } = await supabaseAdmin()
+    .from("lead_sources")
+    .select("id,key,label")
+    .ilike("label", label)
+    .limit(1)
+    .maybeSingle();
+  return (byLabel?.id as string | undefined) ?? undefined;
+}
+
+async function applyLeadImportHints(leadId: string, row: ImportRowInput): Promise<void> {
+  const { data } = await supabaseAdmin()
+    .from("leads")
+    .select("id,service_name,initial_price")
+    .eq("lead_id", leadId)
+    .maybeSingle();
+  if (!data) return;
+  const patch: Record<string, unknown> = {};
+  const importedService = row.serviceName?.trim() || row.serviceCode?.trim();
+  if (importedService && !data.service_name) patch.service_name = importedService;
+  if (row.basePrice != null && data.initial_price == null) patch.initial_price = row.basePrice;
+  if (Object.keys(patch).length === 0) return;
+  await supabaseAdmin().from("leads").update(patch).eq("id", data.id as string);
+}
+
+function reviewSuffix(row: ImportRowInput): string {
+  const notes: string[] = [];
+  if (row.doctorName || row.doctorCode) notes.push(`doctor=${row.doctorName || row.doctorCode}`);
+  if (row.specialtyName) notes.push(`specialty=${row.specialtyName}`);
+  if (row.consumables != null) notes.push(`consumables=${row.consumables}`);
+  if (row.doctorPercent != null || row.netAfterConsumablesDoctorPercent != null) notes.push("doctor compensation columns need review");
+  if (row.paymentByDoctor != null) notes.push(`payment by doctor=${row.paymentByDoctor}`);
+  if (row.externalPayments != null) notes.push(`external payments=${row.externalPayments}`);
+  return notes.length ? ` Review: ${notes.join("; ")}.` : "";
+}
+
 /**
  * Bulk-import financial rows into the canonical tables by reusing `saveQuote`
  * (freezes base price, enforces the discount ceiling, audits) and
@@ -77,8 +138,9 @@ async function resolveLead(row: ImportRowInput): Promise<string | null> {
  * allowed ceiling is reported as `needs_approval` rather than force-imported.
  */
 export async function importFinancialRows(rows: ImportRowInput[]): Promise<ImportResult> {
+  let actor: Awaited<ReturnType<typeof writeActor>>;
   try {
-    const actor = await writeActor();
+    actor = await writeActor();
     assertCan(actor.role, "financial.bulkImport");
   } catch (err) {
     if (err instanceof PermissionError) return emptyResult("You are not authorized to import financial data.");
@@ -92,17 +154,34 @@ export async function importFinancialRows(rows: ImportRowInput[]): Promise<Impor
       results.push({ rowIndex: row.rowIndex, status: "error", message: "Missing base or quoted price." });
       continue;
     }
-    const leadId = await resolveLead(row);
+    let leadId = await resolveLead(row);
+    let createdLead = false;
+    if (!leadId && row.name?.trim() && row.phone?.trim()) {
+      try {
+        leadId = await createManualLead({
+          name: row.name,
+          phone: row.phone,
+          platform: "manual",
+          sourceId: await resolveSourceId(row.source),
+          serviceName: row.serviceName || row.serviceCode,
+        });
+        createdLead = true;
+      } catch (err) {
+        results.push({ rowIndex: row.rowIndex, status: "error", message: `Could not create lead: ${(err as Error).message}` });
+        continue;
+      }
+    }
     if (!leadId) {
-      results.push({ rowIndex: row.rowIndex, status: "unresolved", message: "No matching lead (by Lead ID / MRN / phone)." });
+      results.push({ rowIndex: row.rowIndex, status: "unresolved", message: "No matching lead and no safe Name + Phone identity to create one." });
       continue;
     }
     try {
+      await applyLeadImportHints(leadId, row);
       await saveQuote({
         leadId,
         quotedPrice: row.quotedPrice,
         serviceDate: row.serviceDate || null,
-        financialNotes: `Bulk import row ${row.rowIndex + 1}`,
+        financialNotes: `Bulk import row ${row.rowIndex + 1}.${reviewSuffix(row)}`,
       });
     } catch (err) {
       if (err instanceof FinancialError) {
@@ -123,18 +202,39 @@ export async function importFinancialRows(rows: ImportRowInput[]): Promise<Impor
           amount: row.amountPaid,
           method: row.method ?? "other",
           occurredOn: row.serviceDate || undefined,
-          note: `Bulk import row ${row.rowIndex + 1}`,
+          note: `Bulk import row ${row.rowIndex + 1}.${reviewSuffix(row)}`,
         });
       } catch (err) {
         results.push({ rowIndex: row.rowIndex, status: "imported", leadId, message: `Quote saved; payment failed: ${(err as Error).message}` });
         continue;
       }
     }
-    results.push({ rowIndex: row.rowIndex, status: "imported", leadId, message: "Imported." });
+    results.push({ rowIndex: row.rowIndex, status: "imported", leadId, message: createdLead ? "Created lead and imported." : "Imported." });
   }
 
   revalidatePath("/financial");
+  revalidatePath("/financial/import");
+  revalidatePath("/bulk-import");
   revalidatePath("/leads");
+
+  await logActivity({
+    actorId: actor.id,
+    action: "import.bulk_financial",
+    entityType: "bulk_import",
+    entityId: randomUUID(),
+    newValues: {
+      total: rows.length,
+      imported: results.filter((r) => r.status === "imported").length,
+      unresolved: results.filter((r) => r.status === "unresolved").length,
+      needs_approval: results.filter((r) => r.status === "needs_approval").length,
+      failed: results.filter((r) => r.status === "error").length,
+    },
+    metadata: {
+      actor_name: actor.name,
+      actor_role: actor.role,
+      row_results: results,
+    },
+  });
 
   return {
     ok: true,

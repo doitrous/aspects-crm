@@ -2,8 +2,7 @@ import { Suspense } from "react";
 import { Topbar } from "@/components/shell/Topbar";
 import { LeadsToolbar } from "@/components/leads/LeadsToolbar";
 import { LeadsTable } from "@/components/leads/LeadsTable";
-import { getLeadsPage, leadSourcesList, NOW, type LeadFilters } from "@/lib/data";
-import type { PipelineStage } from "@/lib/types";
+import { getLeadsPage, dashboardMetrics, leadSourcesList, NOW, type LeadFilters } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -18,20 +17,16 @@ function pageNumber(v: string | string[] | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
-export default async function Page({
-  searchParams,
-}: {
-  searchParams: Promise<SP>;
-}) {
+export default async function QualifiedLeadsPage({ searchParams }: { searchParams: Promise<SP> }) {
   const sp = await searchParams;
   const channel = str(sp.channel);
   const filters: LeadFilters = {
     q: str(sp.q),
-    stage: (str(sp.stage) as PipelineStage | undefined) ?? "all",
+    stages: ["qualified", "booked"],
     platform: channel?.startsWith("platform:") ? channel.slice("platform:".length) : str(sp.platform),
-    sourceId: channel?.startsWith("source:") ? channel.slice("source:".length) : str(sp.source),
     doctorId: str(sp.doctor),
     specialtyId: str(sp.specialty),
+    sourceId: channel?.startsWith("source:") ? channel.slice("source:".length) : str(sp.source),
     campaignId: str(sp.campaign),
     dateFrom: str(sp.dateFrom),
     dateTo: str(sp.dateTo),
@@ -42,25 +37,26 @@ export default async function Page({
     page: pageNumber(sp.page),
     pageSize: 30,
   };
-  const [leadPage, sources] = await Promise.all([getLeadsPage(filters), leadSourcesList()]);
+
+  const [leadPage, m, sources] = await Promise.all([getLeadsPage(filters), dashboardMetrics(), leadSourcesList()]);
   const { leads, total, page, pageSize } = leadPage;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const pageHref = (nextPage: number) => {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(sp)) {
       const first = Array.isArray(value) ? value[0] : value;
-      if (first && key !== "page") params.set(key, first);
+      if (first && key !== "page" && key !== "stage") params.set(key, first);
     }
     if (nextPage > 1) params.set("page", String(nextPage));
     const qs = params.toString();
-    return qs ? `/database?${qs}` : "/database";
+    return qs ? `/qualified?${qs}` : "/qualified";
   };
 
   return (
     <>
-      <Topbar title="Database" search="All CRM leads" />
+      <Topbar title="Qualified Leads" search="Search qualified and booked patients" overdue={m.overdue} unread={m.unread} />
       <Suspense fallback={null}>
-        <LeadsToolbar sources={sources} basePath="/database" />
+        <LeadsToolbar sources={sources} basePath="/qualified" stageLocked />
       </Suspense>
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
@@ -68,20 +64,8 @@ export default async function Page({
         </div>
         <LeadsTable leads={leads} now={NOW.toISOString()} />
         <div className="flex items-center justify-end gap-2 px-[18px] py-3 text-[12px]">
-          <a
-            href={pageHref(Math.max(1, page - 1))}
-            aria-disabled={page <= 1}
-            className={`rounded-control border border-line px-3 py-1.5 ${page <= 1 ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}
-          >
-            Previous
-          </a>
-          <a
-            href={pageHref(Math.min(pageCount, page + 1))}
-            aria-disabled={page >= pageCount}
-            className={`rounded-control border border-line px-3 py-1.5 ${page >= pageCount ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}
-          >
-            Next
-          </a>
+          <a href={pageHref(Math.max(1, page - 1))} aria-disabled={page <= 1} className={`rounded-control border border-line px-3 py-1.5 ${page <= 1 ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Previous</a>
+          <a href={pageHref(Math.min(pageCount, page + 1))} aria-disabled={page >= pageCount} className={`rounded-control border border-line px-3 py-1.5 ${page >= pageCount ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Next</a>
         </div>
       </div>
     </>

@@ -17,9 +17,6 @@ export interface AuditorActionState {
   message?: string;
 }
 
-const IDLE: AuditorActionState = { ok: false };
-export { IDLE as AUDITOR_IDLE };
-
 function fail(err: unknown): AuditorActionState {
   if (err instanceof AuditorError || err instanceof ActorError) return { ok: false, error: err.message };
   if (err instanceof PermissionError)

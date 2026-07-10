@@ -216,6 +216,32 @@ export interface FollowUp {
   notes?: string;
 }
 
+export type FollowUpWorkflowType = "follow_up" | "post_op";
+export type FollowUpStepState = "upcoming" | "due" | "overdue" | "done" | "snoozed";
+
+export interface FollowUpPlanStep {
+  id?: string;
+  templateStageId?: string;
+  templateVersion?: number;
+  sequence: number;
+  name: string;
+  dueAt?: string;
+  state: FollowUpStepState;
+  notes?: string;
+  moderatorInstruction?: string;
+  outcome?: string;
+  completedAt?: string;
+  completedBy?: string;
+  snoozedAt?: string;
+  assignedTo?: string;
+}
+
+export interface FollowUpPlan {
+  workflowType: FollowUpWorkflowType;
+  source: "snapshot" | "settings";
+  steps: FollowUpPlanStep[];
+}
+
 export interface Booking {
   id: string;
   leadId: string;

@@ -28,7 +28,7 @@ export default async function ReservationsPage() {
   if (!bookingConfigured()) {
     return (
       <>
-        <Topbar title="Patient Reservations" />
+        <Topbar title="Website Reservations" />
         <div className="flex-1 overflow-auto">
           <EmptyState
             title="Booking integration not connected"
@@ -42,11 +42,11 @@ export default async function ReservationsPage() {
   const now = Date.now();
   const reservations = await getReservations();
   const leadByAppointment = await syncReservationsToLeads(reservations);
-  const newCount = reservations.filter((r) => isNewReservation(r.createdAt, now)).length;
+  const newCount = reservations.filter((r) => isNewReservation(r.status, r.createdAt, now)).length;
 
   return (
     <>
-      <Topbar title="Patient Reservations" unread={newCount} />
+      <Topbar title="Website Reservations" unread={newCount} />
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
           {reservations.length} reservation{reservations.length === 1 ? "" : "s"} · {newCount} new ·
@@ -75,7 +75,7 @@ export default async function ReservationsPage() {
               </thead>
               <tbody>
                 {reservations.map((r) => {
-                  const isNew = isNewReservation(r.createdAt, now);
+                  const isNew = isNewReservation(r.status, r.createdAt, now);
                   const leadId = leadByAppointment.get(r.id);
                   return (
                     <tr

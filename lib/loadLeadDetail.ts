@@ -12,7 +12,10 @@ import type { LeadDetailData } from "@/components/lead/LeadDetail";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { leadFinancials, type LeadFinancials } from "@/lib/data/financials";
 import { activeLeadTags, activeLostReasons } from "@/lib/data/leadMutations";
+import { listEscalationReasons } from "@/lib/data/settingsData";
 import { bookingCatalog } from "@/lib/booking/service";
+import { loadFollowUpPlan } from "@/lib/data/followupPlans";
+import { whatsappConfigured } from "@/lib/whatsapp/config";
 import type { Lead, PipelineStage, Platform } from "@/lib/types";
 
 const DB_TO_UI_STAGE: Record<string, PipelineStage> = {
@@ -179,12 +182,16 @@ async function loadFinancials(id: string): Promise<{ financials: LeadFinancials 
  * never drift.
  */
 export async function loadLeadDetail(id: string): Promise<LeadDetailData | null> {
-  const [lead, availableTags, lostReasons] = await Promise.all([
+  const [lead, availableTags, lostReasons, escalationReasonRows] = await Promise.all([
     loadLeadShell(id),
     activeLeadTags(),
     activeLostReasons(),
+    listEscalationReasons(),
   ]);
   if (!lead) return null;
+  const escalationReasons = escalationReasonRows
+    .filter((r) => r.isActive)
+    .map((r) => ({ id: r.id, label: r.label, severity: r.severity }));
 
   return {
     lead,
@@ -197,8 +204,11 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
     duplicateGroups: [],
     financials: null,
     financialsError: null,
+    followUpPlan: null,
+    whatsappConfigured: false,
     availableTags,
     lostReasons,
+    escalationReasons,
     bookingCatalog: {
       configured: false,
       specialties: [],
@@ -232,7 +242,7 @@ async function duplicateGroupsWithMembers(id: string): Promise<LeadDetailData["d
 
 export async function loadLeadTab(
   id: string,
-  tab: "Overview" | "Conversation" | "Comments" | "Booking" | "Payments" | "Log",
+  tab: "Overview" | "Messenger" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments" | "Payments / Financials" | "Log",
 ): Promise<Partial<LeadDetailData> | null> {
   const lead = await getLead(id);
   if (!lead) return null;
@@ -245,13 +255,15 @@ export async function loadLeadTab(
     return { attribution, messages: messages.slice(-1) };
   }
 
-  if (tab === "Conversation") return { messages: await messagesFor(id) };
+  if (tab === "Messenger") return { messages: await messagesFor(id, ["facebook", "instagram"]) };
+  if (tab === "WhatsApp") return { messages: await messagesFor(id, ["whatsapp"]), whatsappConfigured: whatsappConfigured() };
   if (tab === "Comments") return { comments: await commentsFor(id) };
+  if (tab === "Follow-Up") return { followUpPlan: await loadFollowUpPlan(id) };
   if (tab === "Booking") {
     const [bookings, catalog] = await Promise.all([bookingsFor(id), bookingCatalog()]);
     return { bookings, bookingCatalog: catalog };
   }
-  if (tab === "Payments") {
+  if (tab === "Payments" || tab === "Payments / Financials") {
     const result = await loadFinancials(id);
     return { financials: result.financials, financialsError: result.error };
   }
@@ -280,6 +292,7 @@ export async function loadFullLeadDetail(id: string): Promise<LeadDetailData | n
     duplicateGroups,
     financialResult,
     catalog,
+    followUpPlan,
   ] =
     await Promise.all([
       messagesFor(id),
@@ -291,6 +304,7 @@ export async function loadFullLeadDetail(id: string): Promise<LeadDetailData | n
       duplicateGroupsWithMembers(id),
       loadFinancials(id),
       bookingCatalog(),
+      loadFollowUpPlan(id),
     ]);
 
   return {
@@ -304,8 +318,11 @@ export async function loadFullLeadDetail(id: string): Promise<LeadDetailData | n
     duplicateGroups,
     financials: financialResult.financials,
     financialsError: financialResult.error,
+    followUpPlan,
+    whatsappConfigured: whatsappConfigured(),
     availableTags: shell.availableTags,
     lostReasons: shell.lostReasons,
+    escalationReasons: shell.escalationReasons,
     bookingCatalog: catalog,
   };
 }

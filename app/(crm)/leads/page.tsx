@@ -4,7 +4,6 @@ import { LeadsToolbar } from "@/components/leads/LeadsToolbar";
 import { LeadsTable } from "@/components/leads/LeadsTable";
 import { NewLeadButton } from "@/components/leads/NewLeadButton";
 import { getLeadsPage, dashboardMetrics, leadSourcesList, NOW, type LeadFilters } from "@/lib/data";
-import type { PipelineStage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +28,7 @@ export default async function LeadsPage({
 
   const filters: LeadFilters = {
     q: str(sp.q),
-    stage: (str(sp.stage) as PipelineStage | undefined) ?? "all",
+    stage: "new",
     platform: channel?.startsWith("platform:") ? channel.slice("platform:".length) : str(sp.platform),
     doctorId: str(sp.doctor),
     specialtyId: str(sp.specialty),
@@ -54,7 +53,7 @@ export default async function LeadsPage({
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(sp)) {
       const first = Array.isArray(value) ? value[0] : value;
-      if (first && key !== "page") params.set(key, first);
+      if (first && key !== "page" && key !== "stage") params.set(key, first);
     }
     if (nextPage > 1) params.set("page", String(nextPage));
     const qs = params.toString();
@@ -71,7 +70,7 @@ export default async function LeadsPage({
         action={<NewLeadButton sources={sources} />}
       />
       <Suspense fallback={null}>
-        <LeadsToolbar sources={sources} />
+        <LeadsToolbar sources={sources} stageLocked />
       </Suspense>
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">

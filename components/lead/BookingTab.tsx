@@ -9,7 +9,7 @@ import {
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { BOOKING_META } from "@/lib/badges";
-import { formatClock, formatDateTime } from "@/lib/format";
+import { formatClock, formatDate, formatDateTime } from "@/lib/format";
 import type { Booking, Lead, ReservationStatus } from "@/lib/types";
 
 interface BookingName {
@@ -67,12 +67,12 @@ interface BookingSlot {
 }
 
 const RESERVATION_STATUS: { value: ReservationStatus; label: string }[] = [
-  { value: "reserved", label: "Reserved" },
+  { value: "reserved", label: "Awaiting confirmation" },
   { value: "confirmed", label: "Confirmed" },
-  { value: "attended", label: "Attended" },
-  { value: "no_show", label: "No-show" },
   { value: "rescheduled", label: "Rescheduled" },
   { value: "cancelled", label: "Cancelled" },
+  { value: "attended", label: "Attended" },
+  { value: "no_show", label: "No-show" },
 ];
 
 function digits(value: string): string {
@@ -90,8 +90,109 @@ function addDays(days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function monthStart(date: string): Date {
+  const d = new Date(`${date}T00:00:00`);
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function fieldClass(): string {
   return "h-9 rounded-control border border-line bg-panel px-2 text-[12.5px] text-ink-700";
+}
+
+const FLOW_STEPS = ["Choose Doctor", "Date & Time", "Your Info", "Review & Confirm"] as const;
+
+function Stepper({ step }: { step: number }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 overflow-x-auto py-1">
+      {FLOW_STEPS.map((label, index) => {
+        const n = index + 1;
+        const active = n <= step;
+        return (
+          <div key={label} className="flex min-w-fit items-center gap-2">
+            <span
+              className={
+                "flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-bold " +
+                (active ? "bg-primary text-white" : "bg-line-faint text-ink-400")
+              }
+            >
+              {n}
+            </span>
+            <span className={"text-[12px] font-semibold " + (n === step ? "text-primary" : active ? "text-ink-600" : "text-ink-400")}>
+              {label}
+            </span>
+            {index < FLOW_STEPS.length - 1 && <span className="h-px w-8 bg-line" />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DateGrid({
+  selected,
+  maxDate,
+  onSelect,
+}: {
+  selected: string;
+  maxDate: string;
+  onSelect: (date: string) => void;
+}) {
+  const [cursor, setCursor] = useState(() => monthStart(selected));
+  const start = new Date(cursor.getFullYear(), cursor.getMonth(), 1 - cursor.getDay());
+  const todayValue = today();
+  const days = Array.from({ length: 35 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return d;
+  });
+  return (
+    <div className="rounded-card border border-line bg-panel p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <button type="button" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="h-8 w-8 rounded-control border border-line text-[16px] hover:bg-line-faint">
+          ‹
+        </button>
+        <div className="text-[13px] font-bold text-ink-900">
+          {cursor.toLocaleString("en", { month: "long", year: "numeric" })}
+        </div>
+        <button type="button" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="h-8 w-8 rounded-control border border-line text-[16px] hover:bg-line-faint">
+          ›
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-[10.5px] font-semibold text-ink-400">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d}>{d}</div>)}
+      </div>
+      <div className="mt-1 grid grid-cols-7 gap-1">
+        {days.map((d) => {
+          const value = ymd(d);
+          const inMonth = d.getMonth() === cursor.getMonth();
+          const disabled = value < todayValue || value > maxDate;
+          const isSelected = value === selected;
+          return (
+            <button
+              key={value}
+              type="button"
+              disabled={disabled}
+              onClick={() => onSelect(value)}
+              className={
+                "h-10 rounded-control border text-[12px] font-semibold " +
+                (isSelected
+                  ? "border-primary bg-ink-900 text-white"
+                  : disabled || !inMonth
+                    ? "border-line-faint bg-line-faint/30 text-ink-300"
+                    : "border-[#c7edf0] bg-[#f6fbfb] text-ink-700 hover:border-primary")
+              }
+            >
+              {d.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export function BookingTab({
@@ -103,6 +204,7 @@ export function BookingTab({
   bookings: Booking[];
   catalog: BookingCatalog;
 }) {
+  const [step, setStep] = useState(1);
   const [specialtyId, setSpecialtyId] = useState(lead.specialtyId ?? catalog.specialties[0]?.id ?? "");
   const doctorsForSpecialty = useMemo(
     () => catalog.doctors.filter((d) => !specialtyId || d.specialtyId === specialtyId),
@@ -138,11 +240,18 @@ export function BookingTab({
     [catalog.services, doctorId, specialtyId],
   );
 
-  function loadSlots() {
+  const selectedSpecialty = catalog.specialties.find((s) => s.id === specialtyId);
+  const selectedBranch = catalog.branches.find((b) => b.id === branchId);
+  const selectedService = catalog.services.find((s) => s.id === serviceId);
+  const selectedSlot = slots.find((s) => s.time === slot);
+  const maxDate = addDays(catalog.settings.bookingWindowDays);
+
+  function loadSlotsForDate(nextDate = date) {
     startTransition(async () => {
       setMessage({});
       setSlot("");
-      const result = await getBookingSlotsAction(doctorId, branchId, date, serviceId || null);
+      setDate(nextDate);
+      const result = await getBookingSlotsAction(doctorId, branchId, nextDate, serviceId || null);
       if (result.error) {
         setSlots([]);
         setMessage({ error: result.error });
@@ -151,6 +260,16 @@ export function BookingTab({
       setSlots(result.slots ?? []);
       if ((result.slots ?? []).length === 0) setMessage({ error: "No live slots are available for this selection." });
     });
+  }
+
+  function proceedToDateTime() {
+    if (!specialtyId || !doctorId || !branchId) {
+      setMessage({ error: "Choose a specialty, doctor, and branch." });
+      return;
+    }
+    setMessage({});
+    setStep(2);
+    loadSlotsForDate(date);
   }
 
   function createBooking() {
@@ -174,7 +293,10 @@ export function BookingTab({
       setMessage({});
       const result = await createLeadBookingAction(fd);
       if (result.error) setMessage({ error: result.error });
-      else setMessage({ ok: result.ok ?? "Booking created." });
+      else {
+        setMessage({ ok: result.ok ?? "Booking created." });
+        setStep(4);
+      }
     });
   }
 
@@ -257,164 +379,257 @@ export function BookingTab({
         )}
       </section>
 
-      <section>
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-400">Create booking</div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-[12px] font-semibold text-ink-600">
-            Specialty
-            <select
-              value={specialtyId}
-              onChange={(e) => {
-                const nextSpecialty = e.target.value;
-                setSpecialtyId(nextSpecialty);
-                const firstDoctor = catalog.doctors.find((d) => d.specialtyId === nextSpecialty);
-                setDoctorId(firstDoctor?.id ?? "");
-                setBranchId(firstDoctor?.schedules.find((s) => s.active)?.branchId ?? "");
-                setServiceId("");
-                setSlots([]);
-              }}
-              className={`mt-1 w-full ${fieldClass()}`}
-            >
-              {catalog.specialties.map((s) => <option key={s.id} value={s.id}>{s.nameEn}</option>)}
-            </select>
-          </label>
-          <label className="text-[12px] font-semibold text-ink-600">
-            Doctor
-            <select
-              value={doctorId}
-              onChange={(e) => {
-                const nextDoctor = catalog.doctors.find((d) => d.id === e.target.value);
-                setDoctorId(e.target.value);
-                setBranchId(nextDoctor?.schedules.find((s) => s.active)?.branchId ?? "");
-                setSlots([]);
-              }}
-              className={`mt-1 w-full ${fieldClass()}`}
-            >
-              {doctorsForSpecialty.map((d) => <option key={d.id} value={d.id}>{d.nameEn}</option>)}
-            </select>
-          </label>
-          <label className="text-[12px] font-semibold text-ink-600">
-            Branch
-            <select value={branchId} onChange={(e) => { setBranchId(e.target.value); setSlots([]); }} className={`mt-1 w-full ${fieldClass()}`}>
-              {branches.map((b) => <option key={b.id} value={b.id}>{b.nameEn}</option>)}
-            </select>
-          </label>
-          <label className="text-[12px] font-semibold text-ink-600">
-            Service / visit type
-            <select value={serviceId} onChange={(e) => { setServiceId(e.target.value); setSlots([]); }} className={`mt-1 w-full ${fieldClass()}`}>
-              <option value="">General consultation</option>
-              {services.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.nameEn} ({s.durationMinutes}m{s.fee ? ` · ${s.fee} EGP` : ""})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-[12px] font-semibold text-ink-600">
-            Date
-            <input
-              type="date"
-              min={today()}
-              max={addDays(catalog.settings.bookingWindowDays)}
-              value={date}
-              onChange={(e) => { setDate(e.target.value); setSlots([]); }}
-              className={`mt-1 w-full ${fieldClass()}`}
-            />
-          </label>
-          <div className="flex items-end">
+      <section className="rounded-card border border-line bg-panel p-4">
+        <Stepper step={step} />
+
+        {step === 1 && (
+          <div className="mt-4 flex flex-col gap-4">
+            <div>
+              <div className="text-[16px] font-bold text-ink-900">Choose Specialty or Doctor</div>
+              <p className="mt-1 text-[12px] text-ink-500">Choose from the same live catalog used by the public booking form.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="rounded-card border border-[#c7edf0] bg-[#f6fbfb] p-3 text-[12px] font-semibold text-ink-700">
+                Specialty
+                <select
+                  value={specialtyId}
+                  onChange={(e) => {
+                    const nextSpecialty = e.target.value;
+                    setSpecialtyId(nextSpecialty);
+                    const firstDoctor = catalog.doctors.find((d) => d.specialtyId === nextSpecialty);
+                    setDoctorId(firstDoctor?.id ?? "");
+                    setBranchId(firstDoctor?.schedules.find((s) => s.active)?.branchId ?? "");
+                    setServiceId("");
+                    setSlots([]);
+                    setSlot("");
+                  }}
+                  className={`mt-2 w-full ${fieldClass()}`}
+                >
+                  <option value="">Select specialty...</option>
+                  {catalog.specialties.map((s) => <option key={s.id} value={s.id}>{s.nameEn}</option>)}
+                </select>
+              </label>
+              <label className="rounded-card border border-[#c7edf0] bg-panel p-3 text-[12px] font-semibold text-ink-700">
+                Doctor
+                <select
+                  value={doctorId}
+                  onChange={(e) => {
+                    const nextDoctor = catalog.doctors.find((d) => d.id === e.target.value);
+                    setDoctorId(e.target.value);
+                    if (nextDoctor) setSpecialtyId(nextDoctor.specialtyId);
+                    setBranchId(nextDoctor?.schedules.find((s) => s.active)?.branchId ?? "");
+                    setSlots([]);
+                    setSlot("");
+                  }}
+                  className={`mt-2 w-full ${fieldClass()}`}
+                >
+                  <option value="">Select doctor...</option>
+                  {doctorsForSpecialty.map((d) => <option key={d.id} value={d.id}>{d.nameEn}</option>)}
+                </select>
+              </label>
+            </div>
+
+            {selectedDoctor && (
+              <div className="flex items-center justify-between gap-3 rounded-card bg-[#eef7ff] p-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-12 w-12 flex-none items-center justify-center rounded-full bg-white text-[12px] font-bold text-primary">
+                    Dr
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-[13px] font-bold text-ink-900">{selectedDoctor.nameEn}</div>
+                    <div className="truncate text-[11.5px] text-[#208a96]">{selectedDoctor.titleEn ?? selectedSpecialty?.nameEn ?? ""}</div>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setDoctorId("")} className="text-[12px] font-semibold text-primary underline">
+                  Change
+                </button>
+              </div>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-[12px] font-semibold text-ink-600">
+                Branch
+                <select value={branchId} onChange={(e) => { setBranchId(e.target.value); setSlots([]); setSlot(""); }} className={`mt-1 w-full ${fieldClass()}`}>
+                  <option value="">Select branch...</option>
+                  {branches.map((b) => <option key={b.id} value={b.id}>{b.nameEn}</option>)}
+                </select>
+              </label>
+              <label className="text-[12px] font-semibold text-ink-600">
+                Service / Procedure <span className="text-ink-400">(optional)</span>
+                <select value={serviceId} onChange={(e) => { setServiceId(e.target.value); setSlots([]); setSlot(""); }} className={`mt-1 w-full ${fieldClass()}`}>
+                  <option value="">General Consultation</option>
+                  {services.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nameEn} ({s.durationMinutes}m{s.fee ? ` · ${s.fee} EGP` : ""})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <button
               type="button"
-              disabled={pending || !doctorId || !branchId || !date}
-              onClick={loadSlots}
-              className="h-9 rounded-control bg-primary px-3 text-[12px] font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
+              disabled={pending || !specialtyId || !doctorId || !branchId}
+              onClick={proceedToDateTime}
+              className="h-10 rounded-control bg-primary px-4 text-[12.5px] font-semibold text-white hover:bg-primary-hover disabled:bg-[#9bb0bf]"
             >
-              Load live slots
+              Continue to Date & Time ›
             </button>
           </div>
-        </div>
+        )}
 
-        {slots.length > 0 && (
-          <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
-            {slots.map((s) => (
-              <button
-                key={s.time}
-                type="button"
-                disabled={pending}
-                onClick={() => setSlot(s.time)}
-                className={
-                  "rounded-control border px-2 py-2 text-[12px] font-semibold " +
-                  (slot === s.time
-                    ? "border-primary bg-primary text-white"
-                    : "border-line bg-panel text-ink-700 hover:border-primary hover:text-primary")
-                }
-              >
-                {s.isFirstComeFirstServe ? (
-                  <span className="block">
-                    First-come
-                    <span className="block text-[10px] opacity-80">
-                      {formatClock(s.time)} · {s.remainingCapacity} left
-                    </span>
-                  </span>
-                ) : (
-                  formatClock(s.time)
-                )}
+        {step === 2 && (
+          <div className="mt-4 flex flex-col gap-4">
+            <div className="rounded-card bg-[#eef7ff] p-3">
+              <div className="text-[13px] font-bold text-ink-900">{selectedDoctor?.nameEn ?? "Selected doctor"}</div>
+              <div className="text-[11.5px] text-[#208a96]">{selectedSpecialty?.nameEn ?? ""}</div>
+              <div className="text-[11.5px] text-ink-500">{selectedBranch?.nameEn ?? ""}</div>
+            </div>
+            <DateGrid selected={date} maxDate={maxDate} onSelect={(next) => loadSlotsForDate(next)} />
+            <div>
+              <div className="mb-2 text-[12.5px] font-bold text-ink-900">
+                Available Time Slots <span className="font-normal text-ink-400">(same-day slots require advance notice)</span>
+              </div>
+              {pending ? (
+                <div className="rounded-card border border-line p-3 text-[12px] text-ink-400">Loading live availability...</div>
+              ) : slots.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {slots.map((s) => (
+                    <button
+                      key={s.time}
+                      type="button"
+                      onClick={() => setSlot(s.time)}
+                      className={
+                        "rounded-control border px-2 py-2 text-[12px] font-semibold " +
+                        (slot === s.time
+                          ? "border-primary bg-primary text-white"
+                          : "border-line bg-panel text-ink-700 hover:border-primary hover:text-primary")
+                      }
+                    >
+                      {s.isFirstComeFirstServe ? (
+                        <span className="block">
+                          First-come
+                          <span className="block text-[10px] opacity-80">{formatClock(s.time)} · {s.remainingCapacity} left</span>
+                        </span>
+                      ) : (
+                        formatClock(s.time)
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-card border border-line p-3 text-[12px] text-ink-400">Choose an available date to load live slots.</div>
+              )}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button type="button" onClick={() => setStep(1)} className="h-10 rounded-control border border-line bg-panel text-[12.5px] font-semibold text-ink-700 hover:bg-line-faint">
+                ‹ Back
               </button>
-            ))}
+              <button type="button" disabled={!slot} onClick={() => setStep(3)} className="h-10 rounded-control bg-primary text-[12.5px] font-semibold text-white hover:bg-primary-hover disabled:bg-[#9bb0bf]">
+                Continue ›
+              </button>
+            </div>
           </div>
         )}
-      </section>
 
-      <section>
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-400">Patient details</div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-[12px] font-semibold text-ink-600">
-            Patient name
-            <input value={patientName} onChange={(e) => setPatientName(e.target.value)} className={`mt-1 w-full ${fieldClass()}`} />
-          </label>
-          <label className="text-[12px] font-semibold text-ink-600">
-            Phone
-            <div className="mt-1 flex gap-2">
-              <input value={phoneCountryCode} onChange={(e) => setPhoneCountryCode(e.target.value)} className={`${fieldClass()} w-20`} />
-              <input value={phoneNumber} onChange={(e) => setPhoneNumber(digits(e.target.value))} className={`flex-1 ${fieldClass()}`} />
+        {step === 3 && (
+          <div className="mt-4 flex flex-col gap-4">
+            <div className="text-[16px] font-bold text-ink-900">Your Information</div>
+            <label className="text-[12px] font-semibold text-ink-600">
+              Full Name
+              <input value={patientName} onChange={(e) => setPatientName(e.target.value)} className={`mt-1 w-full ${fieldClass()}`} />
+            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <div className="mb-1 text-[12px] font-semibold text-ink-600">Patient Type</div>
+                <div className="grid gap-2">
+                  {[
+                    { value: true, label: "New Patient" },
+                    { value: false, label: "Follow-up" },
+                  ].map((opt) => (
+                    <button
+                      key={String(opt.value)}
+                      type="button"
+                      onClick={() => setIsNewPatient(opt.value)}
+                      className={
+                        "flex h-10 items-center gap-2 rounded-control border px-3 text-left text-[12.5px] font-semibold " +
+                        (isNewPatient === opt.value ? "border-primary bg-primary-soft text-primary" : "border-line text-ink-700")
+                      }
+                    >
+                      <span className={"h-3 w-3 rounded-full border " + (isNewPatient === opt.value ? "border-primary bg-primary" : "border-ink-400")} />
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="text-[12px] font-semibold text-ink-600">
+                Phone Number
+                <div className="mt-1 flex gap-2">
+                  <input value={phoneCountryCode} onChange={(e) => setPhoneCountryCode(e.target.value)} className={`${fieldClass()} w-20`} />
+                  <input value={phoneNumber} onChange={(e) => setPhoneNumber(digits(e.target.value))} className={`flex-1 ${fieldClass()}`} />
+                </div>
+              </label>
             </div>
-          </label>
-          <label className="text-[12px] font-semibold text-ink-600">
-            Patient type
-            <select value={String(isNewPatient)} onChange={(e) => setIsNewPatient(e.target.value === "true")} className={`mt-1 w-full ${fieldClass()}`}>
-              <option value="true">New patient</option>
-              <option value="false">Follow-up / returning</option>
-            </select>
-          </label>
-          <label className="text-[12px] font-semibold text-ink-600">
-            Initial status
-            <select value={status} onChange={(e) => setStatus(e.target.value as ReservationStatus)} className={`mt-1 w-full ${fieldClass()}`}>
-              <option value="reserved">Reserved</option>
-              <option value="confirmed">Confirmed</option>
-            </select>
-          </label>
-          <label className="text-[12px] font-semibold text-ink-600 sm:col-span-2">
-            Referral source
-            <input value={referralSource} onChange={(e) => setReferralSource(e.target.value)} className={`mt-1 w-full ${fieldClass()}`} />
-          </label>
-          <label className="text-[12px] font-semibold text-ink-600 sm:col-span-2">
-            Primary complaint
-            <textarea value={primaryComplaint} onChange={(e) => setPrimaryComplaint(e.target.value)} className="mt-1 min-h-[64px] w-full rounded-control border border-line bg-panel p-2 text-[12.5px]" />
-          </label>
-          <label className="text-[12px] font-semibold text-ink-600 sm:col-span-2">
-            Booking notes
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1 min-h-[64px] w-full rounded-control border border-line bg-panel p-2 text-[12.5px]" />
-          </label>
-        </div>
-        <div className="mt-3 flex justify-end">
-          <button
-            type="button"
-            disabled={pending || !slot || !patientName.trim() || !phoneNumber.trim()}
-            onClick={createBooking}
-            className="rounded-control bg-primary px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
-          >
-            {pending ? "Saving..." : "Confirm booking"}
-          </button>
-        </div>
+            <label className="text-[12px] font-semibold text-ink-600">
+              How did you hear about us?
+              <input value={referralSource} onChange={(e) => setReferralSource(e.target.value)} className={`mt-1 w-full ${fieldClass()}`} />
+            </label>
+            <label className="text-[12px] font-semibold text-ink-600">
+              Additional Notes <span className="text-ink-400">(optional)</span>
+              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1 min-h-[76px] w-full rounded-control border border-line bg-panel p-2 text-[12.5px]" />
+            </label>
+            <label className="text-[12px] font-semibold text-ink-600">
+              Primary complaint <span className="text-ink-400">(internal)</span>
+              <textarea value={primaryComplaint} onChange={(e) => setPrimaryComplaint(e.target.value)} className="mt-1 min-h-[60px] w-full rounded-control border border-line bg-panel p-2 text-[12.5px]" />
+            </label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button type="button" onClick={() => setStep(2)} className="h-10 rounded-control border border-line bg-panel text-[12.5px] font-semibold text-ink-700 hover:bg-line-faint">
+                ‹ Back
+              </button>
+              <button type="button" disabled={!patientName.trim() || !phoneNumber.trim()} onClick={() => setStep(4)} className="h-10 rounded-control bg-primary text-[12.5px] font-semibold text-white hover:bg-primary-hover disabled:bg-[#9bb0bf]">
+                Review Booking ›
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="mt-4 flex flex-col gap-4">
+            <div className="text-[16px] font-bold text-ink-900">Review & Confirm</div>
+            <div className="rounded-card bg-[#eef7ff] p-4">
+              <div className="mb-3 text-[13px] font-bold text-primary">Appointment Details</div>
+              <div className="grid gap-2 text-[12.5px]">
+                <div className="flex justify-between gap-3"><span className="text-ink-500">Doctor</span><strong>{selectedDoctor?.nameEn ?? "-"}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-ink-500">Specialty</span><strong>{selectedSpecialty?.nameEn ?? "-"}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-ink-500">Location</span><strong>{selectedBranch?.nameEn ?? "-"}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-ink-500">Service</span><strong>{selectedService?.nameEn ?? "General Consultation"}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-ink-500">Date</span><strong>{formatDate(date)}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-ink-500">Time</span><strong>{slot ? `${formatClock(slot)} - ${formatClock(selectedSlot?.endTime ?? slot)}` : "-"}</strong></div>
+              </div>
+            </div>
+            <div className="rounded-card bg-line-faint/50 p-4">
+              <div className="mb-3 text-[13px] font-bold text-ink-900">Patient Information</div>
+              <div className="grid gap-2 text-[12.5px]">
+                <div className="flex justify-between gap-3"><span className="text-ink-500">Name</span><strong>{patientName || "-"}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-ink-500">Patient Type</span><strong>{isNewPatient ? "New Patient" : "Follow-up"}</strong></div>
+                <div className="flex justify-between gap-3"><span className="text-ink-500">Phone</span><strong>{phoneCountryCode} {phoneNumber}</strong></div>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button type="button" onClick={() => setStep(3)} className="h-10 rounded-control border border-line bg-panel text-[12.5px] font-semibold text-ink-700 hover:bg-line-faint">
+                ‹ Back
+              </button>
+              <button
+                type="button"
+                disabled={pending || !slot || !patientName.trim() || !phoneNumber.trim()}
+                onClick={createBooking}
+                className="h-10 rounded-control bg-primary text-[12.5px] font-semibold text-white hover:bg-primary-hover disabled:bg-[#9bb0bf]"
+              >
+                {pending ? "Saving..." : "Confirm Booking"}
+              </button>
+            </div>
+            <p className="text-center text-[11.5px] text-ink-400">By confirming, the appointment is written to the live booking system and linked to this CRM lead.</p>
+          </div>
+        )}
       </section>
     </div>
   );

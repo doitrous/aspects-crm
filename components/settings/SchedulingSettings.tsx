@@ -186,7 +186,7 @@ export function SchedulingSettings({ snapshot }: { snapshot: BookingSchedulingSn
           <div>
             <h3 className="text-[13px] font-bold text-ink-900">Live booking rules</h3>
             <p className="text-[11.5px] text-ink-500">
-              Public booking, lead Booking, Patient Reservations, Calendar, and Scheduling all read these same booking-platform rows.
+              Public booking, lead Booking, Website Reservations, Calendar, and Scheduling all read these same booking-platform rows.
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5 text-[11px]">

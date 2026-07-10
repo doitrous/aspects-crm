@@ -11,9 +11,11 @@ const PLATFORMS = ["facebook", "instagram", "whatsapp", "web", "referral"];
 export function LeadsToolbar({
   sources,
   basePath = "/leads",
+  stageLocked = false,
 }: {
   sources: LeadSourceInfo[];
   basePath?: string;
+  stageLocked?: boolean;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -54,12 +56,14 @@ export function LeadsToolbar({
         Search
       </button>
 
-      <select className={selCls} value={sp.get("stage") ?? ""} onChange={(e) => setParam("stage", e.target.value)}>
-        <option value="">Stage: All</option>
-        {STAGE_ORDER.map((s) => (
-          <option key={s} value={s}>{STAGE_META[s].label}</option>
-        ))}
-      </select>
+      {!stageLocked && (
+        <select className={selCls} value={sp.get("stage") ?? ""} onChange={(e) => setParam("stage", e.target.value)}>
+          <option value="">Stage: All</option>
+          {STAGE_ORDER.map((s) => (
+            <option key={s} value={s}>{STAGE_META[s].label}</option>
+          ))}
+        </select>
+      )}
 
       <select className={selCls} value={sp.get("channel") ?? ""} onChange={(e) => setParam("channel", e.target.value)}>
         <option value="">Channel / Source: All</option>

@@ -129,7 +129,7 @@ export default async function FinancialPage({
             <Link href={`/financial?from=${range.from}&to=${range.to}`} className={"rounded-md px-3 py-1 text-[12px] font-semibold " + (tab === "overview" ? "bg-primary text-white" : "text-ink-600")}>Overview</Link>
             <Link href={`/financial?from=${range.from}&to=${range.to}&tab=exceptions`} className={"rounded-md px-3 py-1 text-[12px] font-semibold " + (tab === "exceptions" ? "bg-primary text-white" : "text-ink-600")}>Exceptional pricing</Link>
           </div>
-          <Link href="/financial/import" className="h-8 rounded-control bg-primary px-3 text-[12px] font-semibold leading-8 text-white hover:bg-primary-hover">
+          <Link href="/bulk-import" className="h-8 rounded-control bg-primary px-3 text-[12px] font-semibold leading-8 text-white hover:bg-primary-hover">
             Bulk import
           </Link>
         </div>

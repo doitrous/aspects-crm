@@ -7,10 +7,10 @@ import {
   addExternalCostAction,
   addTransactionAction,
   decideApprovalAction,
-  IDLE,
   requestApprovalAction,
   saveQuoteAction,
   setTransactionStatusAction,
+  type FinancialActionState,
 } from "@/app/(crm)/leads/financial-actions";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -69,6 +69,8 @@ const STATUS_STYLE: Record<string, string> = {
   failed: "bg-danger-bg text-danger",
   cancelled: "bg-line-faint text-ink-500",
 };
+
+const IDLE: FinancialActionState = { error: null, ok: null };
 
 /* ── small primitives ─────────────────────────────────────────── */
 

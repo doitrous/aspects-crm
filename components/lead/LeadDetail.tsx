@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type {
   Booking,
   Comment,
@@ -10,6 +10,7 @@ import type {
   Escalation,
   Lead,
   LeadAttribution,
+  FollowUpPlan,
   Message,
   PipelineStage,
   Platform,
@@ -54,16 +55,17 @@ import { EscalationResolutionControls } from "@/components/queues/EscalationReso
 
 const TABS = [
   "Overview",
-  "Conversation",
+  "Messenger",
+  "WhatsApp",
   "Comments",
   "Notes",
   "Follow-Up",
   "Booking",
-  "Payments",
+  "Payments / Financials",
   "Log",
 ] as const;
 type Tab = (typeof TABS)[number];
-type LoadableTab = "Overview" | "Conversation" | "Comments" | "Booking" | "Payments" | "Log";
+type LoadableTab = "Overview" | "Messenger" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments / Financials" | "Log";
 
 const tabCache = new Map<string, Partial<LeadDetailData>>();
 
@@ -89,10 +91,10 @@ const STATUS_PILL_ORDER: PipelineStage[] = [
   "lost",
 ];
 const STATUS_PILL_LABEL: Record<PipelineStage, string> = {
-  new: "New",
+  new: "New Lead",
   qualified: "Qualified",
   follow_up: "Follow-Up",
-  post_op: "Post-Op",
+  post_op: "Post-Op Follow-Up",
   booked: "Booked",
   lost: "Lost",
 };
@@ -134,8 +136,11 @@ export interface LeadDetailData {
   /** `null` when the viewer may not see financials, or the records are unreadable. */
   financials: LeadFinancials | null;
   financialsError: string | null;
+  followUpPlan: FollowUpPlan | null;
+  whatsappConfigured: boolean;
   availableTags: ReferenceOption[];
   lostReasons: ReferenceOption[];
+  escalationReasons: Array<ReferenceOption & { severity?: string }>;
 }
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -161,6 +166,7 @@ function DetailField({ label, value }: { label: string; value: React.ReactNode }
 export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailData; onClose?: () => void }) {
   const [data, setData] = useState<LeadDetailData>(initialData);
   const { lead } = data;
+  const router = useRouter();
   const searchParams = useSearchParams();
   const requestedTab = searchParams.get("tab");
   const initialTab = TABS.includes(requestedTab as Tab) ? (requestedTab as Tab) : "Overview";
@@ -175,6 +181,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
   const [lostReasonId, setLostReasonId] = useState("");
   const [lostNotes, setLostNotes] = useState("");
   const [escalateModal, setEscalateModal] = useState(false);
+  const [escalationReasonId, setEscalationReasonId] = useState("");
   const [escalationReason, setEscalationReason] = useState("");
   const [escalationSeverity, setEscalationSeverity] = useState("medium");
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(() => new Set());
@@ -188,7 +195,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
   }, [requestedTab]);
 
   useEffect(() => {
-    const loadable: LoadableTab[] = ["Overview", "Conversation", "Comments", "Booking", "Payments", "Log"];
+    const loadable: LoadableTab[] = ["Overview", "Messenger", "WhatsApp", "Comments", "Follow-Up", "Booking", "Payments / Financials", "Log"];
     if (!loadable.includes(tab as LoadableTab)) return;
     const cacheKey = `${lead.id}:${tab}`;
     const cached = tabCache.get(cacheKey);
@@ -269,6 +276,8 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
     run(() => updateLeadStageAction(lead.id, next), () => {
       setStage(next);
       setConfirmStage(null);
+      invalidateTab("Follow-Up");
+      router.refresh();
     });
   }
 
@@ -288,15 +297,19 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
         setLostModal(false);
         setLostReasonId("");
         setLostNotes("");
+        router.refresh();
       },
     );
   }
 
   function submitEscalation() {
+    const selected = data.escalationReasons.find((r) => r.id === escalationReasonId);
+    const reason = [selected?.label, escalationReason.trim()].filter(Boolean).join(": ");
     run(
-      () => escalateLeadAction(lead.id, escalationReason, escalationSeverity),
+      () => escalateLeadAction(lead.id, reason, escalationSeverity),
       () => {
         setEscalateModal(false);
+        setEscalationReasonId("");
         setEscalationReason("");
       },
     );
@@ -399,7 +412,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
             </button>
           )}
           <button
-            onClick={() => setTab("Conversation")}
+            onClick={() => setTab("Messenger")}
             className="rounded-control border border-line px-3.5 py-2 text-[12.5px] font-medium text-ink-700 hover:border-primary hover:text-primary"
           >
             Reply
@@ -543,7 +556,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                   </div>
                   <p className="text-[12.5px] leading-relaxed text-ink-700">{latestMessage.body}</p>
                   <button
-                    onClick={() => setTab("Conversation")}
+                    onClick={() => setTab("Messenger")}
                     className="mt-2 text-[12px] font-semibold text-primary hover:underline"
                   >
                     Open conversation →
@@ -561,13 +574,34 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
           </div>
         )}
 
-        {tab === "Conversation" && (
+        {tab === "Messenger" && (
           <MessageThread
             messages={data.messages.filter(
-              (m) => m.channel === "facebook" || m.channel === "instagram" || m.channel === "whatsapp",
+              (m) => m.channel === "facebook" || m.channel === "instagram",
             )}
-            emptyHint="Messenger, Instagram & WhatsApp messages will appear here once integrations are connected."
+            emptyHint="Facebook Messenger and Instagram DM messages will appear here once integrations are connected."
           />
+        )}
+
+        {tab === "WhatsApp" && (
+          loadedTabs.has("WhatsApp") ? (
+            data.whatsappConfigured ? (
+              <MessageThread
+                messages={data.messages.filter((m) => m.channel === "whatsapp")}
+                emptyHint="No WhatsApp messages have been ingested for this lead yet."
+              />
+            ) : (
+              <div className="p-5">
+                <EmptyState
+                  icon="WA"
+                  title="WhatsApp is not configured"
+                  hint="The CRM ingest path is ready, but WhatsApp credentials are not present in server environment variables."
+                />
+              </div>
+            )
+          ) : (
+            <div className="p-5 text-[12px] text-ink-400">Loading WhatsApp...</div>
+          )
         )}
 
         {tab === "Comments" && <CommentsPanel comments={data.comments} />}
@@ -577,15 +611,16 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
         {tab === "Follow-Up" && (
           <FollowUpPanel
             lead={lead}
+            plan={data.followUpPlan}
             pending={pending}
             onSchedule={(workflowType, dueAt, notes) =>
-              run(() => scheduleFollowUpAction(lead.id, workflowType, dueAt, notes))
+              run(() => scheduleFollowUpAction(lead.id, workflowType, dueAt, notes), () => invalidateTab("Follow-Up"))
             }
             onComplete={(followUpId, outcome) =>
-              run(() => completeFollowUpAction(lead.id, followUpId, outcome))
+              run(() => completeFollowUpAction(lead.id, followUpId, outcome), () => invalidateTab("Follow-Up"))
             }
             onSnooze={(followUpId) =>
-              run(() => snoozeFollowUpAction(lead.id, followUpId, 1))
+              run(() => snoozeFollowUpAction(lead.id, followUpId, 1), () => invalidateTab("Follow-Up"))
             }
             onMarkLost={() => setLostModal(true)}
           />
@@ -599,12 +634,12 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
           )
         )}
 
-        {tab === "Payments" && (
-          loadedTabs.has("Payments") ? (
+        {tab === "Payments / Financials" && (
+          loadedTabs.has("Payments / Financials") ? (
             <PaymentsTab
               financials={data.financials}
               error={data.financialsError}
-              onChanged={() => invalidateTab("Payments")}
+              onChanged={() => invalidateTab("Payments / Financials")}
             />
           ) : (
             <div className="p-5 text-[12px] text-ink-400">Loading financials...</div>
@@ -701,8 +736,28 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
       )}
       {escalateModal && (
         <Modal title="Escalate Lead" onClose={() => setEscalateModal(false)}>
+          {data.escalationReasons.length > 0 && (
+            <label className="mb-3 block text-[12px] font-semibold text-ink-600">
+              Controlled reason
+              <select
+                value={escalationReasonId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setEscalationReasonId(id);
+                  const selected = data.escalationReasons.find((r) => r.id === id);
+                  if (selected?.severity) setEscalationSeverity(selected.severity);
+                }}
+                className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2 text-[12.5px]"
+              >
+                <option value="">Choose a reason</option>
+                {data.escalationReasons.map((r) => (
+                  <option key={r.id} value={r.id}>{r.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="block text-[12px] font-semibold text-ink-600">
-            Reason
+            Details
             <textarea
               autoFocus
               value={escalationReason}
@@ -728,7 +783,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               Cancel
             </button>
             <button
-              disabled={pending || escalationReason.trim().length === 0}
+              disabled={pending || escalationReason.trim().length === 0 || (data.escalationReasons.length > 0 && !escalationReasonId)}
               onClick={submitEscalation}
               className="rounded-control bg-primary px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-60"
             >
@@ -811,27 +866,15 @@ function AttributionSection({ attribution }: { attribution: LeadAttribution }) {
 
 /** Platform identifiers, kept behind a disclosure so they do not crowd the profile. */
 function IdentitySection({ lead }: { lead: Lead }) {
-  if (!lead.platformId && !lead.chatLink) return null;
+  if (!lead.platformId) return null;
   return (
     <details className="mt-3">
       <summary className="cursor-pointer text-[11px] text-ink-400 hover:text-ink-600">Identity & technical</summary>
       <div className="mt-1 divide-y divide-line-faint">
-        {lead.platformId && (
-          <DetailRow
-            label={lead.platform === "instagram" ? "Instagram ID" : "Platform ID"}
-            value={<span className="font-mono text-[10.5px] break-all">{lead.platformId}</span>}
-          />
-        )}
-        {lead.chatLink && (
-          <DetailRow
-            label="Chat"
-            value={
-              <a href={lead.chatLink} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                Open inbox ↗
-              </a>
-            }
-          />
-        )}
+        <DetailRow
+          label={lead.platform === "instagram" ? "Instagram ID" : lead.platform === "whatsapp" ? "WhatsApp ID" : "Platform ID"}
+          value={<span className="font-mono text-[10.5px] break-all">{lead.platformId}</span>}
+        />
       </div>
     </details>
   );
@@ -839,6 +882,7 @@ function IdentitySection({ lead }: { lead: Lead }) {
 
 function FollowUpPanel({
   lead,
+  plan,
   pending,
   onSchedule,
   onComplete,
@@ -846,6 +890,7 @@ function FollowUpPanel({
   onMarkLost,
 }: {
   lead: Lead;
+  plan: FollowUpPlan | null;
   pending: boolean;
   onSchedule: (workflowType: string, dueAt: string, notes?: string) => void;
   onComplete: (followUpId?: string, outcome?: string) => void;
@@ -868,6 +913,78 @@ function FollowUpPanel({
 
   return (
     <div className="flex flex-col gap-5 p-5">
+      {plan && plan.steps.length > 0 && (
+        <div>
+          <SectionLabel>Scheduled</SectionLabel>
+          <div className="flex flex-col gap-2.5">
+            {plan.steps.map((step) => (
+              <div key={step.id ?? step.sequence} className="rounded-card border border-line bg-panel p-3.5">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div className="text-[13.5px] font-semibold text-ink-900">
+                      {step.name || `F/U ${step.sequence}`}
+                    </div>
+                    <div className="mt-0.5 text-[12px] text-ink-500">
+                      Due: {step.dueAt ? formatDate(step.dueAt) : "Not scheduled"}
+                    </div>
+                  </div>
+                  <span
+                    className={
+                      "rounded-pill px-2.5 py-1 text-[11px] font-semibold capitalize " +
+                      (step.state === "overdue"
+                        ? "bg-danger-bg text-danger"
+                        : step.state === "done"
+                          ? "bg-[#ecfdf3] text-success"
+                          : step.state === "snoozed"
+                            ? "bg-[#fffaeb] text-warn"
+                            : "bg-line-faint text-ink-600")
+                    }
+                  >
+                    {step.state}
+                  </span>
+                </div>
+                {step.notes && <div className="mt-2 text-[12.5px] text-ink-700">Notes: {step.notes}</div>}
+                {step.moderatorInstruction && (
+                  <div className="mt-2 text-[12px] text-ink-500">{step.moderatorInstruction}</div>
+                )}
+                {(step.completedAt || step.completedBy) && (
+                  <div className="mt-2 text-[11.5px] text-ink-400">
+                    Completed {step.completedAt ? formatDateTime(step.completedAt) : ""}
+                    {step.completedBy ? ` by ${step.completedBy}` : ""}
+                  </div>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={pending || step.state === "done"}
+                    onClick={() => onComplete(step.id, "Completed")}
+                    className="rounded-control border border-success-strong/40 bg-success/5 px-3 py-1.5 text-[12px] font-semibold text-success hover:bg-success/10 disabled:opacity-60"
+                  >
+                    Mark done
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending || step.state === "done"}
+                    onClick={() => onSnooze(step.id)}
+                    className="rounded-control border border-line bg-panel px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:border-primary hover:text-primary disabled:opacity-60"
+                  >
+                    Snooze 1 day
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={onMarkLost}
+                    className="rounded-control border border-danger/30 bg-danger-bg px-3 py-1.5 text-[12px] font-semibold text-danger hover:bg-danger/10 disabled:opacity-60"
+                  >
+                    Mark lost
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {scheduled ? (
         <div
           className={

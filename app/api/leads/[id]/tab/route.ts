@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/data/session";
 import { loadLeadTab } from "@/lib/loadLeadDetail";
 
-const TABS = new Set(["Overview", "Conversation", "Comments", "Booking", "Payments", "Log"]);
+const TABS = new Set(["Overview", "Messenger", "WhatsApp", "Comments", "Follow-Up", "Booking", "Payments / Financials", "Payments", "Log"]);
 
 export async function GET(
   request: Request,
@@ -18,7 +18,10 @@ export async function GET(
   }
 
   try {
-    const data = await loadLeadTab(id, tab as "Overview" | "Conversation" | "Comments" | "Booking" | "Payments" | "Log");
+    const data = await loadLeadTab(
+      id,
+      tab as "Overview" | "Messenger" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments / Financials" | "Payments" | "Log",
+    );
     if (!data) return NextResponse.json({ error: "Lead not found." }, { status: 404 });
     return NextResponse.json(data);
   } catch (error) {

@@ -27,6 +27,7 @@ export async function upsertTag(input: {
   id?: string;
   name: string;
   color?: string | null;
+  displayOrder?: number;
   isActive?: boolean;
 }): Promise<void> {
   const actor = await guard();
@@ -35,10 +36,11 @@ export async function upsertTag(input: {
   const db = supabaseAdmin();
 
   if (input.id) {
-    const { data: before } = await db.from("lead_tags").select("name,color,is_active").eq("id", input.id).maybeSingle();
+    const { data: before } = await db.from("lead_tags").select("name,color,is_active,display_order").eq("id", input.id).maybeSingle();
     const patch = {
       name,
       color: input.color ?? null,
+      display_order: input.displayOrder ?? 0,
       is_active: input.isActive ?? true,
       updated_at: new Date().toISOString(),
     };
@@ -57,7 +59,7 @@ export async function upsertTag(input: {
 
   const { data, error } = await db
     .from("lead_tags")
-    .insert({ name, color: input.color ?? null, is_active: input.isActive ?? true })
+    .insert({ name, color: input.color ?? null, display_order: input.displayOrder ?? 0, is_active: input.isActive ?? true })
     .select("id")
     .single();
   if (error) throw new SettingsError(error.message);
@@ -66,7 +68,7 @@ export async function upsertTag(input: {
     action: "settings.tag_created",
     entityType: "tag",
     entityId: data.id as string,
-    newValues: { name, color: input.color ?? null, is_active: input.isActive ?? true },
+    newValues: { name, color: input.color ?? null, display_order: input.displayOrder ?? 0, is_active: input.isActive ?? true },
   });
 }
 
@@ -119,6 +121,58 @@ export async function upsertLostReason(input: {
   });
 }
 
+/* ── Escalation reasons (crm_escalation_reasons) ─────────────── */
+
+export async function upsertEscalationReason(input: {
+  id?: string;
+  label: string;
+  severity?: "low" | "medium" | "high" | "critical";
+  isActive?: boolean;
+  displayOrder?: number;
+}): Promise<void> {
+  const actor = await guard();
+  const label = input.label.trim();
+  if (!label) throw new SettingsError("Escalation reason label is required.");
+  const severity = input.severity ?? "medium";
+  const db = supabaseAdmin();
+
+  if (input.id) {
+    const { data: before } = await db.from("crm_escalation_reasons").select("label,severity,is_active,display_order").eq("id", input.id).maybeSingle();
+    const patch = {
+      label,
+      severity,
+      is_active: input.isActive ?? true,
+      display_order: input.displayOrder ?? 0,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await db.from("crm_escalation_reasons").update(patch).eq("id", input.id);
+    if (error) throw new SettingsError(error.message);
+    await logActivity({
+      actorId: actor.id,
+      action: "settings.escalation_reason_updated",
+      entityType: "escalation_reason",
+      entityId: input.id,
+      oldValues: (before ?? {}) as Record<string, unknown>,
+      newValues: patch,
+    });
+    return;
+  }
+
+  const { data, error } = await db
+    .from("crm_escalation_reasons")
+    .insert({ label, severity, is_active: input.isActive ?? true, display_order: input.displayOrder ?? 0 })
+    .select("id")
+    .single();
+  if (error) throw new SettingsError(error.message);
+  await logActivity({
+    actorId: actor.id,
+    action: "settings.escalation_reason_created",
+    entityType: "escalation_reason",
+    entityId: data.id as string,
+    newValues: { label, severity, is_active: input.isActive ?? true, display_order: input.displayOrder ?? 0 },
+  });
+}
+
 /* ── SLA / stage reply rules (crm_stage_reply_rules) ──────────── */
 
 export async function updateSlaRule(input: {
@@ -163,6 +217,9 @@ export async function upsertFollowUpStage(input: {
   stageOrder: number;
   dueAfterAmount: number;
   dueAfterUnit: "hours" | "days" | "weeks";
+  anchor?: string;
+  applicableStatus?: string | null;
+  applicableTagId?: string | null;
   moderatorInstruction?: string | null;
   isActive?: boolean;
 }): Promise<void> {
@@ -177,6 +234,10 @@ export async function upsertFollowUpStage(input: {
     stage_order: input.stageOrder,
     due_after_amount: input.dueAfterAmount,
     due_after_unit: input.dueAfterUnit,
+    anchor: input.anchor?.trim() || "stage_entry",
+    applicable_status: input.applicableStatus?.trim() || null,
+    applicable_tag_id: input.applicableTagId || null,
+    plan_version: 1,
     moderator_instruction: input.moderatorInstruction ?? null,
     is_active: input.isActive ?? true,
     updated_at: new Date().toISOString(),
@@ -184,7 +245,8 @@ export async function upsertFollowUpStage(input: {
 
   if (input.id) {
     const { data: before } = await db.from("crm_followup_workflow_stages").select("*").eq("id", input.id).maybeSingle();
-    const { error } = await db.from("crm_followup_workflow_stages").update(row).eq("id", input.id);
+    const nextVersion = (((before?.plan_version as number | undefined) ?? 1) + 1);
+    const { error } = await db.from("crm_followup_workflow_stages").update({ ...row, plan_version: nextVersion }).eq("id", input.id);
     if (error) throw new SettingsError(error.message);
     await logActivity({
       actorId: actor.id,
@@ -192,7 +254,7 @@ export async function upsertFollowUpStage(input: {
       entityType: "followup_stage",
       entityId: input.id,
       oldValues: (before ?? {}) as Record<string, unknown>,
-      newValues: row,
+      newValues: { ...row, plan_version: nextVersion },
     });
     return;
   }

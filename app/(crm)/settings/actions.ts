@@ -7,6 +7,7 @@ import {
   SettingsError,
   upsertTag,
   upsertLostReason,
+  upsertEscalationReason,
   updateSlaRule,
   upsertFollowUpStage,
   deleteFollowUpStage,
@@ -25,10 +26,7 @@ export interface SettingsActionState {
   message?: string;
 }
 
-const IDLE: SettingsActionState = { ok: false };
-export { IDLE as SETTINGS_IDLE };
-
-/** Map known, user-facing errors to state; rethrow anything unexpected. */
+/** Map settings errors to form state so production RSC does not become a digest page. */
 function fail(err: unknown): SettingsActionState {
   if (
     err instanceof SettingsError ||
@@ -40,7 +38,7 @@ function fail(err: unknown): SettingsActionState {
   if (err instanceof PermissionError) {
     return { ok: false, error: "You are not authorized to change this setting." };
   }
-  throw err;
+  return { ok: false, error: err instanceof Error ? err.message : "Setting could not be saved." };
 }
 
 function done(message: string): SettingsActionState {
@@ -71,6 +69,7 @@ export async function upsertTagAction(
       id: str(fd, "id") || undefined,
       name: str(fd, "name"),
       color: str(fd, "color") || null,
+      displayOrder: int(fd, "displayOrder"),
       isActive: bool(fd, "isActive"),
     });
   } catch (err) {
@@ -94,6 +93,24 @@ export async function upsertLostReasonAction(
     return fail(err);
   }
   return done("Lost reason saved.");
+}
+
+export async function upsertEscalationReasonAction(
+  _prev: SettingsActionState,
+  fd: FormData,
+): Promise<SettingsActionState> {
+  try {
+    await upsertEscalationReason({
+      id: str(fd, "id") || undefined,
+      label: str(fd, "label"),
+      severity: (str(fd, "severity") as "low" | "medium" | "high" | "critical") || "medium",
+      isActive: bool(fd, "isActive"),
+      displayOrder: int(fd, "displayOrder"),
+    });
+  } catch (err) {
+    return fail(err);
+  }
+  return done("Escalation reason saved.");
 }
 
 export async function updateSlaRuleAction(
@@ -125,6 +142,9 @@ export async function upsertFollowUpStageAction(
       stageOrder: int(fd, "stageOrder"),
       dueAfterAmount: int(fd, "dueAfterAmount"),
       dueAfterUnit: (str(fd, "dueAfterUnit") as "hours" | "days" | "weeks") || "days",
+      anchor: str(fd, "anchor") || "stage_entry",
+      applicableStatus: str(fd, "applicableStatus") || null,
+      applicableTagId: str(fd, "applicableTagId") || null,
       moderatorInstruction: str(fd, "moderatorInstruction") || null,
       isActive: bool(fd, "isActive"),
     });

@@ -23,8 +23,6 @@ export interface FinancialActionState {
   ok: string | null;
 }
 
-export const IDLE: FinancialActionState = { error: null, ok: null };
-
 /**
  * Expected refusals (a bad amount, a below-allowed quote, a missing reason)
  * become form errors. Anything else — a dropped connection, a genuine bug — is

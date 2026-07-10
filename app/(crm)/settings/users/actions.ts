@@ -12,8 +12,6 @@ export interface UserActionState {
   ok: string | null;
 }
 
-export const IDLE: UserActionState = { error: null, ok: null };
-
 /**
  * Turn the expected failure modes into form errors, and let anything else
  * (a genuine bug, a dropped connection) surface as a 500 rather than be

@@ -11,7 +11,7 @@ import { getPreferences } from "@/lib/i18n/server";
 async function newReservationCount(): Promise<number> {
   try {
     const res = await getReservations();
-    return res.filter((r) => isNewReservation(r.createdAt)).length;
+    return res.filter((r) => isNewReservation(r.status, r.createdAt)).length;
   } catch {
     return 0;
   }

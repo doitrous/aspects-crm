@@ -1,6 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { writeActor } from "@/lib/data/actor";
+import { ensureFollowUpPlanForLead } from "@/lib/data/followupPlans";
 import type { PipelineStage, ReferenceOption } from "@/lib/types";
 
 type NoteKey = "clientNotes" | "medicalHistory" | "generalNotes";
@@ -197,6 +198,10 @@ export async function updateLeadStage(params: {
 
   const { error } = await supabaseAdmin().from("leads").update(patch).eq("id", lead.id);
   if (error) throw new Error(`updateLeadStage: ${error.message}`);
+
+  if (params.stage === "follow_up" || params.stage === "post_op") {
+    await ensureFollowUpPlanForLead(params.leadId);
+  }
 
   await audit({
     actorId: actor.id,
@@ -493,7 +498,7 @@ export async function completeFollowUp(params: {
 
   const { error } = await supabaseAdmin()
     .from("lead_follow_up_stages")
-    .update({ status: "completed", completed_at: now, outcome, updated_at: now })
+    .update({ status: "completed", completed_at: now, completed_by: actor.id, outcome, updated_at: now })
     .eq("id", stage.id);
   if (error) throw new Error(`completeFollowUp: ${error.message}`);
 
@@ -531,7 +536,7 @@ export async function snoozeFollowUp(params: {
 
   const { error } = await supabaseAdmin()
     .from("lead_follow_up_stages")
-    .update({ due_at: next.toISOString(), updated_at: now })
+    .update({ due_at: next.toISOString(), snoozed_at: now, snoozed_by: actor.id, updated_at: now })
     .eq("id", stage.id);
   if (error) throw new Error(`snoozeFollowUp: ${error.message}`);
 

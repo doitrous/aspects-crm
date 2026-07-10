@@ -1,8 +1,10 @@
 "use client";
 
 import { useActionState } from "react";
-import { IDLE, linkAuthUserAction, type UserActionState } from "./actions";
+import { linkAuthUserAction, type UserActionState } from "./actions";
 import type { UnlinkedAuthUser } from "@/lib/data/users";
+
+const IDLE: UserActionState = { error: null, ok: null };
 
 /**
  * Supabase Auth users without a CRM profile (spec §F/§37). Lets an admin grant

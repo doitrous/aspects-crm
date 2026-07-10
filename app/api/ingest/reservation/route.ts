@@ -8,7 +8,7 @@ import { dispatchRule } from "@/lib/email/send";
  * The public booking site (directly, or via an n8n workflow) POSTs every new
  * patient reservation here. The reservation is turned into / linked to a CRM
  * lead so it surfaces under "New Leads" as **unread**, in addition to appearing
- * live under "Patient Reservations" (which reads the booking DB directly).
+ * live under "Website Reservations" (which reads the booking DB directly).
  *
  * Auth: shared secret in `CRM_INGEST_API_KEY`, sent as either
  *   Authorization: Bearer <key>   or   x-api-key: <key>

@@ -328,7 +328,9 @@ function pageParams(filters: LeadFilters): { page: number; pageSize: number; fro
 
 function applyLeadFilters(query: any, filters: LeadFilters) {
   let q = query as any;
-  if (filters.stage && filters.stage !== "all") {
+  if (filters.stages?.length) {
+    q = q.in("status", filters.stages.map((stage) => UI_TO_DB_STAGE[stage]));
+  } else if (filters.stage && filters.stage !== "all") {
     q = q.eq("status", UI_TO_DB_STAGE[filters.stage]);
   }
   if (filters.platform) q = q.eq("platform", toDbPlatform(filters.platform));
@@ -1037,12 +1039,17 @@ export const supabaseProvider: DataProvider = {
     }));
   },
 
-  async followUpQueue(): Promise<FollowUpItem[]> {
+  async followUpQueue(stage?: "follow_up" | "post_op"): Promise<FollowUpItem[]> {
     const usersById = await loadUserMap();
+    const statuses = stage === "post_op"
+      ? ["post_op_follow_up"]
+      : stage === "follow_up"
+        ? ["follow_up"]
+        : ["follow_up", "post_op_follow_up"];
     const { data, error } = await supabaseAdmin()
       .from("leads")
       .select(SUMMARY_COLUMNS)
-      .in("status", ["follow_up", "post_op_follow_up"])
+      .in("status", statuses)
       .order("updated_at", { ascending: false });
     if (error) throw new Error(`followUpQueue: ${error.message}`);
     const leadRows = (data as unknown as SummaryRow[]) ?? [];

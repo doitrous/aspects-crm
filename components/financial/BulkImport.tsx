@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition, type ChangeEvent } from "react";
+import { useMemo, useState, useTransition, type ChangeEvent, type DragEvent } from "react";
 import {
   parseDelimited,
   autoMap,
@@ -16,40 +16,208 @@ import {
 import { Card } from "@/components/ui/Card";
 
 const field = "rounded-control border border-line-soft bg-panel px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary";
+const stepTitle = "text-[13px] font-bold text-ink-900";
+
+interface ParsedSheet {
+  headers: string[];
+  rows: string[][];
+}
+
+type ZipEntry = { method: number; compressed: Uint8Array };
+
+function u16(view: DataView, offset: number): number {
+  return view.getUint16(offset, true);
+}
+
+function u32(view: DataView, offset: number): number {
+  return view.getUint32(offset, true);
+}
+
+function findEocd(view: DataView): number {
+  const min = Math.max(0, view.byteLength - 66_000);
+  for (let i = view.byteLength - 22; i >= min; i--) {
+    if (u32(view, i) === 0x06054b50) return i;
+  }
+  return -1;
+}
+
+async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  type DecompressionCtor = new (format: string) => {
+    writable: WritableStream<Uint8Array>;
+    readable: ReadableStream<Uint8Array>;
+  };
+  const Ctor = (globalThis as typeof globalThis & { DecompressionStream?: DecompressionCtor }).DecompressionStream;
+  if (!Ctor) throw new Error("This browser cannot decompress .xlsx files. Save as CSV and upload that file.");
+  const stream = new Ctor("deflate-raw");
+  const writer = stream.writable.getWriter();
+  await writer.write(data);
+  await writer.close();
+  return new Uint8Array(await new Response(stream.readable).arrayBuffer());
+}
+
+async function readZipXml(buffer: ArrayBuffer): Promise<Map<string, string>> {
+  const view = new DataView(buffer);
+  const eocd = findEocd(view);
+  if (eocd < 0) throw new Error("Invalid .xlsx file.");
+  const entries = u16(view, eocd + 10);
+  let offset = u32(view, eocd + 16);
+  const decoder = new TextDecoder();
+  const files = new Map<string, ZipEntry>();
+
+  for (let i = 0; i < entries; i++) {
+    if (u32(view, offset) !== 0x02014b50) break;
+    const method = u16(view, offset + 10);
+    const compressedSize = u32(view, offset + 20);
+    const nameLen = u16(view, offset + 28);
+    const extraLen = u16(view, offset + 30);
+    const commentLen = u16(view, offset + 32);
+    const localOffset = u32(view, offset + 42);
+    const name = decoder.decode(new Uint8Array(buffer, offset + 46, nameLen));
+    const localNameLen = u16(view, localOffset + 26);
+    const localExtraLen = u16(view, localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLen + localExtraLen;
+    files.set(name, {
+      method,
+      compressed: new Uint8Array(buffer, dataStart, compressedSize),
+    });
+    offset += 46 + nameLen + extraLen + commentLen;
+  }
+
+  const xml = new Map<string, string>();
+  for (const [name, entry] of files.entries()) {
+    if (!name.endsWith(".xml") && !name.endsWith(".rels")) continue;
+    const bytes = entry.method === 0 ? entry.compressed : entry.method === 8 ? await inflateRaw(entry.compressed) : null;
+    if (!bytes) continue;
+    xml.set(name, decoder.decode(bytes));
+  }
+  return xml;
+}
+
+function parseXml(text: string): Document {
+  return new DOMParser().parseFromString(text, "application/xml");
+}
+
+function firstWorksheetPath(files: Map<string, string>): string {
+  const workbook = files.get("xl/workbook.xml");
+  const rels = files.get("xl/_rels/workbook.xml.rels");
+  if (!workbook || !rels) return "xl/worksheets/sheet1.xml";
+  const doc = parseXml(workbook);
+  const sheet = doc.getElementsByTagName("sheet")[0];
+  const rid = sheet?.getAttribute("r:id");
+  if (!rid) return "xl/worksheets/sheet1.xml";
+  const relDoc = parseXml(rels);
+  const rel = Array.from(relDoc.getElementsByTagName("Relationship")).find((r) => r.getAttribute("Id") === rid);
+  const target = rel?.getAttribute("Target") ?? "worksheets/sheet1.xml";
+  if (target.startsWith("/")) return target.slice(1);
+  if (target.startsWith("xl/")) return target;
+  return `xl/${target}`;
+}
+
+function cellIndex(ref: string | null): number {
+  const letters = (ref ?? "").match(/[A-Z]+/i)?.[0]?.toUpperCase() ?? "A";
+  let n = 0;
+  for (const c of letters) n = n * 26 + (c.charCodeAt(0) - 64);
+  return Math.max(0, n - 1);
+}
+
+async function parseXlsx(buffer: ArrayBuffer): Promise<ParsedSheet> {
+  const files = await readZipXml(buffer);
+  const shared = parseXml(files.get("xl/sharedStrings.xml") ?? "<sst />");
+  const sharedStrings = Array.from(shared.getElementsByTagName("si")).map((si) => si.textContent ?? "");
+  const path = firstWorksheetPath(files);
+  const sheetXml = files.get(path) ?? files.get("xl/worksheets/sheet1.xml");
+  if (!sheetXml) throw new Error("No worksheet found in the .xlsx file.");
+  const sheet = parseXml(sheetXml);
+  const output: string[][] = [];
+  for (const row of Array.from(sheet.getElementsByTagName("row"))) {
+    const values: string[] = [];
+    for (const c of Array.from(row.getElementsByTagName("c"))) {
+      const idx = cellIndex(c.getAttribute("r"));
+      const t = c.getAttribute("t");
+      const raw = c.getElementsByTagName("v")[0]?.textContent ?? "";
+      values[idx] = t === "s" ? sharedStrings[Number(raw)] ?? "" : c.textContent?.trim() ?? raw;
+    }
+    if (values.some((v) => (v ?? "").trim() !== "")) output.push(values.map((v) => v ?? ""));
+  }
+  return { headers: (output.shift() ?? []).map((h) => h.trim()), rows: output };
+}
 
 export function BulkImport() {
   const [text, setText] = useState("");
-  const [parsed, setParsed] = useState<{ headers: string[]; rows: string[][] } | null>(null);
+  const [parsed, setParsed] = useState<ParsedSheet | null>(null);
   const [mapping, setMapping] = useState<Record<string, CanonicalField | "">>({});
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [parseError, setParseError] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  function setParsedSheet(sheet: ParsedSheet) {
+    setParsed(sheet.headers.length ? sheet : null);
+    setMapping(sheet.headers.length ? autoMap(sheet.headers) : {});
+    setResult(null);
+    setConfirmed(false);
+    setParseError("");
+  }
 
   function doParse(raw: string) {
     const p = parseDelimited(raw);
-    setParsed(p.headers.length ? p : null);
-    setMapping(p.headers.length ? autoMap(p.headers) : {});
-    setResult(null);
+    setParsedSheet(p);
+  }
+
+  async function parseFile(file: File) {
+    if (!file) return;
+    setFileName(file.name);
+    setParseError("");
+    const lower = file.name.toLowerCase();
+    try {
+      if (lower.endsWith(".xlsx")) {
+        const p = await parseXlsx(await file.arrayBuffer());
+        setText("");
+        setParsedSheet(p);
+        return;
+      }
+      const raw = await file.text();
+      setText(raw);
+      doParse(raw);
+    } catch (err) {
+      setParsed(null);
+      setMapping({});
+      setParseError((err as Error).message);
+    }
   }
 
   function onFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const raw = String(reader.result ?? "");
-      setText(raw);
-      doParse(raw);
-    };
-    reader.readAsText(file);
+    if (file) void parseFile(file);
+  }
+
+  function onDrop(e: DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) void parseFile(file);
   }
 
   const mappedRows = useMemo(() => {
     if (!parsed) return [];
-    return parsed.rows.map((r, i) => mapRow(r, parsed.headers, mapping, i));
+    const rows = parsed.rows.map((r, i) => mapRow(r, parsed.headers, mapping, i));
+    const seen = new Map<string, number>();
+    for (const r of rows) {
+      const key = (r.leadId && `lead:${r.leadId}`) || (r.mrn && `mrn:${r.mrn}`) || (r.phone && `phone:${r.phone.replace(/\D/g, "").slice(-9)}`) || "";
+      if (!key) continue;
+      const prior = seen.get(key);
+      if (prior !== undefined) {
+        r.warnings.push(`Duplicate identity also appears on import row ${prior + 1}.`);
+      } else {
+        seen.set(key, r.rowIndex);
+      }
+    }
+    return rows;
   }, [parsed, mapping]);
 
   const validRows = mappedRows.filter((r) => r.errors.length === 0);
   const errorRows = mappedRows.filter((r) => r.errors.length > 0);
+  const warningRows = mappedRows.filter((r) => r.warnings.length > 0);
 
   function runImport() {
     const payload: ImportRowInput[] = validRows.map((r) => ({
@@ -57,29 +225,51 @@ export function BulkImport() {
       leadId: r.leadId,
       mrn: r.mrn,
       phone: r.phone,
+      name: r.name,
+      age: r.age,
+      patientType: r.patientType,
+      source: r.source,
+      doctorCode: r.doctorCode,
+      doctorName: r.doctorName,
+      specialtyName: r.specialtyName,
+      serviceCode: r.serviceCode,
       serviceName: r.serviceName,
       serviceDate: r.serviceDate,
       basePrice: r.basePrice,
       quotedPrice: r.quotedPrice,
+      consumables: r.consumables,
+      doctorPercent: r.doctorPercent,
+      netAfterConsumablesDoctorPercent: r.netAfterConsumablesDoctorPercent,
       amountPaid: r.amountPaid,
       method: r.method,
+      paymentByDoctor: r.paymentByDoctor,
+      externalPayments: r.externalPayments,
     }));
     startTransition(async () => {
       const res = await importFinancialRows(payload);
       setResult(res);
+      setConfirmed(false);
     });
   }
 
   return (
     <div className="flex flex-col gap-4">
       <Card className="p-4">
-        <h3 className="mb-1 text-[13px] font-bold text-ink-900">1 · Load a CSV/TSV file</h3>
+        <h3 className={`mb-1 ${stepTitle}`}>Step 1 - Upload file</h3>
         <p className="mb-2 text-[11.5px] text-ink-500">
-          Upload a <code className="rounded bg-line-faint px-1">.csv</code>/<code className="rounded bg-line-faint px-1">.tsv</code> file
-          or paste rows below. Export Excel sheets as CSV first. Columns can be in any order (EN/AR headers auto-detected). Values import
-          into the same canonical financial tables the lead Payments tab uses.
+          Upload Excel, CSV, or TSV files. RTL/LTR headers are detected where possible, and column order is never assumed.
         </p>
-        <input type="file" accept=".csv,.tsv,.txt,text/csv" onChange={onFile} className="mb-2 block text-[12px]" />
+        <label
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={onDrop}
+          className="mb-2 flex cursor-pointer flex-col items-center justify-center rounded-control border border-dashed border-line-soft bg-line-faint/30 px-3 py-5 text-center text-[12px] text-ink-600 hover:border-primary"
+        >
+          <span className="font-semibold text-ink-800">Drop file here or choose a file</span>
+          <span className="mt-1 text-[11px] text-ink-400">Supported: .xlsx, .csv, .tsv, .txt</span>
+          <input type="file" accept=".xlsx,.csv,.tsv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={onFile} className="sr-only" />
+        </label>
+        {fileName && <div className="mb-2 text-[11.5px] font-semibold text-ink-500">Loaded: {fileName}</div>}
+        {parseError && <div className="mb-2 text-[12px] font-semibold text-red-600">{parseError}</div>}
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -99,7 +289,25 @@ export function BulkImport() {
 
       {parsed && (
         <Card className="p-4">
-          <h3 className="mb-2 text-[13px] font-bold text-ink-900">2 · Map columns</h3>
+          <h3 className={`mb-2 ${stepTitle}`}>Step 2 - Detected headers and sample rows</h3>
+          <div className="mb-4 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-[11.5px]">
+              <thead>
+                <tr className="border-b border-line-soft text-left text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">
+                  {parsed.headers.map((h) => <th key={h} className="px-2 py-1.5">{h || "Blank"}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {parsed.rows.slice(0, 3).map((row, idx) => (
+                  <tr key={idx} className="border-b border-line-faint">
+                    {parsed.headers.map((h, col) => <td key={`${h}-${col}`} className="px-2 py-1.5 text-ink-600">{row[col] || "-"}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <h3 className={`mb-2 ${stepTitle}`}>Step 3 - Column mapping</h3>
+          <p className="mb-2 text-[11.5px] text-ink-500">Imported Column {"->"} CRM Field. Every mapping can be changed before preview/import.</p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {CANONICAL_FIELDS.map((f) => {
               const current = Object.keys(mapping).find((h) => mapping[h] === f.key) ?? "";
@@ -133,9 +341,11 @@ export function BulkImport() {
 
       {parsed && (
         <Card className="p-4">
-          <h3 className="mb-2 text-[13px] font-bold text-ink-900">3 · Preview & validate</h3>
+          <h3 className={`mb-2 ${stepTitle}`}>Step 4 - Preview</h3>
+          <p className="mb-2 text-[11.5px] text-ink-500">These are the transformed CRM rows. Nothing has been written yet.</p>
           <div className="mb-2 flex flex-wrap gap-2 text-[12px]">
             <span className="rounded-pill bg-emerald-100 px-2.5 py-1 font-semibold text-emerald-700">{validRows.length} ready</span>
+            <span className="rounded-pill bg-amber-100 px-2.5 py-1 font-semibold text-amber-700">{warningRows.length} with warnings</span>
             <span className="rounded-pill bg-red-100 px-2.5 py-1 font-semibold text-red-700">{errorRows.length} with errors (skipped)</span>
           </div>
           <div className="overflow-x-auto">
@@ -144,6 +354,8 @@ export function BulkImport() {
                 <tr className="border-b border-line-soft text-left text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">
                   <th className="px-2 py-1.5">Row</th>
                   <th className="px-2 py-1.5">Match key</th>
+                  <th className="px-2 py-1.5">Name</th>
+                  <th className="px-2 py-1.5">Doctor</th>
                   <th className="px-2 py-1.5">Service</th>
                   <th className="px-2 py-1.5">Base</th>
                   <th className="px-2 py-1.5">Quoted</th>
@@ -156,12 +368,14 @@ export function BulkImport() {
                 {mappedRows.slice(0, 25).map((r) => (
                   <tr key={r.rowIndex} className={"border-b border-line-faint " + (r.errors.length ? "bg-red-50" : "")}>
                     <td className="px-2 py-1.5 text-ink-500">{r.rowIndex + 1}</td>
-                    <td className="px-2 py-1.5 font-mono text-ink-700">{r.leadId || r.mrn || r.phone || "—"}</td>
-                    <td className="px-2 py-1.5 text-ink-700">{r.serviceName ?? "—"}</td>
-                    <td className="px-2 py-1.5">{r.basePrice ?? "—"}</td>
-                    <td className="px-2 py-1.5">{r.quotedPrice ?? "—"}</td>
-                    <td className="px-2 py-1.5">{r.amountPaid ?? "—"}</td>
-                    <td className="px-2 py-1.5">{r.method ?? "—"}</td>
+                    <td className="px-2 py-1.5 font-mono text-ink-700">{r.leadId || r.mrn || r.phone || "-"}</td>
+                    <td className="px-2 py-1.5 text-ink-700">{r.name ?? "-"}</td>
+                    <td className="px-2 py-1.5 text-ink-700">{r.doctorName ?? r.doctorCode ?? "-"}</td>
+                    <td className="px-2 py-1.5 text-ink-700">{r.serviceName ?? r.serviceCode ?? "-"}</td>
+                    <td className="px-2 py-1.5">{r.basePrice ?? "-"}</td>
+                    <td className="px-2 py-1.5">{r.quotedPrice ?? "-"}</td>
+                    <td className="px-2 py-1.5">{r.amountPaid ?? "-"}</td>
+                    <td className="px-2 py-1.5">{r.method ?? "-"}</td>
                     <td className="px-2 py-1.5">
                       {r.errors.map((e, i) => <div key={i} className="text-red-600">{e}</div>)}
                       {r.warnings.map((w, i) => <div key={i} className="text-amber-600">{w}</div>)}
@@ -172,9 +386,28 @@ export function BulkImport() {
             </table>
             {mappedRows.length > 25 && <div className="mt-1 text-[11px] text-ink-400">…and {mappedRows.length - 25} more rows.</div>}
           </div>
+          <div className="mt-4 rounded-control border border-line-soft bg-panel/70 p-3">
+            <h3 className={`mb-2 ${stepTitle}`}>Step 5 - Validation</h3>
+            <div className="grid gap-2 text-[12px] sm:grid-cols-4">
+              <div><span className="font-bold text-emerald-700">{validRows.length}</span> valid rows</div>
+              <div><span className="font-bold text-amber-700">{warningRows.length}</span> warning rows</div>
+              <div><span className="font-bold text-red-700">{errorRows.length}</span> invalid rows</div>
+              <div><span className="font-bold text-ink-700">{mappedRows.length}</span> total rows</div>
+            </div>
+            <p className="mt-2 text-[11.5px] text-ink-500">
+              Invalid rows will not be imported. Warnings identify duplicates, unresolved complex finance columns, or data that requires review.
+            </p>
+          </div>
+          <div className="mt-4 rounded-control border border-line-soft bg-white p-3">
+            <h3 className={`mb-2 ${stepTitle}`}>Step 6 - Confirm import</h3>
+            <label className="flex items-start gap-2 text-[12px] text-ink-700">
+              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="mt-0.5" />
+              <span>I reviewed the preview and validation results. Import only the valid rows into the canonical CRM tables.</span>
+            </label>
+          </div>
           <button
             onClick={runImport}
-            disabled={pending || validRows.length === 0}
+            disabled={pending || validRows.length === 0 || !confirmed}
             className="mt-3 h-9 rounded-control bg-primary px-4 text-[12.5px] font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
           >
             {pending ? "Importing…" : `Import ${validRows.length} rows`}

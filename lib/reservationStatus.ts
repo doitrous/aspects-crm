@@ -7,7 +7,7 @@ export const RESERVATION_STATUS_META: Record<
   ReservationStatus,
   { label: string; bg: string; fg: string; dot: string }
 > = {
-  reserved: { label: "Reserved", bg: "#fffaeb", fg: "#b54708", dot: "#f79009" },
+  reserved: { label: "Awaiting confirmation", bg: "#fffaeb", fg: "#b54708", dot: "#f79009" },
   confirmed: { label: "Confirmed", bg: "#eff8ff", fg: "#175cd3", dot: "#2e90fa" },
   attended: { label: "Attended", bg: "#ecfdf3", fg: "#067647", dot: "#12b76a" },
   no_show: { label: "No-show", bg: "#fef3f2", fg: "#b42318", dot: "#f04438" },
@@ -22,7 +22,8 @@ export const ACTIVE_STATUSES: ReservationStatus[] = ["reserved", "confirmed"];
 /** A reservation is treated as "new / unread" until the clinic confirms it, and
  *  for the first 48h after it was booked. This is a live proxy until CRM-side
  *  read-state is persisted via the booking→CRM ingest push. */
-export function isNewReservation(createdAt: string, now: number = Date.now()): boolean {
+export function isNewReservation(status: ReservationStatus, createdAt: string, now: number = Date.now()): boolean {
+  if (status === "reserved") return true;
   const age = now - new Date(createdAt).getTime();
   return age >= 0 && age < 48 * 60 * 60 * 1000;
 }

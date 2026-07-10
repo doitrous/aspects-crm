@@ -18,11 +18,20 @@ export interface TagSetting {
   name: string;
   color: string | null;
   isActive: boolean;
+  displayOrder: number;
 }
 
 export interface LostReasonSetting {
   id: string;
   label: string;
+  isActive: boolean;
+  displayOrder: number;
+}
+
+export interface EscalationReasonSetting {
+  id: string;
+  label: string;
+  severity: "low" | "medium" | "high" | "critical";
   isActive: boolean;
   displayOrder: number;
 }
@@ -43,6 +52,10 @@ export interface FollowUpStageSetting {
   stageOrder: number;
   dueAfterAmount: number;
   dueAfterUnit: "hours" | "days" | "weeks";
+  anchor: string;
+  applicableStatus: string | null;
+  applicableTagId: string | null;
+  planVersion: number;
   moderatorInstruction: string | null;
   isActive: boolean;
 }
@@ -83,7 +96,8 @@ export interface EmailRuleSetting {
 export async function listTags(): Promise<TagSetting[]> {
   const { data, error } = await supabaseAdmin()
     .from("lead_tags")
-    .select("id,name,color,is_active")
+    .select("id,name,color,is_active,display_order")
+    .order("display_order", { ascending: true })
     .order("name", { ascending: true });
   if (error) throw new Error(`listTags: ${error.message}`);
   return (data ?? []).map((r) => ({
@@ -91,6 +105,7 @@ export async function listTags(): Promise<TagSetting[]> {
     name: r.name as string,
     color: (r.color as string) ?? null,
     isActive: Boolean(r.is_active),
+    displayOrder: (r.display_order as number) ?? 0,
   }));
 }
 
@@ -103,6 +118,25 @@ export async function listLostReasons(): Promise<LostReasonSetting[]> {
   return (data ?? []).map((r) => ({
     id: r.id as string,
     label: r.label as string,
+    isActive: Boolean(r.is_active),
+    displayOrder: (r.display_order as number) ?? 0,
+  }));
+}
+
+export async function listEscalationReasons(): Promise<EscalationReasonSetting[]> {
+  const { data, error } = await supabaseAdmin()
+    .from("crm_escalation_reasons")
+    .select("id,label,severity,is_active,display_order")
+    .order("display_order", { ascending: true })
+    .order("label", { ascending: true });
+  if (error) {
+    if (error.message.includes("crm_escalation_reasons")) return [];
+    throw new Error(`listEscalationReasons: ${error.message}`);
+  }
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    label: r.label as string,
+    severity: (r.severity as "low" | "medium" | "high" | "critical") ?? "medium",
     isActive: Boolean(r.is_active),
     displayOrder: (r.display_order as number) ?? 0,
   }));
@@ -127,7 +161,7 @@ export async function listSlaRules(): Promise<SlaRuleSetting[]> {
 export async function listFollowUpStages(): Promise<FollowUpStageSetting[]> {
   const { data, error } = await supabaseAdmin()
     .from("crm_followup_workflow_stages")
-    .select("id,workflow_type,name,stage_order,due_after_amount,due_after_unit,moderator_instruction,is_active")
+    .select("id,workflow_type,name,stage_order,due_after_amount,due_after_unit,anchor,applicable_status,applicable_tag_id,plan_version,moderator_instruction,is_active")
     .order("workflow_type", { ascending: true })
     .order("stage_order", { ascending: true });
   if (error) throw new Error(`listFollowUpStages: ${error.message}`);
@@ -138,6 +172,10 @@ export async function listFollowUpStages(): Promise<FollowUpStageSetting[]> {
     stageOrder: (r.stage_order as number) ?? 0,
     dueAfterAmount: (r.due_after_amount as number) ?? 0,
     dueAfterUnit: (r.due_after_unit as "hours" | "days" | "weeks") ?? "days",
+    anchor: (r.anchor as string) ?? "stage_entry",
+    applicableStatus: (r.applicable_status as string) ?? null,
+    applicableTagId: (r.applicable_tag_id as string) ?? null,
+    planVersion: (r.plan_version as number) ?? 1,
     moderatorInstruction: (r.moderator_instruction as string) ?? null,
     isActive: Boolean(r.is_active),
   }));

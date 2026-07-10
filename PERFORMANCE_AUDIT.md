@@ -16,8 +16,61 @@ Measured against the configured Aspects Clinica CRM Supabase project from this w
 | Phone-like search, 30 rows | Not measured before changes | 2446ms | Direct Supabase `ILIKE` OR query, 20 matches. |
 | New drawer shell round 1 | Not applicable before shell split | 2359ms | Lead row + active tags + active lost reasons. |
 | New drawer shell round 2 | Not applicable before shell split | 711ms | Assigned tags + optional moderator/lost reason. |
+| Phase 1 production build | 18.38s | 19.63s | `npm run build`; passed after Messenger/WhatsApp/stage/follow-up/payment-action changes. |
+| Phase 1 unit tests | 178/178 pass | 178/178 pass | `npm run test`; first sandbox run hit IPC `EPERM`, escalated rerun passed. |
+| Phase 2 production build | 19.63s | 18.44s | `npm run build`; passed after Booking UI, Website Reservations rename, Bulk Import, Audit Logs, Settings structure, and escalation-reason changes. |
+| Phase 2 unit tests | 178/178 pass from previous phase | Blocked in current run | `npm run test` hit `tsx` IPC `EPERM`; required escalated rerun was rejected by environment usage limit, so no current test result was produced. |
 
 User-reported production symptom: lead drawer opening and tab switching commonly took about 3-5 seconds. I did not independently measure the old browser interaction before changing it.
+
+## Phase 1 Follow-Up
+
+| Screen/action | Current query path | Number of queries | Data volume loaded | Identified bottleneck | Fix | Before measurement | After measurement | Remaining concern |
+|---|---|---:|---|---|---|---:|---:|---|
+| Messenger tab | `/api/leads/[id]/tab?tab=Messenger` -> `messagesFor(id, ["facebook", "instagram"])` | Lead existence lookup + message query + attachment/reaction queries when needed | Only FB Messenger/Instagram DM history for the selected lead | Old `Conversation` label mixed WhatsApp into the same communication tab | Renamed tab to Messenger and scoped payload to Facebook/Instagram channels | Not separately measured | Build/test verified; no browser timing captured | Conversation pagination is still needed for very large histories. |
+| WhatsApp tab | `/api/leads/[id]/tab?tab=WhatsApp` -> `messagesFor(id, ["whatsapp"])` plus server-only config check | Lead lookup + message query + attachment/reaction queries when needed | Only WhatsApp history for the selected lead | No real tab/integration path existed; credentials absent could have caused fake or crashing UI | Added honest Not Configured state and secure server ingest path at `/api/crm/ingest/whatsapp` | Not applicable | Build/test verified; no live credentials available | Needs live WhatsApp/n8n credential smoke and send-state verification. |
+| Follow-Up tab | `/api/leads/[id]/tab?tab=Follow-Up` -> `loadFollowUpPlan()` | Lead lookup + concrete plan rows + user names; creates snapshot rows only if lead is in follow-up/post-op and has none | All configured concrete steps for that selected lead, not all leads | Old tab showed one active stage only; settings changes could not express arbitrary plans | Added configurable plan settings fields and concrete snapshot display/actions | Not measured | Build/test verified | Need live browser persistence smoke; very large per-lead plans are unlikely but still unpaginated. |
+| Dedicated stage pages | `/leads`, `/qualified`, `/follow-up`, `/post-op`, `/database` | One server-paginated list/queue request per page | 30 rows for list pages; follow-up queue rows for the selected stage | Primary-stage pages were not exclusive; Qualified/Post-Op pages missing | New Leads locked to `new`; Qualified = `qualified` + `booked`; Follow-Up/Post-Op split; Database renamed unified view | Not measured | Build/test verified | Follow-up queue itself should receive server pagination if it grows large. |
+| Tag settings | Settings actions -> `lead_tags` | One targeted insert/update + audit log | One tag definition per action | Global tag definitions could not be ordered; unexpected settings errors could become RSC digests | Added `display_order`, color/name/active controls, server error-state handling | Not measured | Build/test verified | Needs live Admin/Auditor/Moderator browser permission smoke. |
+
+## Phase 2 Booking / Import / Audit / Settings
+
+| Screen/action | Current query path | Number of queries | Data volume loaded | Identified bottleneck | Fix | Before measurement | After measurement | Remaining concern |
+|---|---|---:|---|---|---|---:|---:|---|
+| Booking tab | Lazy drawer tab -> `bookingCatalog()`, `availableBookingSlots()`, `createLeadBookingAction()` | Catalog lookup plus live slot query only when Booking tab is opened | Specialty/doctor/service/branch catalog and selected-date slots only | Old CRM booking UI was functional but did not match the supplied public booking flow closely enough | Rebuilt Booking tab as a stepped public-booking-style flow: specialty/doctor, branch/service, date, live slot, patient info, review/confirm | Not browser-measured | Production build passes | Needs authenticated live-slot booking smoke; browser timing not captured. |
+| Website Reservations | `/reservations` -> booking DB reservations + `syncReservationsToLeads()` | Reservation page read plus idempotent CRM link/create sync | Booking rows in selected page scope, linked CRM lead IDs | Page name and unread semantics still used Patient Reservations wording | Renamed to Website Reservations and treats `reserved` as new/unread awaiting confirmation | Not measured | Production build passes | Needs live public reservation event smoke and unread counter verification. |
+| Bulk Import | Client parses CSV/TSV/XLSX, then confirmed rows -> `importFinancialRows()` | No DB writes until confirm; per valid row resolves lead by ID/MRN/phone, may create canonical lead, then quote/payment actions | Uploaded preview rows stay client-side; only valid rows are submitted | CSV-only importer and match-only server path could not import canonical leads from safe Name+Phone rows | Added XLSX parsing, drag/drop, explicit six-step flow, manual mapping, validation, duplicate warnings, canonical lead/finance writes, and import audit log | Not measured | Production build passes; tests blocked | Needs browser file upload smoke for CSV and XLSX; no current unit test run. |
+| Audit Logs | `/audit-logs` -> `listActivity()` | One `audit_logs` query plus actor lookup | Latest 500 filtered audit rows | Old global viewer was still named Activity and lacked role/lead/date filters | Added Audit Logs route/nav with Admin/Auditor guard, filters, actor role, lead/entity/action/date display | Not measured | Production build passes | Needs role smoke: Admin/Auditor visible, Moderator forbidden. |
+| Settings structure | `/settings` -> existing settings readers + integration booleans | Parallel reads for real settings tables and booking snapshot | Only settings/config rows | Settings tabs did not match requested structure and escalation reasons had no controlled list | Added requested structure with real editors where backed by tables, read-only operational panels where rules are hardcoded, and new escalation-reason table/editor | Not measured | Production build passes | Migration `0013` must be applied for persisted escalation reasons; live persistence smoke needed. |
+
+## Indexes Added In Phase 1
+
+Migration: `supabase/migrations/0012_crm_whatsapp_followup_settings.sql`
+
+Added:
+
+- `lead_tags.display_order`
+- `lead_tags_active_order_idx`
+- follow-up setting applicability/version columns: `anchor`, `applicable_status`, `applicable_tag_id`, `plan_version`
+- `crm_followup_workflow_active_order_idx`
+- `crm_followup_workflow_applicability_idx`
+- concrete follow-up snapshot columns: `template_stage_id`, `template_version`, `step_name`, `anchor`, `completed_by`, `snoozed_at`, `snoozed_by`
+- `lead_follow_up_stages_plan_idx`
+- `lead_follow_up_stages_open_due_idx`
+
+Write impact: tag and follow-up writes gain small btree indexes. This is justified by repeated operational reads in Settings, stage queues, and lead drawer follow-up tabs.
+
+## Schema Added In Phase 2
+
+Migration: `supabase/migrations/0013_crm_escalation_reasons.sql`
+
+Added:
+
+- `crm_escalation_reasons`
+- `crm_escalation_reasons_label_key`
+- `crm_escalation_reasons_active_order_idx`
+
+Write impact: tiny controlled-list table for settings. It does not add write overhead to lead mutations; the lead drawer reads active reasons in the shell so escalation workflows consume Settings-defined options.
 
 ## Slow Paths
 
@@ -29,7 +82,7 @@ User-reported production symptom: lead drawer opening and tab switching commonly
 | Database lead list `/database` | Same as `/leads` | Same as `/leads` | All matching leads | Same | Same 30-row server page implementation | Not measured before | Same query class as `/leads` | Same. |
 | Calendar booking-to-lead map | Calendar called `getLeads()` only to map `bookingAppointmentId` | 1 broad all-leads query plus tag/follow-up work | Up to every lead | Full-table CRM fetch unrelated to calendar rendering | Removed full lead fetch; uses `syncReservationsToLeads()` map | Not measured before | No CRM full-lead query in this path | Reservation sync itself can still be heavy for very large booking ranges. |
 | Duplicate members in drawer Log | `loadLeadDetail()` called `getLeads()` and searched in memory | Full lead list | Every lead | Full-table read to name a few duplicate members | Log tab resolves only duplicate member IDs with targeted `getLead()` calls | Not measured before | Deferred until Log tab | Could be optimized further with a compact batch lookup. |
-| Messages tab | `messagesFor()` loaded full conversation and attachments during drawer open | 2-4 queries after lead UID resolution | Full conversation history | Large histories blocked opening | Deferred to Conversation tab | Not measured before | Not measured after | Needs pagination/incremental loading for very large conversations; current fix removes it from shell only. |
+| Messages tab | `messagesFor()` loaded full conversation and attachments during drawer open | 2-4 queries after lead UID resolution | Full conversation history | Large histories blocked opening | Deferred to Messenger/WhatsApp tabs | Not measured before | Not measured after | Needs pagination/incremental loading for very large conversations; current fix removes it from shell only. |
 | Comments tab | `commentsFor()` loaded all comments and attachments during drawer open | 2-3 queries after lead UID resolution | Full comment history | Large histories blocked opening | Deferred to Comments tab | Not measured before | Not measured after | Needs pagination for very large comment histories. |
 | Payments tab | `leadFinancials()` loaded full financial graph during drawer open | 10+ queries when financial record exists | Payments, approvals, consumables, costs, audit | Financial graph blocked opening and could throw during unrelated status/tag writes | Deferred to Payments tab; successful financial actions refresh only Payments tab cache | Not measured before | Not measured after | Browser smoke/payment persistence still needed. |
 | Live booking tab | `bookingCatalog()` and `bookingsFor()` loaded during drawer open | Booking catalog 5 queries + booking lookup | Booking catalog whether tab used or not | Separate booking source blocked lead opening and unrelated writes | Deferred to Booking tab; action errors returned as form state | Not measured before | Not measured after | Need live slot-load smoke in authenticated browser. |
@@ -75,7 +128,7 @@ Write impact: the lead table now has more indexes, especially GIN trigram indexe
 - Status production error: small status actions revalidated broad paths and could re-render the full eager drawer, including unrelated booking/financial/history reads. Normal database/action errors also escaped `toState()` and became production Server Component digests.
 - Tag production error: same mutation/render coupling and error-boundary issue as status changes.
 - Notes failure: save path did not prove the update returned a row before success, and the drawer relied on local state for the visible value until a full reload.
-- Payment client exception: the Payments tab did not refresh its financial graph after successful server actions, leaving nested client state and server state out of sync; ordinary server errors could also bubble through the action boundary depending on source.
+- Payment client exception: the Payments tab imported `IDLE` from `app/(crm)/leads/financial-actions.ts`, a `"use server"` module exporting a non-function object. The dev server logged Next's server-action validation error: `"A \"use server\" file can only export async functions, found object."` Successful financial actions also needed per-tab refresh instead of relying on broad drawer revalidation.
 - Live booking server exception: booking action boundary only handled `BookingError`; SDK/env/fetch failures escaped as server exceptions.
 
 These are code-path root causes from inspection and local verification. I could not access production server logs in this workspace, so I did not confirm an individual production digest ID.
@@ -85,7 +138,7 @@ These are code-path root causes from inspection and local verification. I could 
 Verified:
 
 - Production build passes.
-- Unit tests pass: 178/178.
+- Unit tests passed in the previous phase: 178/178. Current phase test run is blocked by the environment usage-limit rejection after a sandbox IPC failure.
 - Lead lists are server-paginated in code (`range()` with 30 rows).
 - Search remains database-side and no longer requires downloading all leads.
 - Drawer shell no longer fetches messages/comments/payments/booking/log before render.
@@ -93,6 +146,10 @@ Verified:
 - Notes update waits for a returned Supabase row before success.
 - Payment mutations trigger Payments-tab refresh only.
 - Live booking slot action returns error state instead of a server-error page for non-`BookingError` failures.
+- Booking tab uses the public-booking-style stepped UI while still reading live booking catalog/slot source.
+- Bulk Import does not write before explicit confirmation and routes valid rows into canonical lead/financial mutations.
+- Audit Logs route builds and is Admin/Auditor gated in code.
+- Settings route builds with the full requested structure and real persisted editors for supported sections.
 
 Not fully verified due authenticated browser/session limitations in this run:
 

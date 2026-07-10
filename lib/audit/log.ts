@@ -58,6 +58,7 @@ export interface ActivityRow {
   id: string;
   actorId: string | null;
   actorName: string | null;
+  actorRole: string | null;
   action: string;
   entityType: string;
   entityId: string;
@@ -71,7 +72,11 @@ export interface ActivityRow {
 export interface ActivityFilters {
   entityType?: string;
   actorId?: string;
+  actorRole?: string;
   action?: string;
+  leadId?: string;
+  dateFrom?: string;
+  dateTo?: string;
   limit?: number;
 }
 
@@ -85,29 +90,36 @@ export async function listActivity(filters: ActivityFilters = {}): Promise<Activ
   if (filters.entityType) q = q.eq("entity_type", filters.entityType);
   if (filters.actorId) q = q.eq("actor_user_id", filters.actorId);
   if (filters.action) q = q.eq("action", filters.action);
+  if (filters.dateFrom) q = q.gte("created_at", `${filters.dateFrom}T00:00:00.000Z`);
+  if (filters.dateTo) q = q.lte("created_at", `${filters.dateTo}T23:59:59.999Z`);
 
   const { data, error } = await q;
   if (error) throw new Error(`listActivity: ${error.message}`);
 
   const rows = data ?? [];
   const ids = [...new Set(rows.map((r) => r.actor_user_id as string).filter(Boolean))];
-  const names = new Map<string, string>();
+  const names = new Map<string, { name: string; role: string | null }>();
   if (ids.length) {
     const { data: users } = await supabaseAdmin()
       .from("crm_users")
-      .select("id, full_name, email")
+      .select("id, full_name, email, role")
       .in("id", ids);
     for (const u of users ?? []) {
-      names.set(u.id as string, (u.full_name as string) || (u.email as string) || "—");
+      names.set(u.id as string, {
+        name: (u.full_name as string) || (u.email as string) || "—",
+        role: (u.role as string | null) ?? null,
+      });
     }
   }
 
   return rows.map((r) => {
     const meta = (r.metadata ?? {}) as Record<string, unknown>;
+    const actor = r.actor_user_id ? names.get(r.actor_user_id as string) : null;
     return {
       id: r.id as string,
       actorId: (r.actor_user_id as string) ?? null,
-      actorName: r.actor_user_id ? (names.get(r.actor_user_id as string) ?? "—") : null,
+      actorName: actor?.name ?? null,
+      actorRole: actor?.role ?? (meta.actor_role as string | null) ?? null,
       action: r.action as string,
       entityType: r.entity_type as string,
       entityId: r.entity_id as string,
@@ -117,5 +129,21 @@ export async function listActivity(filters: ActivityFilters = {}): Promise<Activ
       isSystem: meta.source === "system" || r.actor_user_id === null,
       createdAt: r.created_at as string,
     };
+  }).filter((row) => {
+    if (filters.actorRole && row.actorRole !== filters.actorRole) return false;
+    if (filters.leadId) {
+      const needle = filters.leadId.toLowerCase();
+      const hay = [
+        row.entityId,
+        row.oldValues.lead_id,
+        row.oldValues.leadId,
+        row.newValues.lead_id,
+        row.newValues.leadId,
+        row.metadata.lead_id,
+        row.metadata.leadId,
+      ].map((v) => String(v ?? "").toLowerCase());
+      if (!hay.some((v) => v.includes(needle))) return false;
+    }
+    return true;
   });
 }
