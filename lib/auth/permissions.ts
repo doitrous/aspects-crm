@@ -32,6 +32,15 @@ export type Capability =
   | "users.changeRole" // change another user's role
   | "users.activate" // activate / deactivate a user
   | "users.invite" // create / invite a new user
+  // ── settings & configuration (§C) ───────────────────────────
+  | "settings.view" // open the Settings area
+  | "settings.manage" // edit tags, lost reasons, SLA, follow-up rules, target CPL, AI prompt
+  // ── auditor reporting (§A/§B) ───────────────────────────────
+  | "reports.view" // open Auditor Dashboard + Reports
+  | "reports.generate" // generate / override / finalize a daily audit report
+  // ── email automation (§D/§E) ────────────────────────────────
+  | "email.view" // open the Emails log
+  | "email.manage" // create / edit email rules
   // ── audit ───────────────────────────────────────────────────
   | "audit.view"; // read financial + role-change audit logs
 
@@ -58,6 +67,12 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "users.changeRole",
     "users.activate",
     "users.invite",
+    "settings.view",
+    "settings.manage",
+    "reports.view",
+    "reports.generate",
+    "email.view",
+    "email.manage",
     "audit.view",
   ]),
   auditor: new Set<Capability>([
@@ -69,6 +84,15 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "financial.viewReports",
     "financial.bulkImport",
     "users.view",
+    // The auditor owns operational configuration and the daily review workflow
+    // (§C/§A): they may manage tags, lost reasons, follow-up rules etc., run and
+    // finalize reports, and manage email rules — but not change user access.
+    "settings.view",
+    "settings.manage",
+    "reports.view",
+    "reports.generate",
+    "email.view",
+    "email.manage",
     "audit.view",
   ]),
   moderator: new Set<Capability>([

@@ -23,18 +23,20 @@ import type {
   LeadFilters,
 } from "@/lib/data/contracts";
 import { mockProvider } from "@/lib/data/mock";
+import { resolveCrmDataSource } from "@/lib/data/source";
 import { supabaseProvider } from "@/lib/data/supabase";
 
 export type { LeadFilters, DashboardMetrics } from "@/lib/data/contracts";
 
+export { resolveCrmDataSource } from "@/lib/data/source";
+
 /**
- * Data-source router. `CRM_DATA_SOURCE=supabase` wires the app to the live
- * Postgres schema; anything else keeps the in-memory seed layer. This module is
- * only ever imported by server code (pages/layout), so pulling in the
- * server-only Supabase provider here is safe.
+ * Data-source router. Production and unset environments use live Supabase.
+ * Mock data is now an explicit development/test choice only, so a missing
+ * Coolify variable cannot silently ship the CRM as a demo.
  */
 const provider: DataProvider =
-  process.env.CRM_DATA_SOURCE === "supabase" ? supabaseProvider : mockProvider;
+  resolveCrmDataSource() === "mock" ? mockProvider : supabaseProvider;
 
 /** Current reference time (fixed seed date in mock mode, wall clock live). */
 export const NOW: Date = provider.now();

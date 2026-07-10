@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import type {
   Booking,
   Comment,
@@ -12,6 +13,7 @@ import type {
   Message,
   PipelineStage,
   Platform,
+  ReferenceOption,
   TimelineEvent,
 } from "@/lib/types";
 import { Badge } from "@/components/ui/Badge";
@@ -19,10 +21,10 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { CommentsPanel } from "@/components/lead/CommentsPanel";
 import { MessageThread } from "@/components/lead/MessageThread";
 import { NotesTab } from "@/components/lead/NotesTab";
+import { BookingTab } from "@/components/lead/BookingTab";
 import { PaymentsTab } from "@/components/lead/PaymentsTab";
 import type { LeadFinancials } from "@/lib/data/financials";
 import {
-  BOOKING_META,
   PLATFORM_META,
   SEVERITY_META,
   STAGE_META,
@@ -34,6 +36,21 @@ import {
   specialtyName,
 } from "@/lib/data/reference";
 import { formatDate, formatDateTime } from "@/lib/format";
+import {
+  clearLeadEscalationAction,
+  completeFollowUpAction,
+  escalateLeadAction,
+  scheduleFollowUpAction,
+  setLeadTagsAction,
+  snoozeFollowUpAction,
+  updateLeadStageAction,
+} from "@/app/(crm)/leads/actions";
+import {
+  resolveEscalationAction,
+  returnEscalationAction,
+} from "@/app/(crm)/escalations/actions";
+import { resolveDuplicateAction } from "@/app/(crm)/duplicates/actions";
+import { EscalationResolutionControls } from "@/components/queues/EscalationResolutionControls";
 
 const TABS = [
   "Overview",
@@ -43,7 +60,7 @@ const TABS = [
   "Follow-Up",
   "Booking",
   "Payments",
-  "Audit",
+  "Log",
 ] as const;
 type Tab = (typeof TABS)[number];
 
@@ -110,8 +127,12 @@ export interface LeadDetailData {
   bookings: Booking[];
   escalations: Escalation[];
   duplicateGroups: (DuplicateGroup & { members: { id: string; name: string; phone: string }[] })[];
+  bookingCatalog: React.ComponentProps<typeof BookingTab>["catalog"];
   /** `null` when the viewer may not see financials, or the records are unreadable. */
   financials: LeadFinancials | null;
+  financialsError: string | null;
+  availableTags: ReferenceOption[];
+  lostReasons: ReferenceOption[];
 }
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -136,22 +157,83 @@ function DetailField({ label, value }: { label: string; value: React.ReactNode }
 
 export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: () => void }) {
   const { lead } = data;
-  const [tab, setTab] = useState<Tab>("Overview");
-
-  // Prototype-level interactivity: the offline mock layer is read-only, so
-  // status and tag edits live in local state and reset on reload.
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const initialTab = TABS.includes(requestedTab as Tab) ? (requestedTab as Tab) : "Overview";
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [stage, setStage] = useState<PipelineStage>(lead.stage);
   const [tags, setTags] = useState<string[]>(lead.tags);
-  const [addingTag, setAddingTag] = useState(false);
-  const [tagDraft, setTagDraft] = useState("");
+  const [pending, startTransition] = useTransition();
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionOk, setActionOk] = useState<string | null>(null);
+  const [lostModal, setLostModal] = useState(false);
+  const [lostReasonId, setLostReasonId] = useState("");
+  const [lostNotes, setLostNotes] = useState("");
+  const [escalateModal, setEscalateModal] = useState(false);
+  const [escalationReason, setEscalationReason] = useState("");
+  const [escalationSeverity, setEscalationSeverity] = useState("medium");
 
   const pm = PLATFORM_META[lead.platform];
 
-  function addTag() {
-    const t = tagDraft.trim();
-    if (t && !tags.includes(t)) setTags((prev) => [...prev, t]);
-    setTagDraft("");
-    setAddingTag(false);
+  useEffect(() => {
+    if (requestedTab && TABS.includes(requestedTab as Tab)) setTab(requestedTab as Tab);
+  }, [requestedTab]);
+
+  function run(action: () => Promise<{ ok: string | null; error: string | null }>, onOk?: () => void) {
+    startTransition(async () => {
+      setActionError(null);
+      setActionOk(null);
+      try {
+        const result = await action();
+        if (result.error) {
+          setActionError(result.error);
+          return;
+        }
+        setActionOk(result.ok);
+        onOk?.();
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : "Action failed.");
+      }
+    });
+  }
+
+  function changeStage(next: PipelineStage) {
+    if (next === stage) return;
+    if (next === "lost") {
+      setLostModal(true);
+      return;
+    }
+    run(() => updateLeadStageAction(lead.id, next), () => setStage(next));
+  }
+
+  function toggleTag(tag: string) {
+    const next = tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag];
+    run(() => {
+      const ids = data.availableTags.filter((t) => next.includes(t.label)).map((t) => t.id);
+      return setLeadTagsAction(lead.id, ids);
+    }, () => setTags(next));
+  }
+
+  function submitLost() {
+    run(
+      () => updateLeadStageAction(lead.id, "lost", lostReasonId, lostNotes),
+      () => {
+        setStage("lost");
+        setLostModal(false);
+        setLostReasonId("");
+        setLostNotes("");
+      },
+    );
+  }
+
+  function submitEscalation() {
+    run(
+      () => escalateLeadAction(lead.id, escalationReason, escalationSeverity),
+      () => {
+        setEscalateModal(false);
+        setEscalationReason("");
+      },
+    );
   }
 
   // Most recent message across every channel, for the Overview preview card.
@@ -179,6 +261,22 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
               {lead.id}
               {lead.mrn ? ` · ${lead.mrn}` : ""}
             </div>
+            {lead.chatLink && (
+              <a
+                href={lead.chatLink}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-flex text-[12px] font-semibold text-primary hover:underline"
+              >
+                {lead.platform === "instagram"
+                  ? "Open Instagram DM"
+                  : lead.platform === "whatsapp"
+                    ? "Open WhatsApp Conversation"
+                    : lead.platform === "facebook"
+                      ? "Open Facebook Conversation"
+                      : "Open Conversation"}
+              </a>
+            )}
             <div className="mt-2 flex flex-wrap gap-1.5">
               <Badge style={STAGE_META[stage]} />
               {pm && (
@@ -215,12 +313,25 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
           >
             Book appointment
           </button>
-          <button
-            onClick={() => setTab("Audit")}
-            className="rounded-control border border-line px-3.5 py-2 text-[12.5px] font-medium text-ink-700 hover:border-primary hover:text-primary"
-          >
-            Escalate
-          </button>
+          {lead.escalated ? (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(() => clearLeadEscalationAction(lead.id))}
+              className="rounded-control border border-danger/30 bg-danger-bg px-3.5 py-2 text-[12.5px] font-semibold text-danger hover:bg-danger/10 disabled:opacity-60"
+            >
+              Un-Escalate
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setEscalateModal(true)}
+              className="rounded-control border border-line px-3.5 py-2 text-[12.5px] font-medium text-ink-700 hover:border-primary hover:text-primary disabled:opacity-60"
+            >
+              Escalate
+            </button>
+          )}
           <button
             onClick={() => setTab("Conversation")}
             className="rounded-control border border-line px-3.5 py-2 text-[12.5px] font-medium text-ink-700 hover:border-primary hover:text-primary"
@@ -228,6 +339,16 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
             Reply
           </button>
         </div>
+        {(actionError || actionOk) && (
+          <div
+            className={
+              "mt-2 rounded-control px-3 py-2 text-[12px] font-medium " +
+              (actionError ? "bg-danger-bg text-danger" : "bg-[#ecfdf3] text-success")
+            }
+          >
+            {actionError ?? actionOk}
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -264,6 +385,7 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
                 <DetailField label="Patient type" value={<span className="capitalize">{lead.patientType}</span>} />
                 <DetailField label="Campaign" value={campaignName(lead.campaignId)} />
                 <DetailField label="Heard via" value={pm ? pm.label : sourceName(lead.sourceId)} />
+                {stage === "lost" && <DetailField label="Lost reason" value={lead.lostReason ?? "—"} />}
               </div>
             </section>
 
@@ -276,11 +398,16 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
                   return (
                     <button
                       key={s}
-                      onClick={() => setStage(s)}
+                      onClick={() => changeStage(s)}
+                      disabled={pending}
                       className={
-                        "rounded-pill border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors " +
-                        (active
+                        "rounded-pill border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors disabled:opacity-60 " +
+                        (active && s === "lost"
+                          ? "border-danger/40 bg-danger-bg text-danger"
+                          : active
                           ? "border-success-strong bg-success/5 text-success"
+                          : s === "lost"
+                            ? "border-danger/20 bg-panel text-danger hover:bg-danger-bg"
                           : "border-line bg-panel text-ink-600 hover:border-primary hover:text-primary")
                       }
                     >
@@ -295,46 +422,32 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
             <section>
               <SectionLabel>Tags</SectionLabel>
               <div className="flex flex-wrap items-center gap-1.5">
-                {tags.map((t) => (
+                {data.availableTags.map((tag) => {
+                  const selected = tags.includes(tag.label);
+                  return (
                   <span
-                    key={t}
-                    className="inline-flex items-center gap-1 rounded-pill bg-line-faint px-2.5 py-1 text-[11.5px] text-ink-600"
+                    key={tag.id}
+                    className={
+                      "inline-flex items-center gap-1 rounded-pill border px-2.5 py-1 text-[11.5px] font-medium " +
+                      (selected
+                        ? "border-primary bg-primary-soft text-primary"
+                        : "border-line bg-panel text-ink-500")
+                    }
                   >
-                    {t}
                     <button
                       type="button"
-                      aria-label={`Remove ${t}`}
-                      onClick={() => setTags((prev) => prev.filter((x) => x !== t))}
-                      className="text-ink-400 hover:text-danger"
+                      disabled={pending}
+                      aria-pressed={selected}
+                      onClick={() => toggleTag(tag.label)}
+                      className="disabled:opacity-60"
                     >
-                      ×
+                      {tag.label}
                     </button>
                   </span>
-                ))}
-                {addingTag ? (
-                  <input
-                    autoFocus
-                    value={tagDraft}
-                    onChange={(e) => setTagDraft(e.target.value)}
-                    onBlur={addTag}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") addTag();
-                      if (e.key === "Escape") {
-                        setTagDraft("");
-                        setAddingTag(false);
-                      }
-                    }}
-                    placeholder="tag name"
-                    className="h-7 w-28 rounded-pill border border-primary px-2.5 text-[11.5px] outline-none"
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setAddingTag(true)}
-                    className="rounded-pill border border-dashed border-line px-2.5 py-1 text-[11.5px] font-medium text-ink-500 hover:border-primary hover:text-primary"
-                  >
-                    + tag
-                  </button>
+                  );
+                })}
+                {data.availableTags.length === 0 && (
+                  <span className="text-[12px] text-ink-400">No configured tags.</span>
                 )}
               </div>
             </section>
@@ -383,15 +496,30 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
 
         {tab === "Comments" && <CommentsPanel comments={data.comments} />}
 
-        {tab === "Notes" && <NotesTab note={lead.note} />}
+        {tab === "Notes" && <NotesTab leadId={lead.id} note={lead.note} />}
 
-        {tab === "Follow-Up" && <FollowUpPanel lead={lead} />}
+        {tab === "Follow-Up" && (
+          <FollowUpPanel
+            lead={lead}
+            pending={pending}
+            onSchedule={(workflowType, dueAt, notes) =>
+              run(() => scheduleFollowUpAction(lead.id, workflowType, dueAt, notes))
+            }
+            onComplete={(followUpId, outcome) =>
+              run(() => completeFollowUpAction(lead.id, followUpId, outcome))
+            }
+            onSnooze={(followUpId) =>
+              run(() => snoozeFollowUpAction(lead.id, followUpId, 1))
+            }
+            onMarkLost={() => setLostModal(true)}
+          />
+        )}
 
-        {tab === "Booking" && <BookingPanel bookings={data.bookings} />}
+        {tab === "Booking" && <BookingTab lead={lead} bookings={data.bookings} catalog={data.bookingCatalog} />}
 
-        {tab === "Payments" && <PaymentsTab financials={data.financials} />}
+        {tab === "Payments" && <PaymentsTab financials={data.financials} error={data.financialsError} />}
 
-        {tab === "Audit" && (
+        {tab === "Log" && (
           <div className="flex flex-col gap-7 p-5">
             <div>
               <SectionLabel>Timeline</SectionLabel>
@@ -411,6 +539,105 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
             )}
           </div>
         )}
+      </div>
+      {lostModal && (
+        <Modal title="Mark Lead as Lost" onClose={() => setLostModal(false)}>
+          <label className="block text-[12px] font-semibold text-ink-600">
+            Lost reason
+            <select
+              value={lostReasonId}
+              onChange={(e) => setLostReasonId(e.target.value)}
+              className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2 text-[12.5px]"
+            >
+              <option value="">Choose a reason</option>
+              {data.lostReasons.map((r) => (
+                <option key={r.id} value={r.id}>{r.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="mt-3 block text-[12px] font-semibold text-ink-600">
+            Details
+            <textarea
+              value={lostNotes}
+              onChange={(e) => setLostNotes(e.target.value)}
+              className="mt-1 min-h-[88px] w-full rounded-control border border-line bg-panel p-2 text-[12.5px]"
+            />
+          </label>
+          <div className="mt-4 flex justify-end gap-2">
+            <button className="rounded-control border border-line px-3 py-2 text-[12px]" onClick={() => setLostModal(false)}>
+              Cancel
+            </button>
+            <button
+              disabled={pending || !lostReasonId}
+              onClick={submitLost}
+              className="rounded-control bg-danger px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-60"
+            >
+              Mark Lost
+            </button>
+          </div>
+        </Modal>
+      )}
+      {escalateModal && (
+        <Modal title="Escalate Lead" onClose={() => setEscalateModal(false)}>
+          <label className="block text-[12px] font-semibold text-ink-600">
+            Reason
+            <textarea
+              autoFocus
+              value={escalationReason}
+              onChange={(e) => setEscalationReason(e.target.value)}
+              className="mt-1 min-h-[96px] w-full rounded-control border border-line bg-panel p-2 text-[12.5px]"
+            />
+          </label>
+          <label className="mt-3 block text-[12px] font-semibold text-ink-600">
+            Severity
+            <select
+              value={escalationSeverity}
+              onChange={(e) => setEscalationSeverity(e.target.value)}
+              className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2 text-[12.5px]"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </label>
+          <div className="mt-4 flex justify-end gap-2">
+            <button className="rounded-control border border-line px-3 py-2 text-[12px]" onClick={() => setEscalateModal(false)}>
+              Cancel
+            </button>
+            <button
+              disabled={pending || escalationReason.trim().length === 0}
+              onClick={submitEscalation}
+              className="rounded-control bg-primary px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-60"
+            >
+              Escalate
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4">
+      <div className="w-full max-w-[420px] rounded-card bg-panel p-4 shadow-toast">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-display text-[16px] font-semibold text-clinic-ink">{title}</h2>
+          <button onClick={onClose} className="rounded-control border border-line px-2 py-1 text-[12px] text-ink-500">
+            x
+          </button>
+        </div>
+        {children}
       </div>
     </div>
   );
@@ -488,8 +715,26 @@ function IdentitySection({ lead }: { lead: Lead }) {
   );
 }
 
-function FollowUpPanel({ lead }: { lead: Lead }) {
+function FollowUpPanel({
+  lead,
+  pending,
+  onSchedule,
+  onComplete,
+  onSnooze,
+  onMarkLost,
+}: {
+  lead: Lead;
+  pending: boolean;
+  onSchedule: (workflowType: string, dueAt: string, notes?: string) => void;
+  onComplete: (followUpId?: string, outcome?: string) => void;
+  onSnooze: (followUpId?: string) => void;
+  onMarkLost: () => void;
+}) {
   const f = lead.followUp;
+  const [workflowType, setWorkflowType] = useState(f.workflowType ?? "follow_up");
+  const [dueAt, setDueAt] = useState("");
+  const [notes, setNotes] = useState("");
+  const [outcome, setOutcome] = useState("");
   const missed = f.status === "missed";
   const scheduled = f.status !== "none" || !!f.nextDate || !!f.reason;
 
@@ -530,71 +775,76 @@ function FollowUpPanel({ lead }: { lead: Lead }) {
       )}
 
       <div>
+        <SectionLabel>Schedule next</SectionLabel>
+        <div className="grid gap-2 sm:grid-cols-[120px_1fr]">
+          <select
+            value={workflowType}
+            onChange={(e) => setWorkflowType(e.target.value)}
+            className="h-9 rounded-control border border-line bg-panel px-2 text-[12.5px] text-ink-700"
+          >
+            <option value="follow_up">Regular</option>
+            <option value="post_op">Post-op</option>
+          </select>
+          <input
+            type="datetime-local"
+            value={dueAt}
+            onChange={(e) => setDueAt(e.target.value)}
+            className="h-9 rounded-control border border-line bg-panel px-2 text-[12.5px] text-ink-700"
+          />
+        </div>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Reason or moderator note"
+          className="mt-2 min-h-[76px] w-full rounded-control border border-line bg-panel p-2 text-[12.5px] text-ink-700"
+        />
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            disabled={pending || !dueAt}
+            onClick={() => onSchedule(workflowType, dueAt, notes)}
+            className="rounded-control bg-primary px-3 py-2 text-[12px] font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
+          >
+            Schedule next
+          </button>
+        </div>
+      </div>
+
+      <div>
         <SectionLabel>Actions</SectionLabel>
-        <div className="grid grid-cols-2 gap-3">
-          <FollowUpAction tone="success">✓ Mark done</FollowUpAction>
-          <FollowUpAction tone="neutral">Schedule next</FollowUpAction>
-          <FollowUpAction tone="neutral">Snooze 1 day</FollowUpAction>
-          <FollowUpAction tone="danger">Mark lost</FollowUpAction>
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
+          <input
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value)}
+            placeholder="Completion outcome"
+            className="h-10 rounded-control border border-line bg-panel px-2.5 text-[12.5px] text-ink-700"
+          />
+          <button
+            type="button"
+            disabled={pending || !scheduled}
+            onClick={() => onComplete(f.id, outcome)}
+            className="rounded-control border border-success-strong/40 bg-success/5 px-3 py-2 text-[12.5px] font-semibold text-success hover:bg-success/10 disabled:opacity-60"
+          >
+            Mark done
+          </button>
+          <button
+            type="button"
+            disabled={pending || !scheduled}
+            onClick={() => onSnooze(f.id)}
+            className="rounded-control border border-line bg-panel px-3 py-2 text-[12.5px] font-semibold text-ink-700 hover:border-primary hover:text-primary disabled:opacity-60"
+          >
+            Snooze 1 day
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onMarkLost}
+            className="rounded-control border border-danger/30 bg-danger-bg px-3 py-2 text-[12.5px] font-semibold text-danger hover:bg-danger/10 disabled:opacity-60"
+          >
+            Mark lost
+          </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function FollowUpAction({
-  tone,
-  children,
-}: {
-  tone: "success" | "danger" | "neutral";
-  children: React.ReactNode;
-}) {
-  const toneClass =
-    tone === "success"
-      ? "border-success-strong/40 bg-success/5 text-success hover:bg-success/10"
-      : tone === "danger"
-        ? "border-danger/30 bg-danger-bg text-danger hover:bg-danger/10"
-        : "border-line bg-panel text-ink-700 hover:border-primary hover:text-primary";
-  return (
-    <button
-      className={"rounded-control border px-4 py-3 text-[13.5px] font-semibold transition-colors " + toneClass}
-    >
-      {children}
-    </button>
-  );
-}
-
-function BookingPanel({ bookings }: { bookings: Booking[] }) {
-  return (
-    <div className="p-4">
-      <div className="mb-3 rounded-card border border-[#fedf89] bg-[#fffaeb] p-3 text-[12px] text-warn">
-        ⚠ Double-booking prevention checks live availability from{" "}
-        <span className="font-semibold">adminaspectsclinica.doitrous.com</span> before any slot is confirmed.
-        <span className="text-ink-400"> (integration pending — Phase 4)</span>
-      </div>
-      {bookings.length === 0 ? (
-        <EmptyState icon="📅" title="No appointments yet" hint="Book from here once the calendar is connected." />
-      ) : (
-        <div className="flex flex-col gap-2">
-          {bookings.map((b) => (
-            <div key={b.id} className="flex items-center justify-between rounded-card border border-line p-3">
-              <div>
-                <div className="text-[13px] font-semibold text-ink-900">{formatDateTime(b.startAt)}</div>
-                <div className="text-[11.5px] text-ink-400">
-                  {doctorName(b.doctorId)} · {b.branch}
-                  {b.room ? ` · ${b.room}` : ""} · {b.durationMin}m
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge style={BOOKING_META[b.status]} />
-                <span className={"text-[11px] " + (b.calendarSynced ? "text-success" : "text-ink-400")}>
-                  {b.calendarSynced ? "✓ synced" : "not synced"}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -687,18 +937,60 @@ function DuplicatesPanel({
             ))}
           </div>
           <div className="mt-2.5 flex flex-wrap gap-2">
-            {["Merge leads", "Link without merge", "Mark not duplicate", "Dismiss"].map((a) => (
-              <button
-                key={a}
-                className="rounded-control border border-line bg-panel px-2.5 py-1.5 text-[11.5px] font-medium text-ink-600 hover:border-primary hover:text-primary"
-              >
-                {a}
-              </button>
-            ))}
+            <DuplicateActionButton
+              action={() => resolveDuplicateAction(g.id, "merged")}
+              label="Merge duplicate"
+              pendingLabel="Merging..."
+            />
+            <DuplicateActionButton
+              action={() => resolveDuplicateAction(g.id, "linked")}
+              label="Link identities"
+              pendingLabel="Saving..."
+            />
+            <DuplicateActionButton
+              action={() => resolveDuplicateAction(g.id, "dismissed")}
+              label="Not a duplicate"
+              pendingLabel="Saving..."
+            />
           </div>
         </div>
       ))}
     </div>
+  );
+}
+
+function DuplicateActionButton({
+  action,
+  label,
+  pendingLabel,
+}: {
+  action: () => Promise<void>;
+  label: string;
+  pendingLabel: string;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            setError(null);
+            try {
+              await action();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Action failed.");
+            }
+          })
+        }
+        className="rounded-control border border-line bg-panel px-2.5 py-1.5 text-[11.5px] font-medium text-ink-600 hover:border-primary hover:text-primary disabled:opacity-60"
+      >
+        {pending ? pendingLabel : label}
+      </button>
+      {error && <span className="max-w-[160px] text-[10px] text-danger">{error}</span>}
+    </span>
   );
 }
 
@@ -730,14 +1022,11 @@ function EscalationsPanel({ escalations, embedded }: { escalations: Escalation[]
             {e.assignedTo ? ` · assigned to ${e.assignedTo}` : ""}
           </div>
           {e.status !== "resolved" && (
-            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              <input
-                placeholder="Resolution note…"
-                className="h-8 flex-1 rounded-control border border-line px-2.5 text-[12px]"
+            <div className="mt-2.5 flex justify-end">
+              <EscalationResolutionControls
+                onReturn={returnEscalationAction.bind(null, e.id)}
+                onResolve={resolveEscalationAction.bind(null, e.id)}
               />
-              <button className="rounded-control bg-primary px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-primary-hover">
-                Resolve
-              </button>
             </div>
           )}
         </div>

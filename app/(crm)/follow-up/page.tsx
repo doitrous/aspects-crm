@@ -61,7 +61,7 @@ export default async function FollowUpPage() {
                     className="border-b border-line-faint hover:bg-primary-soft/30"
                   >
                     <td className="px-[18px] py-3">
-                      <LeadCell lead={i.lead} />
+                      <LeadCell lead={i.lead} tab="Follow-Up" />
                     </td>
                     <td className="px-3 py-3 text-ink-600">{workflowLabel(i.workflowType)}</td>
                     <td className="px-3 py-3 text-ink-600">

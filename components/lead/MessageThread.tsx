@@ -138,48 +138,56 @@ export function MessageThread({
   }
 
   return (
-    <div className="flex flex-col gap-3 p-4">
-      {messages.map((m) => {
-        const out = m.direction === "outgoing";
-        const attachments = m.attachments ?? [];
-        const hasBody = m.body.trim().length > 0;
+    <div className="flex min-h-full flex-col">
+      <div className="flex flex-1 flex-col gap-3 p-4">
+        {messages.map((m) => {
+          const out = m.direction === "outgoing";
+          const attachments = m.attachments ?? [];
+          const hasBody = m.body.trim().length > 0;
+          const unanswered = !out && m.id === messages[messages.length - 1]?.id;
 
-        return (
-          <div key={m.id} id={`msg-${m.id}`} className={"flex flex-col " + (out ? "items-end" : "items-start")}>
-            <div
-              className={
-                "max-w-[78%] rounded-2xl px-3.5 py-2.5 text-[12.5px] leading-relaxed " +
-                (out ? "bg-primary text-white rounded-br-sm" : "bg-line-faint text-ink-900 rounded-bl-sm")
-              }
-            >
-              {m.replyTo && <ReplyContextPreview message={m} outgoing={out} />}
+          return (
+            <div key={m.id} id={`msg-${m.id}`} className={"flex flex-col " + (out ? "items-end" : "items-start")}>
+              <div className="mb-1 flex items-center gap-1.5 px-1 text-[10.5px] font-medium text-ink-400">
+                <span>{CHANNEL_LABEL[m.channel]}</span>
+                {unanswered && (
+                  <span className="rounded-pill bg-[#fffaeb] px-1.5 py-px text-[9.5px] font-semibold text-warn">
+                    Waiting
+                  </span>
+                )}
+              </div>
+              <div
+                className={
+                  "max-w-[78%] rounded-2xl px-3.5 py-2.5 text-[12.5px] leading-relaxed shadow-sm " +
+                  (out ? "rounded-br-sm bg-primary text-white" : "rounded-bl-sm border border-line bg-white text-ink-900")
+                }
+              >
+                {m.replyTo && <ReplyContextPreview message={m} outgoing={out} />}
 
-              {m.isDeleted ? (
-                <span className={"italic " + (out ? "text-white/70" : "text-ink-400")}>
-                  This message was deleted
-                </span>
-              ) : (
-                <>
-                  {/* A postback has no free text; its button title IS the content. */}
-                  {hasBody && <span className="whitespace-pre-wrap">{m.body}</span>}
-                  {!hasBody && attachments.length === 0 && m.isUnsupported && (
+                {m.isDeleted ? (
+                  <span className={"italic " + (out ? "text-white/70" : "text-ink-400")}>
+                    This message was deleted
+                  </span>
+                ) : (
+                  <>
+                    {/* A postback has no free text; its button title IS the content. */}
+                    {hasBody && <span className="whitespace-pre-wrap">{m.body}</span>}
+                    {!hasBody && attachments.length === 0 && m.isUnsupported && (
                     <span className={"italic " + (out ? "text-white/70" : "text-ink-400")}>
                       Unsupported message type
                     </span>
-                  )}
-                  {attachments.length > 0 && <Attachments attachments={attachments} outgoing={out} />}
-                </>
-              )}
-            </div>
+                    )}
+                    {attachments.length > 0 && <Attachments attachments={attachments} outgoing={out} />}
+                  </>
+                )}
+              </div>
 
-            <Reactions message={m} />
+              <Reactions message={m} />
 
-            <div className="mt-1 flex flex-wrap items-center gap-1.5 px-1 text-[10.5px] text-ink-400">
-              <span className="font-medium">{out ? (m.authorName ?? "Clinic") : (m.authorName ?? "Patient")}</span>
-              <span>·</span>
-              <span>{CHANNEL_LABEL[m.channel]}</span>
-              <span>·</span>
-              <span title={formatDateTime(m.createdAt)}>{formatTime(m.createdAt)}</span>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 px-1 text-[10.5px] text-ink-400">
+                <span className="font-medium">{out ? (m.authorName ?? "Clinic") : (m.authorName ?? "Patient")}</span>
+                <span>·</span>
+                <span title={formatDateTime(m.createdAt)}>{formatTime(m.createdAt)}</span>
 
               {/* A quick reply and a postback are ONE message, marked, not two. */}
               {m.quickReplyText && (
@@ -210,10 +218,41 @@ export function MessageThread({
                   {m.deliveryStatus === "seen" && m.seenAt ? ` ${formatTime(m.seenAt)}` : ""}
                 </span>
               )}
+              </div>
             </div>
+          );
+        })}
+      </div>
+      <div className="sticky bottom-0 border-t border-line bg-panel p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">AI suggested reply</div>
+            <div className="text-[11px] text-ink-400">Review and edit before any outgoing message is sent.</div>
           </div>
-        );
-      })}
+          <button
+            type="button"
+            disabled
+            className="rounded-control border border-line px-2.5 py-1.5 text-[11.5px] font-medium text-ink-400"
+            title="No connected regeneration action is exposed in this CRM code path."
+          >
+            Regenerate
+          </button>
+        </div>
+        <textarea
+          placeholder="No generated suggestion loaded. Use the connected AI reply workflow, then review the draft here before sending."
+          className="min-h-[74px] w-full resize-none rounded-control border border-line bg-white p-2 text-[12.5px] text-ink-700"
+        />
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            disabled
+            className="rounded-control bg-line px-3 py-2 text-[12px] font-semibold text-ink-400"
+            title="This repository does not expose a direct channel send handler here."
+          >
+            Insert
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

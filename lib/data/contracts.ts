@@ -27,6 +27,8 @@ export interface LeadFilters {
   specialtyId?: string;
   sourceId?: string;
   campaignId?: string;
+  dateFrom?: string;
+  dateTo?: string;
   escalated?: boolean;
   unread?: boolean;
   incomingUnanswered?: boolean;

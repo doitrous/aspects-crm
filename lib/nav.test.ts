@@ -3,10 +3,10 @@ import { test } from "node:test";
 import { activeHref, visibleNav, type NavItem } from "./nav";
 
 const ITEMS: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: "" },
-  { label: "Leads", href: "/leads", icon: "" },
-  { label: "Users & Roles", href: "/settings/users", icon: "" },
-  { label: "Settings", href: "/settings", icon: "" },
+  { label: "Dashboard", i18nKey: "nav.dashboard", href: "/dashboard", icon: "" },
+  { label: "Leads", i18nKey: "nav.newLeads", href: "/leads", icon: "" },
+  { label: "Users & Roles", i18nKey: "nav.users", href: "/settings/users", icon: "" },
+  { label: "Settings", i18nKey: "nav.settings", href: "/settings", icon: "" },
 ];
 
 test("an exact path activates its own item", () => {
@@ -52,10 +52,16 @@ test("a moderator never sees the auditor, reports, users or settings nav", () =>
   }
 });
 
-test("an auditor sees Users & Roles but not Settings", () => {
+test("an auditor sees Users & Roles, Settings and Emails (owns operational config, §C)", () => {
   const hrefs = visibleNav("auditor").map((n) => n.href);
   assert.equal(hrefs.includes("/settings/users"), true);
-  assert.equal(hrefs.includes("/settings"), false);
+  assert.equal(hrefs.includes("/settings"), true);
+  assert.equal(hrefs.includes("/emails"), true);
+});
+
+test("a moderator never sees the emails nav", () => {
+  const hrefs = visibleNav("moderator").map((n) => n.href);
+  assert.equal(hrefs.includes("/emails"), false);
 });
 
 test("an admin sees every nav item", () => {

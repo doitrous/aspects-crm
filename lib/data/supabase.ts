@@ -1,6 +1,9 @@
 import "server-only";
+import { bookingConfigured, bookingDb } from "@/lib/booking/client";
+import { bookingStatusForReservation } from "@/lib/booking/service";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { nestComments } from "@/lib/data/comments";
+import { writeActor } from "@/lib/data/actor";
 import type {
   AuditReport,
   Booking,
@@ -14,6 +17,7 @@ import type {
   EscalationQueueItem,
   EscalationSeverity,
   EscalationStatus,
+  FollowUp,
   FollowUpItem,
   Lead,
   LeadAttribution,
@@ -26,6 +30,7 @@ import type {
   MessageReaction,
   Platform,
   PipelineStage,
+  ReservationStatus,
   SummaryReport,
   TimelineEvent,
 } from "@/lib/types";
@@ -94,13 +99,6 @@ function toUiChannel(platform: string | null): MessageChannel {
 
 const ESCALATED_STATES = ["escalated", "in_review"];
 
-/**
- * Operator credited with review actions until real auth is wired. This is the
- * live project's single owner_admin (crm_users). Replace with the session user
- * once authentication lands.
- */
-const CURRENT_USER_ID = "8fef1be8-04a2-40b2-b231-cbb69cf900ba";
-
 function toUiEscalationStatus(status: string | null): EscalationStatus {
   switch (status) {
     case "in_review":
@@ -146,6 +144,7 @@ interface LeadRow {
   phone_number: string | null;
   normalized_phone: string | null;
   source_id: string | null;
+  campaign: string | null;
   service_name: string | null;
   doctor_id: string | null;
   branch_id: string | null;
@@ -177,7 +176,7 @@ type Row = Record<string, unknown>;
 const LEAD_COLUMNS =
   "id,lead_id,mrn,name,status,platform,platform_id,chat_link,gender," +
   "phone_country_code,phone_number,normalized_phone,source_id,service_name," +
-  "doctor_id,branch_id,coordinator_user_id,escalation_status,has_unread," +
+  "campaign,doctor_id,branch_id,coordinator_user_id,escalation_status,has_unread," +
   "is_reply_overdue,booking_appointment_id,lost_reason_id,notes,medical_notes," +
   "medical_history,ai_summary,last_incoming_at,last_outgoing_at,last_contact_at," +
   "created_at,updated_at";
@@ -219,6 +218,26 @@ async function loadDuplicateSet(): Promise<Set<string>> {
   return set;
 }
 
+async function loadTagsForLeadIds(leadUids: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (leadUids.length === 0) return map;
+  const { data, error } = await supabaseAdmin()
+    .from("lead_tag_assignments")
+    .select("lead_id,lead_tags(name)")
+    .in("lead_id", leadUids);
+  if (error) throw new Error(`loadTagsForLeadIds: ${error.message}`);
+  for (const row of (data ?? []) as unknown as Row[]) {
+    const leadId = row.lead_id as string;
+    const rel = row.lead_tags as { name?: string | null } | { name?: string | null }[] | null;
+    const tag = Array.isArray(rel) ? rel[0] : rel;
+    if (!tag?.name) continue;
+    const tags = map.get(leadId) ?? [];
+    tags.push(tag.name);
+    map.set(leadId, tags);
+  }
+  return map;
+}
+
 /* ── mappers ─────────────────────────────────────────────────── */
 
 function buildPhone(row: LeadRow): string {
@@ -237,7 +256,69 @@ function buildNote(row: LeadRow): LeadNote {
   };
 }
 
-function mapLead(row: LeadRow, lk: Lookups): Lead {
+function followUpFromStage(
+  stage:
+    | {
+        id?: string;
+        workflow_type?: string | null;
+        stage_number?: number | null;
+        due_at?: string | null;
+        notes?: string | null;
+        outcome?: string | null;
+        status?: string | null;
+        assigned_to?: string | null;
+        updated_at?: string | null;
+      }
+    | undefined,
+  usersById: Map<string, string>,
+): FollowUp {
+  if (!stage) return { status: "none" };
+  const due = stage.due_at ?? undefined;
+  const rawStatus = stage.status ?? "not_started";
+  const status =
+    rawStatus === "completed"
+      ? "done"
+      : rawStatus === "skipped"
+        ? "dropped"
+        : due && new Date(due).getTime() < Date.now()
+          ? "missed"
+          : "scheduled";
+  return {
+    id: stage.id,
+    workflowType: stage.workflow_type ?? undefined,
+    stageNumber: stage.stage_number ?? undefined,
+    nextDate: due,
+    reason: stage.notes ?? undefined,
+    status,
+    owner: stage.assigned_to ? usersById.get(stage.assigned_to) : undefined,
+    lastContact: stage.updated_at ?? undefined,
+    outcome: stage.outcome ?? undefined,
+    notes: stage.notes ?? undefined,
+  };
+}
+
+async function loadOpenFollowUpsForLeadIds(
+  leadUids: string[],
+  usersById: Map<string, string>,
+): Promise<Map<string, FollowUp>> {
+  const map = new Map<string, FollowUp>();
+  if (leadUids.length === 0) return map;
+  const { data, error } = await supabaseAdmin()
+    .from("lead_follow_up_stages")
+    .select("id,lead_id,workflow_type,stage_number,due_at,notes,outcome,status,assigned_to,updated_at")
+    .in("lead_id", leadUids)
+    .neq("status", "completed")
+    .order("due_at", { ascending: true, nullsFirst: false });
+  if (error) throw new Error(`loadOpenFollowUpsForLeadIds: ${error.message}`);
+  for (const stage of (data ?? []) as Row[]) {
+    const leadId = stage.lead_id as string;
+    if (map.has(leadId)) continue;
+    map.set(leadId, followUpFromStage(stage, usersById));
+  }
+  return map;
+}
+
+function mapLead(row: LeadRow, lk: Lookups, tags: string[] = [], followUp?: FollowUp): Lead {
   const gender = row.gender === "male" || row.gender === "female" ? row.gender : undefined;
   const lastMessageAt =
     row.last_incoming_at ?? row.last_outgoing_at ?? row.last_contact_at ?? row.updated_at;
@@ -252,6 +333,7 @@ function mapLead(row: LeadRow, lk: Lookups): Lead {
     platformId: row.platform_id ?? undefined,
     chatLink: row.chat_link ?? undefined,
     sourceId: row.source_id ?? undefined,
+    campaignId: row.campaign ?? undefined,
     specialtyId: undefined,
     serviceName: row.service_name ?? undefined,
     doctorId: row.doctor_id ?? undefined,
@@ -263,7 +345,7 @@ function mapLead(row: LeadRow, lk: Lookups): Lead {
     assignedModerator: row.coordinator_user_id
       ? lk.usersById.get(row.coordinator_user_id)
       : undefined,
-    tags: [],
+    tags,
     unread: row.has_unread,
     incomingUnanswered: row.has_unread,
     overdue: row.is_reply_overdue,
@@ -276,7 +358,7 @@ function mapLead(row: LeadRow, lk: Lookups): Lead {
     bookingStatus: row.booking_appointment_id ? "unconfirmed" : "none",
     bookingAppointmentId: row.booking_appointment_id ?? undefined,
     note: buildNote(row),
-    followUp: { status: "none" },
+    followUp: followUp ?? { status: "none" },
   };
 }
 
@@ -373,7 +455,10 @@ export const supabaseProvider: DataProvider = {
     }
     if (filters.platform) query = query.eq("platform", toDbPlatform(filters.platform));
     if (filters.sourceId) query = query.eq("source_id", filters.sourceId);
+    if (filters.campaignId) query = query.ilike("campaign", `%${filters.campaignId}%`);
     if (filters.doctorId) query = query.eq("doctor_id", filters.doctorId);
+    if (filters.dateFrom) query = query.gte("first_contact_at", filters.dateFrom);
+    if (filters.dateTo) query = query.lt("first_contact_at", `${filters.dateTo}T23:59:59.999Z`);
     if (filters.unread) query = query.eq("has_unread", true);
     if (filters.incomingUnanswered) query = query.eq("has_unread", true);
     if (filters.overdue) query = query.eq("is_reply_overdue", true);
@@ -385,8 +470,8 @@ export const supabaseProvider: DataProvider = {
     if (filters.q) {
       const term = filters.q.replace(/[%,()]/g, " ").trim();
       const like = `%${term}%`;
-      query = query.or(
-        [
+      const phoneTerm = term.replace(/\D/g, "");
+      const clauses = [
           `lead_id.ilike.${like}`,
           `name.ilike.${like}`,
           `mrn.ilike.${like}`,
@@ -394,15 +479,31 @@ export const supabaseProvider: DataProvider = {
           `phone_number.ilike.${like}`,
           `platform_id.ilike.${like}`,
           `chat_link.ilike.${like}`,
-        ].join(","),
-      );
+      ];
+      if (phoneTerm) {
+        clauses.push(`normalized_phone.ilike.%${phoneTerm}%`, `phone_number.ilike.%${phoneTerm}%`);
+      }
+      query = query.or(clauses.join(","));
     }
 
     query = query.order("updated_at", { ascending: false });
 
     const { data, error } = await query;
     if (error) throw new Error(`getLeads: ${error.message}`);
-    return (data as unknown as LeadRow[]).map((r) => mapLead(r, { usersById, lostReasonsById, dupSet }));
+    const rows = (data as unknown as LeadRow[]) ?? [];
+    const leadUids = rows.map((r) => r.id);
+    const [tagsByLead, followUpsByLead] = await Promise.all([
+      loadTagsForLeadIds(leadUids),
+      loadOpenFollowUpsForLeadIds(leadUids, usersById),
+    ]);
+    return rows.map((r) =>
+      mapLead(
+        r,
+        { usersById, lostReasonsById, dupSet },
+        tagsByLead.get(r.id) ?? [],
+        followUpsByLead.get(r.id),
+      ),
+    );
   },
 
   async getLead(id: string): Promise<Lead | undefined> {
@@ -418,7 +519,17 @@ export const supabaseProvider: DataProvider = {
       .maybeSingle();
     if (error) throw new Error(`getLead: ${error.message}`);
     if (!data) return undefined;
-    return mapLead(data as unknown as LeadRow, { usersById, lostReasonsById, dupSet });
+    const row = data as unknown as LeadRow;
+    const [tagsByLead, followUpsByLead] = await Promise.all([
+      loadTagsForLeadIds([row.id]),
+      loadOpenFollowUpsForLeadIds([row.id], usersById),
+    ]);
+    return mapLead(
+      row,
+      { usersById, lostReasonsById, dupSet },
+      tagsByLead.get(row.id) ?? [],
+      followUpsByLead.get(row.id),
+    );
   },
 
   async messagesFor(leadId: string, channels?: MessageChannel[]): Promise<Message[]> {
@@ -658,10 +769,40 @@ export const supabaseProvider: DataProvider = {
     };
   },
 
-  async bookingsFor(): Promise<Booking[]> {
-    // Bookings live in the external booking system (adminaspectsclinica),
-    // connected in a later phase. No local booking rows yet.
-    return [];
+  async bookingsFor(leadId: string): Promise<Booking[]> {
+    if (!bookingConfigured()) return [];
+    const lead = await this.getLead(leadId);
+    if (!lead?.bookingAppointmentId) return [];
+    const { data, error } = await bookingDb()
+      .from("appointments")
+      .select("id,doctor_id,specialty_id,branch_id,appointment_date,start_time,end_time,duration_at_booking,status,branches(name_en,name_ar)")
+      .eq("id", lead.bookingAppointmentId)
+      .maybeSingle();
+    if (error) throw new Error(`bookingsFor: ${error.message}`);
+    if (!data) return [];
+    const row = data as unknown as Row;
+    const branchRel = row.branches as { name_en?: string | null; name_ar?: string | null } | { name_en?: string | null; name_ar?: string | null }[] | null;
+    const branch = Array.isArray(branchRel) ? branchRel[0] : branchRel;
+    const startDate = String(row.appointment_date);
+    const startTime = String(row.start_time).slice(0, 5);
+    const endTime = String(row.end_time).slice(0, 5);
+    const status = bookingStatusForReservation(String(row.status) as ReservationStatus);
+    return [
+      {
+        id: String(row.id),
+        leadId,
+        doctorId: String(row.doctor_id ?? ""),
+        specialtyId: String(row.specialty_id ?? ""),
+        branch: branch?.name_en ?? branch?.name_ar ?? String(row.branch_id ?? ""),
+        startAt: `${startDate}T${startTime}:00`,
+        durationMin: typeof row.duration_at_booking === "number"
+          ? row.duration_at_booking
+          : Math.max(1, Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3, 5)) - (Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3, 5)))),
+        status,
+        source: "web",
+        calendarSynced: true,
+      },
+    ];
   },
 
   async escalationsFor(leadId: string): Promise<Escalation[]> {
@@ -893,31 +1034,34 @@ export const supabaseProvider: DataProvider = {
     const stageByLead = new Map<
       string,
       {
+        id: string | null;
         workflow_type: string | null;
         stage_number: number | null;
         due_at: string | null;
-        reason: string | null;
+        notes: string | null;
         status: string | null;
-        last_contact_at: string | null;
+        updated_at: string | null;
       }
     >();
     if (uuids.length) {
-      const { data: stages } = await supabaseAdmin()
+      const { data: stages, error: stageError } = await supabaseAdmin()
         .from("lead_follow_up_stages")
-        .select("lead_id,workflow_type,stage_number,due_at,reason,status,last_contact_at")
+        .select("id,lead_id,workflow_type,stage_number,due_at,notes,status,updated_at")
         .in("lead_id", uuids)
         .neq("status", "completed")
         .order("due_at", { ascending: true });
+      if (stageError) throw new Error(`followUpQueue(stages): ${stageError.message}`);
       for (const s of stages ?? []) {
         const key = s.lead_id as string;
         if (!stageByLead.has(key)) {
           stageByLead.set(key, {
+            id: s.id as string,
             workflow_type: s.workflow_type as string | null,
             stage_number: s.stage_number as number | null,
             due_at: s.due_at as string | null,
-            reason: s.reason as string | null,
+            notes: s.notes as string | null,
             status: s.status as string | null,
-            last_contact_at: s.last_contact_at as string | null,
+            updated_at: s.updated_at as string | null,
           });
         }
       }
@@ -932,9 +1076,9 @@ export const supabaseProvider: DataProvider = {
         workflowType: s?.workflow_type ?? undefined,
         stageNumber: s?.stage_number ?? undefined,
         dueAt,
-        reason: s?.reason ?? undefined,
+        reason: s?.notes ?? undefined,
         status: s?.status ?? "pending",
-        lastContactAt: s?.last_contact_at ?? r.last_contact_at ?? undefined,
+        lastContactAt: s?.updated_at ?? r.last_contact_at ?? undefined,
         overdue: dueAt ? new Date(dueAt).getTime() < now : false,
       };
     });
@@ -980,6 +1124,16 @@ export const supabaseProvider: DataProvider = {
     decision: DuplicateDecision,
     notes?: string,
   ): Promise<void> {
+    const actor = await writeActor();
+    if (decision === "merged") {
+      const { error } = await supabaseAdmin().rpc("crm_merge_duplicate_flag", {
+        target_flag_id: flagId,
+        actor_id: actor.id,
+        merge_note: notes?.trim() || null,
+      });
+      if (error) throw new Error(`resolveDuplicate(merge): ${error.message}`);
+      return;
+    }
     const db = supabaseAdmin();
     const nowIso = new Date().toISOString();
     // History-preserving: flip the flag's status and log the action; nothing
@@ -988,7 +1142,7 @@ export const supabaseProvider: DataProvider = {
       .from("lead_duplicate_flags")
       .update({
         status: decision,
-        reviewed_by: CURRENT_USER_ID,
+        reviewed_by: actor.id,
         reviewed_at: nowIso,
         updated_at: nowIso,
         ...(notes ? { notes } : {}),
@@ -999,20 +1153,21 @@ export const supabaseProvider: DataProvider = {
     const { error: logError } = await db.from("duplicate_review_actions").insert({
       duplicate_flag_id: flagId,
       action: decision,
-      action_by: CURRENT_USER_ID,
+      action_by: actor.id,
       notes: notes ?? null,
     });
     if (logError) throw new Error(`resolveDuplicate(log): ${logError.message}`);
   },
 
   async resolveEscalation(id: string, note?: string): Promise<void> {
+    const actor = await writeActor();
     const db = supabaseAdmin();
     const nowIso = new Date().toISOString();
     const { error } = await db
       .from("escalations")
       .update({
         status: "resolved",
-        resolved_by: CURRENT_USER_ID,
+        resolved_by: actor.id,
         resolved_at: nowIso,
         updated_at: nowIso,
         ...(note ? { notes: note } : {}),

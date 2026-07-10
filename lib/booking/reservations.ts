@@ -10,6 +10,10 @@ interface NamePair {
 
 interface AppointmentRow {
   id: string;
+  doctor_id: string | null;
+  specialty_id: string | null;
+  branch_id: string | null;
+  service_id: string | null;
   patient_name: string;
   patient_age: number | null;
   patient_phone_country_code: string | null;
@@ -20,6 +24,7 @@ interface AppointmentRow {
   end_time: string;
   status: string;
   is_new_patient: boolean;
+  notes: string | null;
   primary_complaint: string | null;
   referral_source: string | null;
   fee_at_booking: number | null;
@@ -31,9 +36,9 @@ interface AppointmentRow {
 }
 
 const SELECT =
-  "id,patient_name,patient_age,patient_phone_country_code,patient_phone,patient_email," +
+  "id,doctor_id,specialty_id,branch_id,service_id,patient_name,patient_age,patient_phone_country_code,patient_phone,patient_email," +
   "appointment_date,start_time,end_time,status,is_new_patient,primary_complaint," +
-  "referral_source,fee_at_booking,created_at," +
+  "referral_source,fee_at_booking,notes,created_at," +
   "doctors(name_en,name_ar),specialties(name_en,name_ar)," +
   "branches(name_en,name_ar),services(name_en,name_ar)";
 
@@ -70,15 +75,20 @@ function mapRow(r: AppointmentRow): Reservation {
     patientPhone: `${cc}${phone}`.trim(),
     patientEmail: r.patient_email ?? undefined,
     patientAge: r.patient_age ?? undefined,
+    doctorId: r.doctor_id ?? undefined,
     doctorName: label(r.doctors),
+    specialtyId: r.specialty_id ?? undefined,
     specialtyName: label(r.specialties),
+    branchId: r.branch_id ?? undefined,
     branchName: label(r.branches),
+    serviceId: r.service_id ?? undefined,
     serviceName: label(r.services),
     date: r.appointment_date,
     startTime: hhmm(r.start_time),
     endTime: hhmm(r.end_time),
     status: toStatus(r.status),
     isNewPatient: Boolean(r.is_new_patient),
+    notes: r.notes ?? undefined,
     primaryComplaint: r.primary_complaint ?? undefined,
     referralSource: r.referral_source ?? undefined,
     feeAtBooking: r.fee_at_booking ?? undefined,

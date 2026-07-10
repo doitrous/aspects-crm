@@ -5,6 +5,7 @@ import { ASSIGNABLE_ROLES, dbRoleFor, guardMessage } from "@/lib/auth/roles";
 import { toSessionUser, type CrmUserRow, type SessionUser } from "@/lib/auth/account";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { writeActor } from "@/lib/data/actor";
+import { logActivity } from "@/lib/audit/log";
 
 const COLS = "id, email, full_name, role, is_active, auth_user_id";
 
@@ -236,4 +237,97 @@ export async function userRoleHistory(userId: string): Promise<RoleHistoryEntry[
     reason: r.reason,
     createdAt: r.created_at,
   }));
+}
+
+/* ── Supabase Auth ↔ CRM profile sync (spec §F / §37) ─────────── */
+
+export interface UnlinkedAuthUser {
+  authUserId: string;
+  email: string;
+  createdAt: string | null;
+  lastSignInAt: string | null;
+}
+
+/**
+ * Supabase Auth users that do NOT yet have a linked `crm_users` profile.
+ *
+ * Read via the service-role Admin API on the server only — the service key is
+ * never shipped to the browser. This is what makes newly-created Authentication
+ * users visible in Users & Roles so an admin can grant them a CRM profile/role
+ * (rather than silently having no access).
+ */
+export async function listUnlinkedAuthUsers(): Promise<UnlinkedAuthUser[]> {
+  const admin = supabaseAdmin();
+
+  // Which auth ids are already linked?
+  const { data: linkedRows } = await admin.from("crm_users").select("auth_user_id");
+  const linked = new Set((linkedRows ?? []).map((r) => r.auth_user_id as string).filter(Boolean));
+
+  // Page through auth users (Admin API is paginated).
+  const unlinked: UnlinkedAuthUser[] = [];
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw new UserAdminError(`Could not read Auth users: ${error.message}`);
+    const users = data?.users ?? [];
+    for (const u of users) {
+      if (!u.email || linked.has(u.id)) continue;
+      unlinked.push({
+        authUserId: u.id,
+        email: u.email,
+        createdAt: u.created_at ?? null,
+        lastSignInAt: u.last_sign_in_at ?? null,
+      });
+    }
+    if (users.length < 200) break; // last page
+  }
+  return unlinked;
+}
+
+/**
+ * Create a CRM profile for an existing Supabase Auth user and link it, granting
+ * the chosen role. Admin-only (`users.invite`); logged to the activity trail.
+ */
+export async function linkAuthUser(input: {
+  authUserId: string;
+  email: string;
+  fullName?: string;
+  role: Role;
+}): Promise<string> {
+  const actor = await writeActor();
+  assertCan(actor.role, "users.invite");
+  if (!ASSIGNABLE_ROLES.includes(input.role)) {
+    throw new UserAdminError(`"${input.role}" is not an assignable role.`);
+  }
+  const admin = supabaseAdmin();
+
+  // Refuse if this auth id is already linked (idempotency / no duplicates).
+  const { data: existing } = await admin
+    .from("crm_users")
+    .select("id")
+    .eq("auth_user_id", input.authUserId)
+    .maybeSingle();
+  if (existing) throw new UserAdminError("This Auth user already has a CRM profile.");
+
+  const dbRole = dbRoleFor(input.role, null);
+  const { data, error } = await admin
+    .from("crm_users")
+    .insert({
+      auth_user_id: input.authUserId,
+      email: input.email,
+      full_name: input.fullName?.trim() || input.email.split("@")[0],
+      role: dbRole,
+      is_active: true,
+    })
+    .select("id")
+    .single();
+  if (error) throw new UserAdminError(error.message);
+
+  await logActivity({
+    actorId: actor.id,
+    action: "user.profile_linked",
+    entityType: "crm_user",
+    entityId: data.id as string,
+    newValues: { auth_user_id: input.authUserId, email: input.email, role: dbRole },
+  });
+  return data.id as string;
 }

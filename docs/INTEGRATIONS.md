@@ -123,8 +123,9 @@ Role matrix you specified:
 - **Auditor** → create all report types
 - **Moderator** → create **Moderator** and **Follow-up** reports only
 
-I have the role plumbing (`lib/nav.ts` `visibleNav(role)`), but the current user is
-still a hardcoded mock. Real auth must land first so "who is creating" is trustworthy.
+The CRM now resolves real Supabase Auth sessions through `crm_users` for the shell
+and write actors. Report creation still needs its own server actions and capability
+checks before "who submitted this report" is trustworthy end-to-end.
 
 ### 3b. Bulk import (Excel / Google Sheets) — buildable now
 Plan: upload `.xlsx`/`.csv` → parse → **column-mapping/reorder review step** (drag to
@@ -151,8 +152,9 @@ To make it write:
 ## 4. Auth — the cross-cutting blocker
 
 Everything role-based (report creator, edit permissions, "who marked this") depends
-on real sign-in. Today the CRM uses a hardcoded `CURRENT_USER_ID` and a mock
-sidebar user (Mona Khaled / moderator).
+on real sign-in. The shell and Prompt 1 lead/queue mutations resolve real
+Supabase Auth users through `crm_users`; remaining report/settings actions still
+need the same enforcement as they are implemented.
 
 - Admin account to add: **doitrous@hotmail.com** (already in booking auth; you said
   it's on Supabase). I will add it to the CRM's `crm_users` as **admin**.

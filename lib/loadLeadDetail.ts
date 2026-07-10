@@ -11,19 +11,25 @@ import {
 } from "@/lib/data";
 import type { LeadDetailData } from "@/components/lead/LeadDetail";
 import { leadFinancials, type LeadFinancials } from "@/lib/data/financials";
+import { activeLeadTags, activeLostReasons } from "@/lib/data/leadMutations";
+import { bookingCatalog } from "@/lib/booking/service";
 
 /**
  * The financial record is the one part of the drawer that can be missing for a
  * reason other than "no data": the viewer may lack `financial.view`, the lead
  * may predate the financial tables, or migration `0007` may not have been
  * applied yet. None of those should take the whole lead detail down with them,
- * so a failure here degrades to `null` and the Payments tab explains itself.
+ * but the reason must not be swallowed; the Payments tab needs the real error
+ * so production schema/RLS/env failures are visible instead of looking empty.
  */
-async function loadFinancials(id: string): Promise<LeadFinancials | null> {
+async function loadFinancials(id: string): Promise<{ financials: LeadFinancials | null; error: string | null }> {
   try {
-    return await leadFinancials(id);
-  } catch {
-    return null;
+    return { financials: await leadFinancials(id), error: null };
+  } catch (error) {
+    return {
+      financials: null,
+      error: error instanceof Error ? error.message : "Financial records could not be loaded.",
+    };
   }
 }
 
@@ -36,7 +42,20 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
   const lead = await getLead(id);
   if (!lead) return null;
 
-  const [messages, comments, attribution, timeline, bookings, escalations, dupGroups, allLeads, financials] =
+  const [
+    messages,
+    comments,
+    attribution,
+    timeline,
+    bookings,
+    escalations,
+    dupGroups,
+    allLeads,
+    financialResult,
+    availableTags,
+    lostReasons,
+    catalog,
+  ] =
     await Promise.all([
       messagesFor(id),
       commentsFor(id),
@@ -47,6 +66,9 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
       duplicatesFor(id),
       getLeads(),
       loadFinancials(id),
+      activeLeadTags(),
+      activeLostReasons(),
+      bookingCatalog(),
     ]);
 
   const duplicateGroups = dupGroups.map((g) => ({
@@ -66,6 +88,10 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
     bookings,
     escalations,
     duplicateGroups,
-    financials,
+    financials: financialResult.financials,
+    financialsError: financialResult.error,
+    availableTags,
+    lostReasons,
+    bookingCatalog: catalog,
   };
 }

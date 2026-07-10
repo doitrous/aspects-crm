@@ -1,0 +1,686 @@
+import "server-only";
+import { supabaseAdmin } from "@/lib/supabase/server";
+import { writeActor } from "@/lib/data/actor";
+import type { PipelineStage, ReferenceOption } from "@/lib/types";
+
+type NoteKey = "clientNotes" | "medicalHistory" | "generalNotes";
+
+const UI_TO_DB_STAGE: Record<PipelineStage, string> = {
+  new: "new_lead",
+  qualified: "qualified",
+  booked: "booked",
+  follow_up: "follow_up",
+  post_op: "post_op_follow_up",
+  lost: "lost",
+};
+
+const DB_TO_LABEL: Record<string, string> = {
+  new_lead: "New",
+  qualified: "Qualified",
+  booked: "Booked",
+  follow_up: "Follow-Up",
+  post_op_follow_up: "Post-Op F/U",
+  lost: "Lost",
+};
+
+const NOTE_COLUMN: Record<NoteKey, string> = {
+  clientNotes: "notes",
+  medicalHistory: "medical_history",
+  generalNotes: "medical_notes",
+};
+
+const NOTE_LABEL: Record<NoteKey, string> = {
+  clientNotes: "Client Notes",
+  medicalHistory: "Medical History",
+  generalNotes: "Notes",
+};
+
+export class LeadMutationError extends Error {}
+
+function asNoteKey(value: string): NoteKey {
+  if (value === "clientNotes" || value === "medicalHistory" || value === "generalNotes") {
+    return value;
+  }
+  throw new LeadMutationError("Unknown note section.");
+}
+
+async function resolveLead(leadId: string) {
+  const { data, error } = await supabaseAdmin()
+    .from("leads")
+    .select("id,lead_id,status,notes,medical_notes,medical_history,lost_reason_id,lost_notes,escalation_status")
+    .eq("lead_id", leadId)
+    .maybeSingle();
+  if (error) throw new Error(`resolveLead: ${error.message}`);
+  if (!data) throw new LeadMutationError("Lead not found.");
+  return data as {
+    id: string;
+    lead_id: string;
+    status: string | null;
+    notes: string | null;
+    medical_notes: string | null;
+    medical_history: string | null;
+    lost_reason_id: string | null;
+    lost_notes: string | null;
+    escalation_status: string | null;
+  };
+}
+
+async function audit(params: {
+  actorId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  oldValues?: Record<string, unknown>;
+  newValues?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}) {
+  const { error } = await supabaseAdmin().from("audit_logs").insert({
+    actor_user_id: params.actorId,
+    action: params.action,
+    entity_type: params.entityType,
+    entity_id: params.entityId,
+    old_values: params.oldValues ?? {},
+    new_values: params.newValues ?? {},
+    metadata: params.metadata ?? {},
+  });
+  if (error) throw new Error(`audit: ${error.message}`);
+}
+
+async function timeline(params: {
+  leadUid: string;
+  actorId: string;
+  eventType: string;
+  title: string;
+  body?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  const { error } = await supabaseAdmin().from("lead_timeline_events").insert({
+    lead_id: params.leadUid,
+    event_type: params.eventType,
+    title: params.title,
+    body: params.body ?? null,
+    actor_user_id: params.actorId,
+    metadata: params.metadata ?? {},
+  });
+  if (error) throw new Error(`timeline: ${error.message}`);
+}
+
+export async function activeLeadTags(): Promise<ReferenceOption[]> {
+  const { data, error } = await supabaseAdmin()
+    .from("lead_tags")
+    .select("id,name,color")
+    .eq("is_active", true)
+    .order("name", { ascending: true });
+  if (error) throw new Error(`activeLeadTags: ${error.message}`);
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    label: r.name as string,
+    color: (r.color as string) ?? undefined,
+  }));
+}
+
+export async function activeLostReasons(): Promise<ReferenceOption[]> {
+  const { data, error } = await supabaseAdmin()
+    .from("lost_reasons")
+    .select("id,label")
+    .eq("is_active", true)
+    .order("display_order", { ascending: true });
+  if (error) throw new Error(`activeLostReasons: ${error.message}`);
+  return (data ?? []).map((r) => ({
+    id: r.id as string,
+    label: r.label as string,
+  }));
+}
+
+export async function saveLeadNote(leadId: string, rawKey: string, value: string): Promise<void> {
+  const key = asNoteKey(rawKey);
+  const actor = await writeActor();
+  const lead = await resolveLead(leadId);
+  const column = NOTE_COLUMN[key] as "notes" | "medical_history" | "medical_notes";
+  const oldValue = lead[column] ?? "";
+  const nextValue = value.trim();
+
+  const { error } = await supabaseAdmin()
+    .from("leads")
+    .update({ [column]: nextValue })
+    .eq("id", lead.id);
+  if (error) throw new Error(`saveLeadNote: ${error.message}`);
+
+  await audit({
+    actorId: actor.id,
+    action: "lead.note_updated",
+    entityType: "lead",
+    entityId: lead.id,
+    oldValues: { [column]: oldValue },
+    newValues: { [column]: nextValue },
+    metadata: { lead_id: leadId, field: column, label: NOTE_LABEL[key], actor_name: actor.name },
+  });
+  await timeline({
+    leadUid: lead.id,
+    actorId: actor.id,
+    eventType: "note_updated",
+    title: `Note updated: ${NOTE_LABEL[key]}`,
+    metadata: { field: column },
+  });
+}
+
+export async function updateLeadStage(params: {
+  leadId: string;
+  stage: PipelineStage;
+  lostReasonId?: string;
+  lostNotes?: string;
+}): Promise<void> {
+  const actor = await writeActor();
+  const lead = await resolveLead(params.leadId);
+  const nextStatus = UI_TO_DB_STAGE[params.stage];
+  const patch: Record<string, unknown> = { status: nextStatus };
+
+  if (params.stage === "lost") {
+    if (!params.lostReasonId) throw new LeadMutationError("Choose a lost reason.");
+    const { data: reason, error: reasonError } = await supabaseAdmin()
+      .from("lost_reasons")
+      .select("id,label")
+      .eq("id", params.lostReasonId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (reasonError) throw new Error(`lostReason: ${reasonError.message}`);
+    if (!reason) throw new LeadMutationError("Lost reason is not available.");
+    patch.lost_reason_id = params.lostReasonId;
+    patch.lost_notes = params.lostNotes?.trim() || null;
+  } else {
+    patch.lost_reason_id = null;
+    patch.lost_notes = null;
+  }
+
+  const { error } = await supabaseAdmin().from("leads").update(patch).eq("id", lead.id);
+  if (error) throw new Error(`updateLeadStage: ${error.message}`);
+
+  await audit({
+    actorId: actor.id,
+    action: "lead.status_updated",
+    entityType: "lead",
+    entityId: lead.id,
+    oldValues: {
+      status: lead.status,
+      lost_reason_id: lead.lost_reason_id,
+      lost_notes: lead.lost_notes,
+    },
+    newValues: patch,
+    metadata: { lead_id: params.leadId, actor_name: actor.name },
+  });
+  await timeline({
+    leadUid: lead.id,
+    actorId: actor.id,
+    eventType: "stage_change",
+    title: `Stage -> ${nextStatus}`,
+    body: params.stage === "lost" ? params.lostNotes?.trim() || null : null,
+    metadata: {
+      from: lead.status,
+      to: nextStatus,
+      from_label: lead.status ? DB_TO_LABEL[lead.status] : null,
+      to_label: DB_TO_LABEL[nextStatus],
+    },
+  });
+}
+
+export async function setLeadTagAssignments(leadId: string, tagIds: string[]): Promise<void> {
+  const actor = await writeActor();
+  const lead = await resolveLead(leadId);
+  const unique = [...new Set(tagIds.filter(Boolean))];
+
+  const { data: active, error: activeError } = await supabaseAdmin()
+    .from("lead_tags")
+    .select("id,name")
+    .eq("is_active", true)
+    .in("id", unique.length ? unique : ["00000000-0000-0000-0000-000000000000"]);
+  if (activeError) throw new Error(`leadTags: ${activeError.message}`);
+  if ((active ?? []).length !== unique.length) {
+    throw new LeadMutationError("One or more selected tags are not available.");
+  }
+
+  const { data: existing, error: existingError } = await supabaseAdmin()
+    .from("lead_tag_assignments")
+    .select("tag_id,lead_tags(name)")
+    .eq("lead_id", lead.id);
+  if (existingError) throw new Error(`leadTagAssignments: ${existingError.message}`);
+  const oldTagIds = ((existing ?? []) as { tag_id: string }[]).map((r) => r.tag_id);
+
+  const toAdd = unique.filter((id) => !oldTagIds.includes(id));
+  const toRemove = oldTagIds.filter((id) => !unique.includes(id));
+
+  if (toRemove.length) {
+    const { error } = await supabaseAdmin()
+      .from("lead_tag_assignments")
+      .delete()
+      .eq("lead_id", lead.id)
+      .in("tag_id", toRemove);
+    if (error) throw new Error(`removeLeadTags: ${error.message}`);
+  }
+  if (toAdd.length) {
+    const { error } = await supabaseAdmin().from("lead_tag_assignments").insert(
+      toAdd.map((tagId) => ({
+        lead_id: lead.id,
+        tag_id: tagId,
+        assigned_by: actor.id,
+      })),
+    );
+    if (error) throw new Error(`addLeadTags: ${error.message}`);
+  }
+
+  await audit({
+    actorId: actor.id,
+    action: "lead.tags_updated",
+    entityType: "lead",
+    entityId: lead.id,
+    oldValues: { tag_ids: oldTagIds },
+    newValues: { tag_ids: unique },
+    metadata: { lead_id: leadId, actor_name: actor.name },
+  });
+  await timeline({
+    leadUid: lead.id,
+    actorId: actor.id,
+    eventType: "tags_updated",
+    title: "Tags updated",
+    metadata: { tag_ids: unique },
+  });
+}
+
+export async function escalateLead(params: {
+  leadId: string;
+  reason: string;
+  severity?: string;
+}): Promise<void> {
+  const reason = params.reason.trim();
+  if (!reason) throw new LeadMutationError("Escalation reason is required.");
+  const actor = await writeActor();
+  const lead = await resolveLead(params.leadId);
+  const severity = ["low", "medium", "high", "critical"].includes(params.severity ?? "")
+    ? params.severity
+    : "medium";
+
+  const { data: escalation, error: escalationError } = await supabaseAdmin()
+    .from("escalations")
+    .insert({
+      lead_id: lead.id,
+      status: "escalated",
+      reason,
+      severity,
+      requested_by: actor.id,
+    })
+    .select("id")
+    .single();
+  if (escalationError) throw new Error(`escalateLead: ${escalationError.message}`);
+
+  const { error: leadError } = await supabaseAdmin()
+    .from("leads")
+    .update({ escalation_status: "escalated" })
+    .eq("id", lead.id);
+  if (leadError) throw new Error(`escalateLeadStatus: ${leadError.message}`);
+
+  await audit({
+    actorId: actor.id,
+    action: "lead.escalated",
+    entityType: "lead",
+    entityId: lead.id,
+    oldValues: { escalation_status: lead.escalation_status },
+    newValues: { escalation_status: "escalated", escalation_id: escalation.id, reason, severity },
+    metadata: { lead_id: params.leadId, actor_name: actor.name },
+  });
+  await timeline({
+    leadUid: lead.id,
+    actorId: actor.id,
+    eventType: "escalation_created",
+    title: "Escalated to auditor",
+    body: reason,
+    metadata: { escalation_id: escalation.id, severity },
+  });
+}
+
+export async function clearLeadEscalation(leadId: string, note?: string): Promise<void> {
+  const actor = await writeActor();
+  const lead = await resolveLead(leadId);
+  const now = new Date().toISOString();
+
+  const { error: escalationError } = await supabaseAdmin()
+    .from("escalations")
+    .update({
+      status: "resolved",
+      resolved_by: actor.id,
+      resolved_at: now,
+      notes: note?.trim() || "Un-escalated by moderator.",
+    })
+    .eq("lead_id", lead.id)
+    .neq("status", "resolved");
+  if (escalationError) throw new Error(`clearEscalations: ${escalationError.message}`);
+
+  const { error: leadError } = await supabaseAdmin()
+    .from("leads")
+    .update({ escalation_status: "none" })
+    .eq("id", lead.id);
+  if (leadError) throw new Error(`clearLeadEscalation: ${leadError.message}`);
+
+  await audit({
+    actorId: actor.id,
+    action: "lead.unescalated",
+    entityType: "lead",
+    entityId: lead.id,
+    oldValues: { escalation_status: lead.escalation_status },
+    newValues: { escalation_status: "none", note: note ?? null },
+    metadata: { lead_id: leadId, actor_name: actor.name },
+  });
+  await timeline({
+    leadUid: lead.id,
+    actorId: actor.id,
+    eventType: "escalation_cleared",
+    title: "Escalation cleared",
+    body: note?.trim() || null,
+  });
+}
+
+function normalizeWorkflowType(workflowType: string): "follow_up" | "post_op" {
+  if (workflowType === "post_op" || workflowType === "postop") return "post_op";
+  return "follow_up";
+}
+
+async function activeFollowUpStage(leadUid: string, stageId?: string) {
+  let query = supabaseAdmin()
+    .from("lead_follow_up_stages")
+    .select("id,lead_id,workflow_type,stage_number,due_at,notes,status,outcome")
+    .eq("lead_id", leadUid)
+    .neq("status", "completed")
+    .order("due_at", { ascending: true, nullsFirst: false })
+    .limit(1);
+  if (stageId) query = query.eq("id", stageId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(`activeFollowUpStage: ${error.message}`);
+  if (!data) throw new LeadMutationError("No active follow-up is scheduled for this lead.");
+  return data as {
+    id: string;
+    lead_id: string;
+    workflow_type: string;
+    stage_number: number;
+    due_at: string | null;
+    notes: string | null;
+    status: string;
+    outcome: string | null;
+  };
+}
+
+export async function scheduleFollowUp(params: {
+  leadId: string;
+  workflowType: string;
+  dueAt: string;
+  notes?: string;
+}): Promise<void> {
+  const actor = await writeActor();
+  const lead = await resolveLead(params.leadId);
+  const workflowType = normalizeWorkflowType(params.workflowType);
+  const dueAt = new Date(params.dueAt);
+  if (Number.isNaN(dueAt.getTime())) throw new LeadMutationError("Choose a valid follow-up date and time.");
+
+  const { data: latest, error: latestError } = await supabaseAdmin()
+    .from("lead_follow_up_stages")
+    .select("stage_number")
+    .eq("lead_id", lead.id)
+    .eq("workflow_type", workflowType)
+    .order("stage_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latestError) throw new Error(`followUpLatestStage: ${latestError.message}`);
+  const stageNumber = ((latest?.stage_number as number | undefined) ?? 0) + 1;
+  const nextStatus = workflowType === "post_op" ? "post_op_follow_up" : "follow_up";
+
+  const { data: created, error } = await supabaseAdmin()
+    .from("lead_follow_up_stages")
+    .insert({
+      lead_id: lead.id,
+      workflow_type: workflowType,
+      stage_number: stageNumber,
+      due_at: dueAt.toISOString(),
+      assigned_to: actor.id,
+      notes: params.notes?.trim() || null,
+      status: "not_started",
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`scheduleFollowUp: ${error.message}`);
+
+  const { error: leadError } = await supabaseAdmin()
+    .from("leads")
+    .update({ status: nextStatus })
+    .eq("id", lead.id);
+  if (leadError) throw new Error(`scheduleFollowUpLead: ${leadError.message}`);
+
+  await audit({
+    actorId: actor.id,
+    action: "lead.follow_up_scheduled",
+    entityType: "lead",
+    entityId: lead.id,
+    oldValues: { status: lead.status },
+    newValues: {
+      status: nextStatus,
+      follow_up_stage_id: created.id,
+      workflow_type: workflowType,
+      stage_number: stageNumber,
+      due_at: dueAt.toISOString(),
+      notes: params.notes?.trim() || null,
+    },
+    metadata: { lead_id: params.leadId, actor_name: actor.name },
+  });
+  await timeline({
+    leadUid: lead.id,
+    actorId: actor.id,
+    eventType: "follow_up_scheduled",
+    title: "Follow-up scheduled",
+    body: params.notes?.trim() || null,
+    metadata: { follow_up_stage_id: created.id, workflow_type: workflowType, stage_number: stageNumber },
+  });
+}
+
+export async function completeFollowUp(params: {
+  leadId: string;
+  followUpId?: string;
+  outcome?: string;
+}): Promise<void> {
+  const actor = await writeActor();
+  const lead = await resolveLead(params.leadId);
+  const stage = await activeFollowUpStage(lead.id, params.followUpId);
+  const now = new Date().toISOString();
+  const outcome = params.outcome?.trim() || "Completed";
+
+  const { error } = await supabaseAdmin()
+    .from("lead_follow_up_stages")
+    .update({ status: "completed", completed_at: now, outcome, updated_at: now })
+    .eq("id", stage.id);
+  if (error) throw new Error(`completeFollowUp: ${error.message}`);
+
+  await audit({
+    actorId: actor.id,
+    action: "lead.follow_up_completed",
+    entityType: "lead",
+    entityId: lead.id,
+    oldValues: { follow_up_stage_id: stage.id, status: stage.status, outcome: stage.outcome },
+    newValues: { follow_up_stage_id: stage.id, status: "completed", outcome },
+    metadata: { lead_id: params.leadId, actor_name: actor.name },
+  });
+  await timeline({
+    leadUid: lead.id,
+    actorId: actor.id,
+    eventType: "follow_up_completed",
+    title: "Follow-up completed",
+    body: outcome,
+    metadata: { follow_up_stage_id: stage.id },
+  });
+}
+
+export async function snoozeFollowUp(params: {
+  leadId: string;
+  followUpId?: string;
+  days?: number;
+}): Promise<void> {
+  const actor = await writeActor();
+  const lead = await resolveLead(params.leadId);
+  const stage = await activeFollowUpStage(lead.id, params.followUpId);
+  const days = Math.max(1, Math.min(30, Math.floor(params.days ?? 1)));
+  const base = stage.due_at ? new Date(stage.due_at) : new Date();
+  const next = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+  const now = new Date().toISOString();
+
+  const { error } = await supabaseAdmin()
+    .from("lead_follow_up_stages")
+    .update({ due_at: next.toISOString(), updated_at: now })
+    .eq("id", stage.id);
+  if (error) throw new Error(`snoozeFollowUp: ${error.message}`);
+
+  await audit({
+    actorId: actor.id,
+    action: "lead.follow_up_snoozed",
+    entityType: "lead",
+    entityId: lead.id,
+    oldValues: { follow_up_stage_id: stage.id, due_at: stage.due_at },
+    newValues: { follow_up_stage_id: stage.id, due_at: next.toISOString(), days },
+    metadata: { lead_id: params.leadId, actor_name: actor.name },
+  });
+  await timeline({
+    leadUid: lead.id,
+    actorId: actor.id,
+    eventType: "follow_up_snoozed",
+    title: "Follow-up snoozed",
+    body: `${days} day${days === 1 ? "" : "s"}`,
+    metadata: { follow_up_stage_id: stage.id, due_at: next.toISOString() },
+  });
+}
+
+export async function resolveEscalationWorkflow(params: {
+  escalationId: string;
+  resolution: "returned" | "resolved";
+  note?: string;
+}): Promise<void> {
+  const actor = await writeActor();
+  const db = supabaseAdmin();
+  const now = new Date().toISOString();
+  const { data: escalation, error: loadError } = await db
+    .from("escalations")
+    .select("id,lead_id,status,notes")
+    .eq("id", params.escalationId)
+    .maybeSingle();
+  if (loadError) throw new Error(`resolveEscalationWorkflow(load): ${loadError.message}`);
+  if (!escalation) throw new LeadMutationError("Escalation not found.");
+  const leadUid = escalation.lead_id as string;
+  const note = params.note?.trim() || null;
+
+  if (params.resolution === "returned") {
+    const { error } = await db
+      .from("escalations")
+      .update({ status: "in_review", assigned_to: null, notes: note, updated_at: now })
+      .eq("id", params.escalationId);
+    if (error) throw new Error(`returnEscalation: ${error.message}`);
+    const { error: leadError } = await db
+      .from("leads")
+      .update({ escalation_status: "in_review", has_unread: true, unread_since: now })
+      .eq("id", leadUid);
+    if (leadError) throw new Error(`returnEscalationLead: ${leadError.message}`);
+    const { error: unreadError } = await db.from("crm_unread_events").insert({
+      lead_id: leadUid,
+      event_type: "escalation_returned",
+      actor_id: actor.id,
+      reason: note ?? "Returned to moderator",
+      previous_state: { escalation_status: escalation.status },
+      new_state: { escalation_status: "in_review" },
+    });
+    if (unreadError) throw new Error(`returnEscalationUnread: ${unreadError.message}`);
+  } else {
+    const { error } = await db
+      .from("escalations")
+      .update({ status: "resolved", resolved_by: actor.id, resolved_at: now, notes: note, updated_at: now })
+      .eq("id", params.escalationId);
+    if (error) throw new Error(`resolveEscalationWorkflow: ${error.message}`);
+    const { error: leadError } = await db
+      .from("leads")
+      .update({ escalation_status: "none" })
+      .eq("id", leadUid);
+    if (leadError) throw new Error(`resolveEscalationLead: ${leadError.message}`);
+  }
+
+  await audit({
+    actorId: actor.id,
+    action: params.resolution === "returned" ? "lead.escalation_returned" : "lead.escalation_resolved",
+    entityType: "lead",
+    entityId: leadUid,
+    oldValues: { escalation_status: escalation.status, notes: escalation.notes },
+    newValues: { escalation_status: params.resolution === "returned" ? "in_review" : "resolved", notes: note },
+    metadata: { escalation_id: params.escalationId, actor_name: actor.name },
+  });
+  await timeline({
+    leadUid,
+    actorId: actor.id,
+    eventType: params.resolution === "returned" ? "escalation_returned" : "escalation_resolved",
+    title: params.resolution === "returned" ? "Escalation sent back" : "Escalation resolved",
+    body: note,
+    metadata: { escalation_id: params.escalationId },
+  });
+}
+
+export async function mergeDuplicateFlag(flagId: string, notes?: string): Promise<void> {
+  const actor = await writeActor();
+  const { error } = await supabaseAdmin().rpc("crm_merge_duplicate_flag", {
+    target_flag_id: flagId,
+    actor_id: actor.id,
+    merge_note: notes?.trim() || null,
+  });
+  if (error) throw new Error(`mergeDuplicateFlag: ${error.message}`);
+}
+
+export async function createManualLead(params: {
+  name: string;
+  phone: string;
+  platform: string;
+  sourceId?: string;
+  serviceName?: string;
+}): Promise<string> {
+  const actor = await writeActor();
+  const name = params.name.trim();
+  const phone = params.phone.trim();
+  if (!name) throw new LeadMutationError("Patient name is required.");
+  if (!phone) throw new LeadMutationError("Phone is required.");
+
+  const { data: generatedLeadId, error: idError } = await supabaseAdmin().rpc("crm_generate_lead_id");
+  if (idError) throw new Error(`crm_generate_lead_id: ${idError.message}`);
+  const leadId = String(generatedLeadId);
+
+  const { data, error } = await supabaseAdmin()
+    .from("leads")
+    .insert({
+      lead_id: leadId,
+      name,
+      phone_country_code: "+20",
+      phone_number: phone,
+      platform: params.platform || "manual",
+      source_id: params.sourceId || null,
+      service_name: params.serviceName?.trim() || null,
+      status: "new_lead",
+      has_unread: false,
+      escalation_status: "none",
+      coordinator_user_id: actor.id,
+    })
+    .select("id,lead_id")
+    .single();
+  if (error) throw new Error(`createManualLead: ${error.message}`);
+
+  await audit({
+    actorId: actor.id,
+    action: "lead.created_manual",
+    entityType: "lead",
+    entityId: data.id as string,
+    newValues: { lead_id: data.lead_id, name, phone, platform: params.platform },
+    metadata: { actor_name: actor.name },
+  });
+  await timeline({
+    leadUid: data.id as string,
+    actorId: actor.id,
+    eventType: "lead_created",
+    title: "Lead created manually",
+  });
+
+  return data.lead_id as string;
+}

@@ -2,6 +2,8 @@ import type { Role } from "@/lib/types";
 
 export interface NavItem {
   label: string;
+  /** i18n key resolved by the sidebar; falls back to `label`. */
+  i18nKey: string;
   href: string;
   icon: string;
   /** Roles allowed to see this item. Empty = everyone. */
@@ -10,20 +12,23 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: "◱" },
-  { label: "New Leads", href: "/leads", icon: "✦", countKey: "newLeads" },
-  { label: "Database Leads", href: "/database", icon: "▤" },
-  { label: "Follow-Up", href: "/follow-up", icon: "↻", countKey: "followUp" },
-  { label: "Duplicates", href: "/duplicates", icon: "⧉", countKey: "duplicates" },
-  { label: "Escalations", href: "/escalations", icon: "⚑", countKey: "escalations" },
-  { label: "Patient Reservations", href: "/reservations", icon: "🧾", countKey: "reservations" },
-  { label: "Calendar", href: "/calendar", icon: "📅" },
-  { label: "Auditor", href: "/auditor", icon: "✓", roles: ["auditor", "admin"] },
-  { label: "Reports", href: "/reports", icon: "▦", roles: ["auditor", "admin"] },
+  { label: "Dashboard", i18nKey: "nav.dashboard", href: "/dashboard", icon: "◱" },
+  { label: "New Leads", i18nKey: "nav.newLeads", href: "/leads", icon: "✦", countKey: "newLeads" },
+  { label: "Database Leads", i18nKey: "nav.database", href: "/database", icon: "▤" },
+  { label: "Follow-Up", i18nKey: "nav.followUp", href: "/follow-up", icon: "↻", countKey: "followUp" },
+  { label: "Duplicates", i18nKey: "nav.duplicates", href: "/duplicates", icon: "⧉", countKey: "duplicates" },
+  { label: "Escalations", i18nKey: "nav.escalations", href: "/escalations", icon: "⚑", countKey: "escalations" },
+  { label: "Patient Reservations", i18nKey: "nav.reservations", href: "/reservations", icon: "🧾", countKey: "reservations" },
+  { label: "Calendar", i18nKey: "nav.calendar", href: "/calendar", icon: "📅" },
+  { label: "Auditor", i18nKey: "nav.auditor", href: "/auditor", icon: "✓", roles: ["auditor", "admin"] },
+  { label: "Reports", i18nKey: "nav.reports", href: "/reports", icon: "▦", roles: ["auditor", "admin"] },
+  { label: "Emails", i18nKey: "nav.emails", href: "/emails", icon: "✉", roles: ["admin", "auditor"] },
+  { label: "Activity Log", i18nKey: "nav.activity", href: "/activity", icon: "≣", roles: ["admin", "auditor"] },
   // Mirrors the `users.view` capability: auditors may read the roster + history,
   // only admins may mutate access — enforced server-side, not by this list.
-  { label: "Users & Roles", href: "/settings/users", icon: "👥", roles: ["admin", "auditor"] },
-  { label: "Settings", href: "/settings", icon: "⚙", roles: ["admin"] },
+  { label: "Users & Roles", i18nKey: "nav.users", href: "/settings/users", icon: "👥", roles: ["admin", "auditor"] },
+  // Auditors own operational configuration (§C); admins additionally manage users.
+  { label: "Settings", i18nKey: "nav.settings", href: "/settings", icon: "⚙", roles: ["admin", "auditor"] },
 ];
 
 /** Does `pathname` sit at or beneath `href`? `/settings` does not match `/settingsx`. */

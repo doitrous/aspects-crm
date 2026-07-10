@@ -5,6 +5,9 @@ import { usePathname } from "next/navigation";
 import { activeHref, visibleNav } from "@/lib/nav";
 import type { User } from "@/lib/types";
 import { UserSwitcher, type SwitchableUser } from "@/components/shell/UserSwitcher";
+import { PreferencesMenu } from "@/components/shell/PreferencesMenu";
+import { useI18n } from "@/lib/i18n/context";
+import type { Locale, Theme } from "@/lib/i18n/config";
 import { cn } from "@/lib/cn";
 
 export function Sidebar({
@@ -13,16 +16,21 @@ export function Sidebar({
   accounts,
   canImpersonate,
   impersonating,
+  locale,
+  theme,
 }: {
   counts: Record<string, number>;
   user: User;
   accounts: SwitchableUser[];
   canImpersonate: boolean;
   impersonating: boolean;
+  locale: Locale;
+  theme: Theme;
 }) {
   const pathname = usePathname();
   const nav = visibleNav(user.role);
   const current = activeHref(pathname, nav);
+  const { t } = useI18n();
 
   return (
     <aside className="flex w-[210px] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4">
@@ -32,7 +40,7 @@ export function Sidebar({
         </div>
         <div className="text-[14px] font-bold leading-tight text-ink-900">
           Aspects Clinica
-          <div className="text-[10px] font-medium text-ink-400">CRM</div>
+          <div className="text-[10px] font-medium text-ink-400">{t("shell.crm")}</div>
         </div>
       </div>
 
@@ -51,7 +59,7 @@ export function Sidebar({
             )}
           >
             <span className="w-4 text-center text-[13px]">{n.icon}</span>
-            {n.label}
+            {t(n.i18nKey)}
             {count ? (
               <span
                 className={cn(
@@ -66,7 +74,8 @@ export function Sidebar({
         );
       })}
 
-      <div className="mt-auto">
+      <div className="mt-auto flex flex-col gap-2">
+        <PreferencesMenu locale={locale} theme={theme} />
         <UserSwitcher
           current={user}
           accounts={accounts}

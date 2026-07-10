@@ -975,13 +975,13 @@ function AuditTrail({ fin }: { fin: LeadFinancials }) {
  * `loadLeadDetail`) — the rest of the drawer must keep working, so we say so
  * plainly instead of rendering zeros that look like real money.
  */
-export function PaymentsTab({ financials }: { financials: LeadFinancials | null }) {
+export function PaymentsTab({ financials, error }: { financials: LeadFinancials | null; error?: string | null }) {
   if (!financials) {
     return (
       <EmptyState
         icon="!"
         title="Financial records are unavailable"
-        hint="The financial tables could not be read. Migration 0007 may not have been applied yet."
+        hint={error ? `Supabase rejected the financial read: ${error}` : "No financial record is available for this lead yet."}
       />
     );
   }

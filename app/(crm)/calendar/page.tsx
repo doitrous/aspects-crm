@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { getLeads } from "@/lib/data";
 import { getReservations } from "@/lib/booking/reservations";
 import { bookingConfigured } from "@/lib/booking/client";
+import { syncReservationsToLeads } from "@/lib/booking/sync";
 import { RESERVATION_STATUS_META } from "@/lib/reservationStatus";
 import { formatClock } from "@/lib/format";
 import type { Reservation } from "@/lib/types";
@@ -14,7 +15,7 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DOW = ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"];
 
 /** YYYY-MM-DD from a UTC date. */
 function ymd(d: Date): string {
@@ -38,11 +39,12 @@ function monthParam(year: number, month: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}`;
 }
 
-/** Build the 6-week (42-cell) Sun→Sat grid covering the given month. */
+/** Build the 6-week (42-cell) Sat->Fri grid covering the given month. */
 function buildGrid(year: number, month: number): { key: string; day: number; inMonth: boolean }[] {
   const first = new Date(Date.UTC(year, month, 1));
   const start = new Date(first);
-  start.setUTCDate(first.getUTCDate() - first.getUTCDay()); // back to Sunday
+  const daysSinceSaturday = (first.getUTCDay() + 1) % 7;
+  start.setUTCDate(first.getUTCDate() - daysSinceSaturday);
   const cells: { key: string; day: number; inMonth: boolean }[] = [];
   for (let i = 0; i < 42; i++) {
     const d = new Date(start);
@@ -83,6 +85,7 @@ export default async function CalendarPage({
   // Same rule as the booking admin calendar: cancelled reservations don't occupy the grid.
   const all = await getReservations({ from: rangeFrom, to: rangeTo });
   const reservations = all.filter((r) => r.status !== "cancelled");
+  const syncedLeadByAppointment = await syncReservationsToLeads(reservations);
 
   const byDate = new Map<string, Reservation[]>();
   for (const r of reservations) {
@@ -102,6 +105,23 @@ export default async function CalendarPage({
   const leadByAppointment = new Map<string, string>();
   for (const l of leads) {
     if (l.bookingAppointmentId) leadByAppointment.set(l.bookingAppointmentId, l.id);
+  }
+  for (const [appointmentId, leadId] of syncedLeadByAppointment) {
+    leadByAppointment.set(appointmentId, leadId);
+  }
+
+  const grouped = new Map<string, Map<string, Reservation[]>>();
+  for (const r of reservations.filter((r) => r.date.startsWith(monthPrefix))) {
+    const specialty = r.specialtyName ?? "Unassigned department";
+    const doctor = r.doctorName ?? "Unassigned doctor";
+    const doctors = grouped.get(specialty) ?? new Map<string, Reservation[]>();
+    const list = doctors.get(doctor) ?? [];
+    list.push(r);
+    doctors.set(doctor, list);
+    grouped.set(specialty, doctors);
+  }
+  for (const doctors of grouped.values()) {
+    for (const list of doctors.values()) list.sort((a, b) => `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`));
   }
 
   const prev = month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 };
@@ -223,6 +243,9 @@ export default async function CalendarPage({
                                 {formatClock(r.startTime)}
                               </span>
                             </div>
+                            {leadId && (
+                              <div className="truncate font-mono text-[9.5px] text-ink-400">{leadId}</div>
+                            )}
                             <div className="truncate text-ink-800">{r.patientName}</div>
                             {r.doctorName && (
                               <div className="truncate text-ink-400">{r.doctorName}</div>
@@ -237,7 +260,7 @@ export default async function CalendarPage({
                         return leadId ? (
                           <Link
                             key={r.id}
-                            href={`/leads/${leadId}`}
+                            href={`/leads/${leadId}?tab=Booking`}
                             className={`${cls} text-left transition hover:ring-1 hover:ring-primary`}
                             style={{ background: meta.bg }}
                             title={title}
@@ -262,6 +285,58 @@ export default async function CalendarPage({
             </div>
           </div>
         </div>
+        <section className="mt-6">
+          <div className="mb-2">
+            <h2 className="text-[13px] font-bold uppercase tracking-wide text-ink-500">
+              Grouped by department and doctor
+            </h2>
+            <p className="mt-0.5 text-[11.5px] text-ink-400">
+              Same live booking data, grouped for daily operations.
+            </p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {[...grouped.entries()].map(([specialty, doctors]) => (
+              <div key={specialty} className="rounded-card border border-line bg-panel p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-[13px] font-bold text-ink-900">{specialty}</h3>
+                  <span className="text-[11px] text-ink-400">
+                    {[...doctors.values()].reduce((sum, list) => sum + list.length, 0)} appointments
+                  </span>
+                </div>
+                <div className="flex flex-col gap-3">
+                  {[...doctors.entries()].map(([doctor, list]) => (
+                    <div key={doctor} className="border-t border-line-faint pt-2 first:border-t-0 first:pt-0">
+                      <div className="mb-1 text-[12px] font-semibold text-ink-700">{doctor}</div>
+                      <div className="flex flex-col gap-1">
+                        {list.map((r) => {
+                          const leadId = leadByAppointment.get(r.id);
+                          const meta = RESERVATION_STATUS_META[r.status];
+                          const row = (
+                            <div className="grid grid-cols-[72px_80px_1fr] gap-2 rounded-control px-2 py-1.5 text-[11.5px]" style={{ background: meta.bg }}>
+                              <span className="font-mono text-ink-500">{r.date.slice(5)}</span>
+                              <span className="font-semibold" style={{ color: meta.fg }}>{formatClock(r.startTime)}</span>
+                              <span>
+                                {leadId && <span className="mr-1 font-mono text-ink-400">{leadId}</span>}
+                                <span className="font-medium text-ink-800">{r.patientName}</span>
+                              </span>
+                            </div>
+                          );
+                          return leadId ? (
+                            <Link key={r.id} href={`/leads/${leadId}?tab=Booking`} className="hover:ring-1 hover:ring-primary">
+                              {row}
+                            </Link>
+                          ) : (
+                            <div key={r.id}>{row}</div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       </div>
     </>
   );

@@ -3,9 +3,10 @@ import { Topbar } from "@/components/shell/Topbar";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { can } from "@/lib/auth/permissions";
 import { requireSession } from "@/lib/data/session";
-import { listUsers, type UserFilters } from "@/lib/data/users";
+import { listUnlinkedAuthUsers, listUsers, type UserFilters } from "@/lib/data/users";
 import type { Role } from "@/lib/types";
 import { UsersTable, type UserRow } from "./UsersTable";
+import { UnlinkedAuthUsers } from "./UnlinkedAuthUsers";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,19 @@ export default async function UsersPage({
   }));
 
   const canMutate = can(user.role, "users.changeRole");
+  const canInvite = can(user.role, "users.invite");
   const activeAdmins = users.filter((u) => u.role === "admin" && u.isActive).length;
+
+  // Only admins (who may invite) see + resolve unlinked Auth users. The Admin
+  // API read is server-only; a failure here must not break the roster.
+  let unlinkedAuthUsers: Awaited<ReturnType<typeof listUnlinkedAuthUsers>> = [];
+  if (canInvite) {
+    try {
+      unlinkedAuthUsers = await listUnlinkedAuthUsers();
+    } catch {
+      unlinkedAuthUsers = [];
+    }
+  }
 
   return (
     <>
@@ -115,6 +128,8 @@ export default async function UsersPage({
           )}
           <UsersTable users={rows} currentUserId={user.id} canMutate={canMutate} />
         </Card>
+
+        {canInvite && <UnlinkedAuthUsers users={unlinkedAuthUsers} />}
 
         <p className="mt-3 text-[11.5px] text-ink-500">
           Accounts are created in Supabase Auth and linked to a CRM profile by{" "}

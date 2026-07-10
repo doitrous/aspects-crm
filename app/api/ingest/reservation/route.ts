@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { dispatchRule } from "@/lib/email/send";
 
 /**
  * Booking → CRM ingest receiver.
@@ -202,6 +203,24 @@ export async function POST(req: Request) {
       { ok: false, error: "insert_failed", detail: error.message },
       { status: 500 },
     );
+  }
+
+  // Best-effort booking-created notification for the new public reservation.
+  // Idempotent on the appointment id, so a re-POST does not re-notify. An email
+  // failure must never fail ingest.
+  try {
+    await dispatchRule("booking_created", {
+      discriminator: body.bookingAppointmentId,
+      leadUid: created.id as string,
+      ctx: {
+        patient_name: body.patientName,
+        appointment_date: body.appointmentDate ?? "",
+        appointment_datetime: `${body.appointmentDate ?? ""} ${body.startTime ?? ""}`.trim(),
+        service_name: body.serviceName ?? "",
+      },
+    });
+  } catch (emailErr) {
+    console.error("ingest booking_created email dispatch failed", emailErr);
   }
 
   return NextResponse.json({ ok: true, action: "created", leadId: created.id, leadCode: created.lead_id });

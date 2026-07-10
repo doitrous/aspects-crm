@@ -2,12 +2,19 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback } from "react";
-import { doctors, specialties, sources } from "@/lib/data/reference";
+import { doctors, specialties } from "@/lib/data/reference";
 import { STAGE_META, STAGE_ORDER } from "@/lib/badges";
+import type { LeadSourceInfo } from "@/lib/types";
 
 const PLATFORMS = ["facebook", "instagram", "whatsapp", "web", "referral"];
 
-export function LeadsToolbar() {
+export function LeadsToolbar({
+  sources,
+  basePath = "/leads",
+}: {
+  sources: LeadSourceInfo[];
+  basePath?: string;
+}) {
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -16,9 +23,10 @@ export function LeadsToolbar() {
       const next = new URLSearchParams(sp.toString());
       if (value) next.set(key, value);
       else next.delete(key);
-      router.push(`/leads?${next.toString()}`);
+      const query = next.toString();
+      router.push(query ? `${basePath}?${query}` : basePath);
     },
-    [router, sp],
+    [basePath, router, sp],
   );
 
   const selCls =
@@ -27,6 +35,7 @@ export function LeadsToolbar() {
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-line-softer bg-toolbar px-[18px] py-2.5">
       <input
+        data-lead-search
         defaultValue={sp.get("q") ?? ""}
         placeholder="⌕  Lead ID, MRN, phone, name, chat link…"
         onKeyDown={(e) => {
@@ -34,6 +43,16 @@ export function LeadsToolbar() {
         }}
         className="h-8 w-[280px] rounded-control border border-line bg-panel px-3 text-[12.5px] text-ink-700 placeholder:text-ink-400"
       />
+      <button
+        type="button"
+        onClick={() => {
+          const input = document.querySelector<HTMLInputElement>("input[data-lead-search]");
+          setParam("q", input?.value ?? "");
+        }}
+        className="h-8 rounded-control border border-line bg-panel px-2.5 text-[11.5px] font-medium text-ink-600 hover:border-primary hover:text-primary"
+      >
+        Search
+      </button>
 
       <select className={selCls} value={sp.get("stage") ?? ""} onChange={(e) => setParam("stage", e.target.value)}>
         <option value="">Stage: All</option>
@@ -42,10 +61,13 @@ export function LeadsToolbar() {
         ))}
       </select>
 
-      <select className={selCls} value={sp.get("platform") ?? ""} onChange={(e) => setParam("platform", e.target.value)}>
-        <option value="">Platform: All</option>
+      <select className={selCls} value={sp.get("channel") ?? ""} onChange={(e) => setParam("channel", e.target.value)}>
+        <option value="">Channel / Source: All</option>
         {PLATFORMS.map((p) => (
-          <option key={p} value={p} className="capitalize">{p}</option>
+          <option key={p} value={`platform:${p}`} className="capitalize">{p}</option>
+        ))}
+        {sources.filter((s) => s.active).map((s) => (
+          <option key={s.id} value={`source:${s.id}`}>{s.label}</option>
         ))}
       </select>
 
@@ -63,12 +85,20 @@ export function LeadsToolbar() {
         ))}
       </select>
 
-      <select className={selCls} value={sp.get("source") ?? ""} onChange={(e) => setParam("source", e.target.value)}>
-        <option value="">Source: All</option>
-        {sources.map((s) => (
-          <option key={s.id} value={s.id}>{s.name}</option>
-        ))}
-      </select>
+      <input
+        type="date"
+        value={sp.get("dateFrom") ?? ""}
+        onChange={(e) => setParam("dateFrom", e.target.value)}
+        className={selCls}
+        aria-label="Date from"
+      />
+      <input
+        type="date"
+        value={sp.get("dateTo") ?? ""}
+        onChange={(e) => setParam("dateTo", e.target.value)}
+        className={selCls}
+        aria-label="Date to"
+      />
 
       <div className="ml-auto flex items-center gap-1.5">
         {[
@@ -95,7 +125,7 @@ export function LeadsToolbar() {
         })}
         {sp.toString() && (
           <button
-            onClick={() => router.push("/leads")}
+            onClick={() => router.push(basePath)}
             className="h-8 rounded-control px-2 text-[11.5px] font-medium text-ink-400 hover:text-danger"
           >
             Clear

@@ -1,13 +1,13 @@
 import { Topbar } from "@/components/shell/Topbar";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { EscalationResolutionControls } from "@/components/queues/EscalationResolutionControls";
 import { LeadCell } from "@/components/queues/LeadCell";
-import { ResolveButton } from "@/components/queues/ResolveButton";
 import { escalationQueue } from "@/lib/data";
 import { SEVERITY_META } from "@/lib/badges";
 import { formatDate } from "@/lib/format";
 import type { EscalationStatus } from "@/lib/types";
-import { resolveEscalationAction } from "./actions";
+import { resolveEscalationAction, returnEscalationAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +68,7 @@ export default async function EscalationsPage() {
                       }
                     >
                       <td className="px-[18px] py-3">
-                        <LeadCell lead={e.lead} />
+                        <LeadCell lead={e.lead} tab="Log" />
                       </td>
                       <td className="max-w-[260px] px-3 py-3 text-ink-700">{e.reason}</td>
                       <td className="px-3 py-3">
@@ -91,10 +91,9 @@ export default async function EscalationsPage() {
                             {e.resolvedBy ? `by ${e.resolvedBy}` : "—"}
                           </span>
                         ) : (
-                          <ResolveButton
-                            action={resolveEscalationAction.bind(null, e.id)}
-                            label="Resolve"
-                            pendingLabel="Resolving…"
+                          <EscalationResolutionControls
+                            onReturn={returnEscalationAction.bind(null, e.id)}
+                            onResolve={resolveEscalationAction.bind(null, e.id)}
                           />
                         )}
                       </td>

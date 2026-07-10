@@ -3,6 +3,8 @@ import { dashboardMetrics } from "@/lib/data";
 import { getReservations } from "@/lib/booking/reservations";
 import { isNewReservation } from "@/lib/reservationStatus";
 import { listAccounts, requireSession } from "@/lib/data/session";
+import { I18nProvider } from "@/lib/i18n/context";
+import { getPreferences } from "@/lib/i18n/server";
 
 /** New/unread reservation count for the sidebar badge. Isolated from the shell:
  *  a booking-platform outage must never break CRM navigation. */
@@ -32,10 +34,11 @@ export default async function CrmLayout({
   // redirected, not served a dashboard query.
   const { effective: user, canImpersonate } = await requireSession();
 
-  const [m, reservations, accounts] = await Promise.all([
+  const [m, reservations, accounts, prefs] = await Promise.all([
     dashboardMetrics(),
     newReservationCount(),
     canImpersonate ? listAccounts() : Promise.resolve([]),
+    getPreferences(),
   ]);
   const counts: Record<string, number> = {
     newLeads: m.newLeads,
@@ -46,16 +49,20 @@ export default async function CrmLayout({
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-panel">
-      <Sidebar
-        counts={counts}
-        user={user}
-        accounts={accounts}
-        canImpersonate={canImpersonate}
-        impersonating={user.impersonating}
-      />
-      <main className="flex min-w-0 flex-1 flex-col">{children}</main>
-      {modal}
-    </div>
+    <I18nProvider locale={prefs.locale}>
+      <div className="flex h-screen overflow-hidden bg-panel">
+        <Sidebar
+          counts={counts}
+          user={user}
+          accounts={accounts}
+          canImpersonate={canImpersonate}
+          impersonating={user.impersonating}
+          locale={prefs.locale}
+          theme={prefs.theme}
+        />
+        <main className="flex min-w-0 flex-1 flex-col">{children}</main>
+        {modal}
+      </div>
+    </I18nProvider>
   );
 }

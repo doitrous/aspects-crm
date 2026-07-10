@@ -204,6 +204,9 @@ export interface LeadNote {
 }
 
 export interface FollowUp {
+  id?: string;
+  workflowType?: string;
+  stageNumber?: number;
   nextDate?: string;
   reason?: string;
   status: "none" | "scheduled" | "done" | "missed" | "dropped";
@@ -401,6 +404,12 @@ export interface CrmSetting {
   editable: boolean;
 }
 
+export interface ReferenceOption {
+  id: string;
+  label: string;
+  color?: string;
+}
+
 /** A configured intake channel from `lead_sources`. */
 export interface LeadSourceInfo {
   id: string;
@@ -410,7 +419,7 @@ export interface LeadSourceInfo {
   active: boolean;
 }
 
-/* ── Phase 4: booking platform (federated read from the booking Supabase) ── */
+/* ── Booking platform source of truth ─────────────────────────── */
 
 /** Appointment lifecycle, mirrored from the booking platform's `appointment_status` enum. */
 export type ReservationStatus =
@@ -428,19 +437,25 @@ export type ReservationStatus =
  */
 export interface Reservation {
   id: string;
+  leadId?: string;
   patientName: string;
   patientPhone: string; // country code + national number
   patientEmail?: string;
   patientAge?: number;
+  doctorId?: string;
   doctorName?: string;
+  specialtyId?: string;
   specialtyName?: string;
+  branchId?: string;
   branchName?: string;
+  serviceId?: string;
   serviceName?: string;
   date: string; // YYYY-MM-DD (appointment_date)
   startTime: string; // HH:MM
   endTime: string; // HH:MM
   status: ReservationStatus;
   isNewPatient: boolean;
+  notes?: string;
   primaryComplaint?: string;
   referralSource?: string;
   feeAtBooking?: number;

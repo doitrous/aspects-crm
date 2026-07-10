@@ -1,10 +1,21 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { resolveEscalation } from "@/lib/data";
+import { resolveEscalationWorkflow } from "@/lib/data/leadMutations";
 
-export async function resolveEscalationAction(id: string): Promise<void> {
-  await resolveEscalation(id);
+function refresh() {
   revalidatePath("/escalations");
   revalidatePath("/dashboard");
+  revalidatePath("/follow-up");
+  revalidatePath("/leads");
+}
+
+export async function returnEscalationAction(id: string, note?: string): Promise<void> {
+  await resolveEscalationWorkflow({ escalationId: id, resolution: "returned", note });
+  refresh();
+}
+
+export async function resolveEscalationAction(id: string, note?: string): Promise<void> {
+  await resolveEscalationWorkflow({ escalationId: id, resolution: "resolved", note });
+  refresh();
 }

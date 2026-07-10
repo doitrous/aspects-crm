@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import type { LeadNote } from "@/lib/types";
+import { saveLeadNoteAction } from "@/app/(crm)/leads/actions";
 
 interface Section {
   key: keyof Omit<LeadNote, "updatedAt">;
@@ -16,18 +17,34 @@ const SECTIONS: Section[] = [
   { key: "generalNotes", title: "Notes", accent: "#b54708", bg: "#fffaeb" },
 ];
 
-export function NotesTab({ note }: { note: LeadNote }) {
+export function NotesTab({ leadId, note }: { leadId: string; note: LeadNote }) {
   const [values, setValues] = useState({
     clientNotes: note.clientNotes,
     medicalHistory: note.medicalHistory,
     generalNotes: note.generalNotes,
   });
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
 
-  function save(key: string) {
-    // Mock persistence — swaps to a Supabase upsert in the live data layer.
-    setSaved(key);
-    setTimeout(() => setSaved((s) => (s === key ? null : s)), 1600);
+  function save(key: Section["key"]) {
+    startTransition(async () => {
+      setPendingKey(key);
+      setSaved(null);
+      setError(null);
+      try {
+        const result = await saveLeadNoteAction(leadId, key, values[key]);
+        if (result.error) {
+          setError(result.error);
+          return;
+        }
+        setSaved(key);
+        setTimeout(() => setSaved((s) => (s === key ? null : s)), 1600);
+      } finally {
+        setPendingKey(null);
+      }
+    });
   }
 
   return (
@@ -47,9 +64,10 @@ export function NotesTab({ note }: { note: LeadNote }) {
             </h3>
             <button
               onClick={() => save(s.key)}
-              className="rounded-control bg-panel px-2.5 py-1 text-[11px] font-semibold text-ink-600 shadow-sm hover:text-primary"
+              disabled={pendingKey !== null}
+              className="rounded-control bg-panel px-2.5 py-1 text-[11px] font-semibold text-ink-600 shadow-sm hover:text-primary disabled:opacity-60"
             >
-              {saved === s.key ? "Saved ✓" : "Save"}
+              {pendingKey === s.key ? "Saving..." : saved === s.key ? "Saved" : "Save"}
             </button>
           </div>
           <textarea
@@ -60,6 +78,11 @@ export function NotesTab({ note }: { note: LeadNote }) {
           />
         </div>
       ))}
+      {error && (
+        <div className="md:col-span-3 rounded-control bg-danger-bg px-3 py-2 text-[12px] font-medium text-danger">
+          {error}
+        </div>
+      )}
     </div>
   );
 }

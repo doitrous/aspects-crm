@@ -375,6 +375,46 @@ async function audit(actor: SessionUser, entry: AuditInput): Promise<void> {
   if (error) throw new FinancialError(`Could not write the audit record: ${error.message}`);
 }
 
+async function leadLog(
+  actor: SessionUser,
+  params: {
+    leadUid: string;
+    action: string;
+    title: string;
+    body?: string | null;
+    field?: string;
+    oldValue?: unknown;
+    newValue?: unknown;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  const oldValues = params.oldValue === undefined ? {} : { [params.field ?? "value"]: params.oldValue };
+  const newValues = params.newValue === undefined ? {} : { [params.field ?? "value"]: params.newValue };
+  const metadata = { ...(params.metadata ?? {}), actor_name: actor.name };
+  const db = supabaseAdmin();
+  const [auditResult, timelineResult] = await Promise.all([
+    db.from("audit_logs").insert({
+      actor_user_id: actor.id,
+      action: params.action,
+      entity_type: "lead",
+      entity_id: params.leadUid,
+      old_values: oldValues,
+      new_values: newValues,
+      metadata,
+    }),
+    db.from("lead_timeline_events").insert({
+      lead_id: params.leadUid,
+      event_type: "payment_changed",
+      title: params.title,
+      body: params.body ?? null,
+      actor_user_id: actor.id,
+      metadata: { ...metadata, action: params.action, old_values: oldValues, new_values: newValues },
+    }),
+  ]);
+  if (auditResult.error) throw new FinancialError(`Could not write the lead audit record: ${auditResult.error.message}`);
+  if (timelineResult.error) throw new FinancialError(`Could not write the lead payment log: ${timelineResult.error.message}`);
+}
+
 /* ── read ─────────────────────────────────────────────────────── */
 
 /** @param leadUid `leads.id` (uuid), not the human `L0001`. */
@@ -858,6 +898,21 @@ export async function saveQuote(input: SaveQuoteInput): Promise<void> {
     newValue: roundMoney(input.quotedPrice),
     reason: forcing ? input.reason : null,
   });
+  await leadLog(actor, {
+    leadUid: lead.id,
+    action: forcing ? "lead.payment_quote_forced" : "lead.payment_quote_updated",
+    title: forcing ? "Payment quote approved below limit" : "Payment quote updated",
+    body: forcing ? input.reason?.trim() ?? null : null,
+    field: "quoted_price",
+    oldValue: record.quoted_price,
+    newValue: roundMoney(input.quotedPrice),
+    metadata: {
+      lead_id: lead.lead_id,
+      record_id: record.id,
+      service_date: input.serviceDate ?? record.service_date ?? null,
+      financial_notes_changed: input.financialNotes !== undefined,
+    },
+  });
 }
 
 export interface AddTransactionInput {
@@ -938,6 +993,21 @@ export async function addTransaction(input: AddTransactionInput): Promise<void> 
     },
     reason: input.note,
   });
+  await leadLog(actor, {
+    leadUid: lead.id,
+    action: "lead.payment_transaction_added",
+    title: "Payment transaction added",
+    body: input.note?.trim() || null,
+    field: "transaction",
+    newValue: {
+      transaction_id: data.id,
+      kind: input.kind,
+      amount,
+      status: input.status ?? "completed",
+      occurred_on: input.occurredOn ?? today(),
+    },
+    metadata: { lead_id: lead.lead_id, record_id: record.id },
+  });
 }
 
 /** A reversal may not take back more than the original settled line gave. */
@@ -995,9 +1065,9 @@ export async function setTransactionStatus(
 
   const { data: row } = await supabaseAdmin()
     .from("crm_financial_transactions")
-    .select("id, status")
+    .select("id, status, lead_id, kind, amount")
     .eq("id", transactionId)
-    .maybeSingle<{ id: string; status: TransactionStatus }>();
+    .maybeSingle<{ id: string; status: TransactionStatus; lead_id: string; kind: TransactionKind; amount: number }>();
   if (!row) throw new FinancialError("That transaction no longer exists.");
   if (row.status === status) return;
   if (row.status !== "pending") {
@@ -1020,6 +1090,16 @@ export async function setTransactionStatus(
     oldValue: row.status,
     newValue: status,
     reason,
+  });
+  await leadLog(actor, {
+    leadUid: row.lead_id,
+    action: "lead.payment_status_changed",
+    title: "Payment status changed",
+    body: reason?.trim() || null,
+    field: "status",
+    oldValue: row.status,
+    newValue: status,
+    metadata: { transaction_id: transactionId, kind: row.kind, amount: row.amount },
   });
 }
 
@@ -1077,6 +1157,20 @@ export async function addDoctorFundedPayment(input: DoctorFundedInput): Promise<
     },
     reason: input.note,
   });
+  await leadLog(actor, {
+    leadUid: lead.id,
+    action: "lead.doctor_funded_payment_added",
+    title: "Doctor-funded payment added",
+    body: input.note?.trim() || null,
+    field: "doctor_funded_payment",
+    newValue: {
+      doctor_id: input.doctorId,
+      doctor_name: input.doctorName ?? null,
+      amount,
+      reduces_patient_balance: input.reducesPatientBalance,
+    },
+    metadata: { lead_id: lead.lead_id, record_id: record.id, payment_id: data.id },
+  });
 }
 
 export interface ConsumableInput {
@@ -1105,7 +1199,8 @@ export async function addConsumable(input: ConsumableInput): Promise<void> {
     throw new FinancialError("A patient-specific override requires a reason.");
   }
 
-  const record = await ensureRecord(actor, await leadRow(input.leadId));
+  const lead = await leadRow(input.leadId);
+  const record = await ensureRecord(actor, lead);
   const { data, error } = await supabaseAdmin()
     .from("crm_lead_consumables")
     .insert({
@@ -1128,6 +1223,15 @@ export async function addConsumable(input: ConsumableInput): Promise<void> {
     action: input.isOverride ? "override" : "create",
     newValue: { description: input.description.trim(), quantity, unitCost },
     reason: input.overrideReason,
+  });
+  await leadLog(actor, {
+    leadUid: lead.id,
+    action: input.isOverride ? "lead.consumable_override_added" : "lead.consumable_added",
+    title: input.isOverride ? "Consumable override added" : "Consumable added",
+    body: input.overrideReason?.trim() || null,
+    field: "consumable",
+    newValue: { description: input.description.trim(), quantity, unit_cost: unitCost },
+    metadata: { lead_id: lead.lead_id, record_id: record.id, consumable_id: data.id },
   });
 }
 
@@ -1153,7 +1257,8 @@ export async function addExternalCost(input: ExternalCostInput): Promise<void> {
     throw new FinancialError("Enter an amount greater than zero.");
   }
 
-  const record = await ensureRecord(actor, await leadRow(input.leadId));
+  const lead = await leadRow(input.leadId);
+  const record = await ensureRecord(actor, lead);
   const { data, error } = await supabaseAdmin()
     .from("crm_external_costs")
     .insert({
@@ -1177,6 +1282,15 @@ export async function addExternalCost(input: ExternalCostInput): Promise<void> {
     action: "create",
     newValue: { category: input.category, description: input.description.trim(), amount },
     reason: input.notes,
+  });
+  await leadLog(actor, {
+    leadUid: lead.id,
+    action: "lead.external_cost_added",
+    title: "External cost added",
+    body: input.notes?.trim() || null,
+    field: "external_cost",
+    newValue: { category: input.category, description: input.description.trim(), amount },
+    metadata: { lead_id: lead.lead_id, record_id: record.id, external_cost_id: data.id },
   });
 }
 

@@ -13,7 +13,7 @@ export const STAGE_META: Record<PipelineStage, BadgeStyle> = {
   booked: { label: "Booked", bg: "#ecfdf3", fg: "#067647" },
   follow_up: { label: "Follow-Up", bg: "#fffaeb", fg: "#b54708" },
   post_op: { label: "Post-Op F/U", bg: "#fdf2fa", fg: "#c11574" },
-  lost: { label: "Lost", bg: "#f2f4f7", fg: "#667085" },
+  lost: { label: "Lost", bg: "#fef3f2", fg: "#b42318" },
 };
 
 export const STAGE_ORDER: PipelineStage[] = [

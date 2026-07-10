@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { PermissionError } from "@/lib/auth/permissions";
 import { isAssignableRole } from "@/lib/auth/roles";
 import { ActorError } from "@/lib/data/actor";
-import { changeUserRole, setUserActive, UserAdminError } from "@/lib/data/users";
+import { changeUserRole, linkAuthUser, setUserActive, UserAdminError } from "@/lib/data/users";
+import type { Role } from "@/lib/types";
 
 export interface UserActionState {
   error: string | null;
@@ -69,4 +70,26 @@ export async function setActiveAction(
 
   revalidatePath("/settings/users");
   return { error: null, ok: active ? "User activated." : "User deactivated." };
+}
+
+/** Create + link a CRM profile for an existing Supabase Auth user (admin only). */
+export async function linkAuthUserAction(
+  _prev: UserActionState,
+  formData: FormData,
+): Promise<UserActionState> {
+  const authUserId = String(formData.get("authUserId") ?? "");
+  const email = String(formData.get("email") ?? "");
+  const role = String(formData.get("role") ?? "");
+
+  if (!authUserId || !email) return { error: "Missing Auth user.", ok: null };
+  if (!isAssignableRole(role)) return { error: `"${role}" is not an assignable role.`, ok: null };
+
+  try {
+    await linkAuthUser({ authUserId, email, role: role as Role });
+  } catch (err) {
+    return toState(err);
+  }
+
+  revalidatePath("/settings/users");
+  return { error: null, ok: `Profile created for ${email}.` };
 }

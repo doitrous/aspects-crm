@@ -15,36 +15,45 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // App surfaces
-        canvas: "#eef1f4", // page background
-        panel: "#ffffff", // cards / panels
-        sidebar: "#fafbfc",
-        toolbar: "#fcfcfd",
+        // Semantic surfaces/text/lines are driven by CSS variables (see
+        // app/globals.css) so a single `[data-theme="dark"]` block re-themes
+        // every existing `bg-panel` / `text-ink-900` / `border-line-soft`
+        // utility — including the whole financial UI — with no per-component
+        // churn. The `rgb(var(--x) / <alpha-value>)` form preserves Tailwind
+        // opacity modifiers like `bg-primary/40`.
+        canvas: "rgb(var(--c-canvas) / <alpha-value>)", // page background
+        panel: "rgb(var(--c-panel) / <alpha-value>)", // cards / panels
+        sidebar: "rgb(var(--c-sidebar) / <alpha-value>)",
+        toolbar: "rgb(var(--c-toolbar) / <alpha-value>)",
         // Primary (clinic blue)
         primary: {
-          DEFAULT: "#2f6fed",
-          hover: "#1d4ed8",
-          soft: "#eff4ff", // soft blue chip bg
-          softer: "#eef4ff",
-          avatar: "#d1e0ff",
+          DEFAULT: "rgb(var(--c-primary) / <alpha-value>)",
+          hover: "rgb(var(--c-primary-hover) / <alpha-value>)",
+          soft: "rgb(var(--c-primary-soft) / <alpha-value>)", // soft blue chip bg
+          softer: "rgb(var(--c-primary-softer) / <alpha-value>)",
+          avatar: "rgb(var(--c-primary-avatar) / <alpha-value>)",
         },
         // Text ramp
         ink: {
-          900: "#101828",
-          700: "#344054",
-          600: "#475467",
-          500: "#667085",
-          400: "#98a2b3",
+          900: "rgb(var(--c-ink-900) / <alpha-value>)",
+          700: "rgb(var(--c-ink-700) / <alpha-value>)",
+          600: "rgb(var(--c-ink-600) / <alpha-value>)",
+          500: "rgb(var(--c-ink-500) / <alpha-value>)",
+          400: "rgb(var(--c-ink-400) / <alpha-value>)",
         },
         // Borders / hairlines
         line: {
-          DEFAULT: "#e4e7ec",
-          soft: "#eaecf0",
-          softer: "#f0f1f4",
-          faint: "#f2f4f7",
+          DEFAULT: "rgb(var(--c-line) / <alpha-value>)",
+          soft: "rgb(var(--c-line-soft) / <alpha-value>)",
+          softer: "rgb(var(--c-line-softer) / <alpha-value>)",
+          faint: "rgb(var(--c-line-faint) / <alpha-value>)",
         },
-        // Status
-        danger: { DEFAULT: "#b42318", bg: "#fef3f2", dot: "#f04438" },
+        // Status (danger themed via vars so alerts stay readable on dark)
+        danger: {
+          DEFAULT: "rgb(var(--c-danger) / <alpha-value>)",
+          bg: "rgb(var(--c-danger-bg) / <alpha-value>)",
+          dot: "rgb(var(--c-danger-dot) / <alpha-value>)",
+        },
         success: { DEFAULT: "#067647", strong: "#12b76a" },
         warn: { DEFAULT: "#b54708", strong: "#dc6803" },
         // Warm "clinic" aesthetic accents (Playfair headings, cream cards)

@@ -2,8 +2,58 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/* Semantic color tokens as space-separated RGB channels, consumed by Tailwind
+   as rgb(var(--c-x) / <alpha-value>). Light is the default; [data-theme="dark"]
+   overrides re-theme the entire app (financial UI included). */
+:root,
+:root[data-theme="light"] {
   color-scheme: light;
+  --c-canvas: 238 241 244;
+  --c-panel: 255 255 255;
+  --c-sidebar: 250 251 252;
+  --c-toolbar: 252 252 253;
+  --c-primary: 47 111 237;
+  --c-primary-hover: 29 78 216;
+  --c-primary-soft: 239 244 255;
+  --c-primary-softer: 238 244 255;
+  --c-primary-avatar: 209 224 255;
+  --c-ink-900: 16 24 40;
+  --c-ink-700: 52 64 84;
+  --c-ink-600: 71 84 103;
+  --c-ink-500: 102 112 133;
+  --c-ink-400: 152 162 179;
+  --c-line: 228 231 236;
+  --c-line-soft: 234 236 240;
+  --c-line-softer: 240 241 244;
+  --c-line-faint: 242 244 247;
+  --c-danger: 180 35 24;
+  --c-danger-bg: 254 243 242;
+  --c-danger-dot: 240 68 56;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c-canvas: 11 15 23;
+  --c-panel: 21 27 38;
+  --c-sidebar: 15 20 29;
+  --c-toolbar: 19 25 38;
+  --c-primary: 76 141 255;
+  --c-primary-hover: 47 111 237;
+  --c-primary-soft: 26 39 64;
+  --c-primary-softer: 24 36 60;
+  --c-primary-avatar: 36 64 110;
+  --c-ink-900: 242 244 247;
+  --c-ink-700: 208 213 221;
+  --c-ink-600: 182 188 199;
+  --c-ink-500: 152 162 179;
+  --c-ink-400: 120 131 148;
+  --c-line: 42 51 66;
+  --c-line-soft: 35 44 58;
+  --c-line-softer: 30 38 50;
+  --c-line-faint: 26 33 44;
+  --c-danger: 248 113 113;
+  --c-danger-bg: 60 24 24;
+  --c-danger-dot: 248 113 113;
 }
 
 html,
@@ -13,8 +63,11 @@ body {
 }
 
 body {
-  background: theme("colors.canvas");
-  color: theme("colors.ink.900");
+  /* Use the CSS variables directly (not theme()), which would emit the literal
+     <alpha-value> placeholder outside a utility context). This makes the page
+     background + base text follow the active theme. */
+  background: rgb(var(--c-canvas));
+  color: rgb(var(--c-ink-900));
   font-family: theme("fontFamily.sans");
   -webkit-font-smoothing: antialiased;
 }
@@ -36,11 +89,6 @@ input:focus,
 textarea:focus,
 select:focus {
   outline: none;
-  border-color: theme("colors.primary.DEFAULT") !important;
+  border-color: rgb(var(--c-primary)) !important;
   box-shadow: theme("boxShadow.focus");
-}
-
-/* Dark mode groundwork — off by default (prototype ships light). */
-[data-theme="dark"] {
-  color-scheme: dark;
 }
