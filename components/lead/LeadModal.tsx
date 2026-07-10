@@ -34,7 +34,11 @@ export function LeadModal({ data }: { data: LeadDetailData }) {
         onClick={() => router.back()}
         className="absolute inset-0 animate-fadein cursor-default bg-black/40"
       />
-      <div className="relative z-10 flex h-full w-full max-w-[560px] animate-drawerin flex-col overflow-hidden bg-canvas shadow-toast">
+      {/* Roughly 40% of the viewport. The floor keeps the eight tabs on one row
+          on a laptop, where 40vw would be narrower than the drawer used to be;
+          the ceiling stops it sprawling on an ultrawide. Below `sm` it is full
+          width, because a 40% drawer on a phone is a sliver. */}
+      <div className="relative z-10 flex h-full w-full animate-drawerin flex-col overflow-hidden bg-canvas shadow-toast sm:w-[40vw] sm:min-w-[560px] sm:max-w-[1100px]">
         <LeadDetail data={data} onClose={() => router.back()} />
       </div>
     </div>
