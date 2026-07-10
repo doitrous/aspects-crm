@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { getLeads } from "@/lib/data";
 import { getReservations } from "@/lib/booking/reservations";
 import { bookingConfigured } from "@/lib/booking/client";
 import { syncReservationsToLeads } from "@/lib/booking/sync";
@@ -98,17 +97,7 @@ export default async function CalendarPage({
 
   const inMonthCount = reservations.filter((r) => r.date.startsWith(monthPrefix)).length;
 
-  // Every booking on the calendar opens the lead that owns it. Leads carry the
-  // booking platform's appointment id, so the join happens here rather than in
-  // a second lead-detail component.
-  const leads = await getLeads();
-  const leadByAppointment = new Map<string, string>();
-  for (const l of leads) {
-    if (l.bookingAppointmentId) leadByAppointment.set(l.bookingAppointmentId, l.id);
-  }
-  for (const [appointmentId, leadId] of syncedLeadByAppointment) {
-    leadByAppointment.set(appointmentId, leadId);
-  }
+  const leadByAppointment = syncedLeadByAppointment;
 
   const grouped = new Map<string, Map<string, Reservation[]>>();
   for (const r of reservations.filter((r) => r.date.startsWith(monthPrefix))) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import {
   addConsumableAction,
   addDoctorFundedAction,
@@ -124,6 +124,12 @@ function Feedback({ state }: { state: { error: string | null; ok: string | null 
   return null;
 }
 
+function useNotifyChanged(ok: string | null, onChanged?: () => void) {
+  useEffect(() => {
+    if (ok) onChanged?.();
+  }, [ok, onChanged]);
+}
+
 /** Collapsible "Add …" form, so the tab opens as a summary rather than a wall of inputs. */
 function AddPanel({ label, children }: { label: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -157,9 +163,11 @@ function AddPanel({ label, children }: { label: string; children: React.ReactNod
  * sees and what the server enforces can never disagree. This copy is advisory:
  * posting past it is refused server-side.
  */
-function QuoteEditor({ fin }: { fin: LeadFinancials }) {
+function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [saveState, save, saving] = useActionState(saveQuoteAction, IDLE);
   const [escState, escalate, escalating] = useActionState(requestApprovalAction, IDLE);
+  useNotifyChanged(saveState.ok, onChanged);
+  useNotifyChanged(escState.ok, onChanged);
 
   const [raw, setRaw] = useState(fin.summary.hasQuote ? String(fin.summary.quotedPrice) : "");
   const [confirming, setConfirming] = useState(false);
@@ -379,10 +387,12 @@ function QuoteEditor({ fin }: { fin: LeadFinancials }) {
 
 /* ── ledger ───────────────────────────────────────────────────── */
 
-function PaymentsLedger({ fin }: { fin: LeadFinancials }) {
+function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [addState, add, adding] = useActionState(addTransactionAction, IDLE);
   const [statusState, setStatus, settingStatus] = useActionState(setTransactionStatusAction, IDLE);
   const [kind, setKind] = useState("payment");
+  useNotifyChanged(addState.ok, onChanged);
+  useNotifyChanged(statusState.ok, onChanged);
 
   const cur = fin.currency;
   const reversible = fin.payments.filter((p) => p.kind === "payment" && p.status === "completed");
@@ -568,8 +578,9 @@ function PaymentsLedger({ fin }: { fin: LeadFinancials }) {
 
 /* ── approvals ────────────────────────────────────────────────── */
 
-function Approvals({ fin }: { fin: LeadFinancials }) {
+function Approvals({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [state, decide, deciding] = useActionState(decideApprovalAction, IDLE);
+  useNotifyChanged(state.ok, onChanged);
   if (fin.approvals.length === 0) return null;
 
   return (
@@ -660,9 +671,10 @@ function Approvals({ fin }: { fin: LeadFinancials }) {
 
 /* ── costs ────────────────────────────────────────────────────── */
 
-function Consumables({ fin }: { fin: LeadFinancials }) {
+function Consumables({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [state, add, adding] = useActionState(addConsumableAction, IDLE);
   const [override, setOverride] = useState(false);
+  useNotifyChanged(state.ok, onChanged);
 
   return (
     <section>
@@ -743,8 +755,9 @@ function Consumables({ fin }: { fin: LeadFinancials }) {
   );
 }
 
-function ExternalCosts({ fin }: { fin: LeadFinancials }) {
+function ExternalCosts({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [state, add, adding] = useActionState(addExternalCostAction, IDLE);
+  useNotifyChanged(state.ok, onChanged);
 
   return (
     <section>
@@ -824,8 +837,9 @@ function ExternalCosts({ fin }: { fin: LeadFinancials }) {
   );
 }
 
-function Doctors({ fin }: { fin: LeadFinancials }) {
+function Doctors({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [state, add, adding] = useActionState(addDoctorFundedAction, IDLE);
+  useNotifyChanged(state.ok, onChanged);
 
   return (
     <section>
@@ -975,7 +989,15 @@ function AuditTrail({ fin }: { fin: LeadFinancials }) {
  * `loadLeadDetail`) — the rest of the drawer must keep working, so we say so
  * plainly instead of rendering zeros that look like real money.
  */
-export function PaymentsTab({ financials, error }: { financials: LeadFinancials | null; error?: string | null }) {
+export function PaymentsTab({
+  financials,
+  error,
+  onChanged,
+}: {
+  financials: LeadFinancials | null;
+  error?: string | null;
+  onChanged?: () => void;
+}) {
   if (!financials) {
     return (
       <EmptyState
@@ -1012,7 +1034,7 @@ export function PaymentsTab({ financials, error }: { financials: LeadFinancials 
         </div>
       </section>
 
-      <QuoteEditor fin={fin} />
+      <QuoteEditor fin={fin} onChanged={onChanged} />
 
       {fin.bundleItems.length > 0 && (
         <section>
@@ -1034,11 +1056,11 @@ export function PaymentsTab({ financials, error }: { financials: LeadFinancials 
         </section>
       )}
 
-      <Approvals fin={fin} />
-      <PaymentsLedger fin={fin} />
-      <Consumables fin={fin} />
-      <Doctors fin={fin} />
-      <ExternalCosts fin={fin} />
+      <Approvals fin={fin} onChanged={onChanged} />
+      <PaymentsLedger fin={fin} onChanged={onChanged} />
+      <Consumables fin={fin} onChanged={onChanged} />
+      <Doctors fin={fin} onChanged={onChanged} />
+      <ExternalCosts fin={fin} onChanged={onChanged} />
 
       <section>
         <SectionLabel>Profitability</SectionLabel>

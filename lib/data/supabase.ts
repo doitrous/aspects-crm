@@ -38,6 +38,7 @@ import type {
   DashboardMetrics,
   DataProvider,
   LeadFilters,
+  LeadListResult,
 } from "@/lib/data/contracts";
 
 /* ── enum / value translation (DB ⇆ UI view model) ───────────── */
@@ -318,6 +319,49 @@ async function loadOpenFollowUpsForLeadIds(
   return map;
 }
 
+function pageParams(filters: LeadFilters): { page: number; pageSize: number; from: number; to: number } {
+  const pageSize = Math.min(100, Math.max(1, Math.floor(filters.pageSize ?? 30)));
+  const page = Math.max(1, Math.floor(filters.page ?? 1));
+  const from = (page - 1) * pageSize;
+  return { page, pageSize, from, to: from + pageSize - 1 };
+}
+
+function applyLeadFilters(query: any, filters: LeadFilters) {
+  let q = query as any;
+  if (filters.stage && filters.stage !== "all") {
+    q = q.eq("status", UI_TO_DB_STAGE[filters.stage]);
+  }
+  if (filters.platform) q = q.eq("platform", toDbPlatform(filters.platform));
+  if (filters.sourceId) q = q.eq("source_id", filters.sourceId);
+  if (filters.campaignId) q = q.ilike("campaign", `%${filters.campaignId}%`);
+  if (filters.doctorId) q = q.eq("doctor_id", filters.doctorId);
+  if (filters.dateFrom) q = q.gte("first_contact_at", filters.dateFrom);
+  if (filters.dateTo) q = q.lt("first_contact_at", `${filters.dateTo}T23:59:59.999Z`);
+  if (filters.unread) q = q.eq("has_unread", true);
+  if (filters.incomingUnanswered) q = q.eq("has_unread", true);
+  if (filters.overdue) q = q.eq("is_reply_overdue", true);
+  if (filters.escalated) q = q.in("escalation_status", ESCALATED_STATES);
+  if (filters.q) {
+    const term = filters.q.replace(/[%,()]/g, " ").trim();
+    const like = `%${term}%`;
+    const phoneTerm = term.replace(/\D/g, "");
+    const clauses = [
+      `lead_id.ilike.${like}`,
+      `name.ilike.${like}`,
+      `mrn.ilike.${like}`,
+      `normalized_phone.ilike.${like}`,
+      `phone_number.ilike.${like}`,
+      `platform_id.ilike.${like}`,
+      `chat_link.ilike.${like}`,
+    ];
+    if (phoneTerm) {
+      clauses.push(`normalized_phone.ilike.%${phoneTerm}%`, `phone_number.ilike.%${phoneTerm}%`);
+    }
+    q = q.or(clauses.join(","));
+  }
+  return q;
+}
+
 function mapLead(row: LeadRow, lk: Lookups, tags: string[] = [], followUp?: FollowUp): Lead {
   const gender = row.gender === "male" || row.gender === "female" ? row.gender : undefined;
   const lastMessageAt =
@@ -442,53 +486,26 @@ export const supabaseProvider: DataProvider = {
   now: () => new Date(),
 
   async getLeads(filters: LeadFilters = {}): Promise<Lead[]> {
+    return (await this.getLeadsPage?.({ ...filters, page: filters.page ?? 1, pageSize: filters.pageSize ?? 500 }))?.leads ?? [];
+  },
+
+  async getLeadsPage(filters: LeadFilters = {}): Promise<LeadListResult> {
     const [usersById, lostReasonsById, dupSet] = await Promise.all([
       loadUserMap(),
       loadLostReasonMap(),
       loadDuplicateSet(),
     ]);
 
-    let query = supabaseAdmin().from("leads").select(LEAD_COLUMNS);
-
-    if (filters.stage && filters.stage !== "all") {
-      query = query.eq("status", UI_TO_DB_STAGE[filters.stage]);
-    }
-    if (filters.platform) query = query.eq("platform", toDbPlatform(filters.platform));
-    if (filters.sourceId) query = query.eq("source_id", filters.sourceId);
-    if (filters.campaignId) query = query.ilike("campaign", `%${filters.campaignId}%`);
-    if (filters.doctorId) query = query.eq("doctor_id", filters.doctorId);
-    if (filters.dateFrom) query = query.gte("first_contact_at", filters.dateFrom);
-    if (filters.dateTo) query = query.lt("first_contact_at", `${filters.dateTo}T23:59:59.999Z`);
-    if (filters.unread) query = query.eq("has_unread", true);
-    if (filters.incomingUnanswered) query = query.eq("has_unread", true);
-    if (filters.overdue) query = query.eq("is_reply_overdue", true);
-    if (filters.escalated) query = query.in("escalation_status", ESCALATED_STATES);
+    let query = applyLeadFilters(supabaseAdmin().from("leads").select(LEAD_COLUMNS, { count: "exact" }), filters);
     if (filters.duplicate) {
       const ids = [...dupSet];
       query = query.in("id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
     }
-    if (filters.q) {
-      const term = filters.q.replace(/[%,()]/g, " ").trim();
-      const like = `%${term}%`;
-      const phoneTerm = term.replace(/\D/g, "");
-      const clauses = [
-          `lead_id.ilike.${like}`,
-          `name.ilike.${like}`,
-          `mrn.ilike.${like}`,
-          `normalized_phone.ilike.${like}`,
-          `phone_number.ilike.${like}`,
-          `platform_id.ilike.${like}`,
-          `chat_link.ilike.${like}`,
-      ];
-      if (phoneTerm) {
-        clauses.push(`normalized_phone.ilike.%${phoneTerm}%`, `phone_number.ilike.%${phoneTerm}%`);
-      }
-      query = query.or(clauses.join(","));
-    }
 
-    query = query.order("updated_at", { ascending: false });
+    const { page, pageSize, from, to } = pageParams(filters);
+    query = query.order("updated_at", { ascending: false }).range(from, to);
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) throw new Error(`getLeads: ${error.message}`);
     const rows = (data as unknown as LeadRow[]) ?? [];
     const leadUids = rows.map((r) => r.id);
@@ -496,7 +513,7 @@ export const supabaseProvider: DataProvider = {
       loadTagsForLeadIds(leadUids),
       loadOpenFollowUpsForLeadIds(leadUids, usersById),
     ]);
-    return rows.map((r) =>
+    const leads = rows.map((r) =>
       mapLead(
         r,
         { usersById, lostReasonsById, dupSet },
@@ -504,6 +521,7 @@ export const supabaseProvider: DataProvider = {
         followUpsByLead.get(r.id),
       ),
     );
+    return { leads, total: count ?? leads.length, page, pageSize };
   },
 
   async getLead(id: string): Promise<Lead | undefined> {

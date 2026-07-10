@@ -140,11 +140,14 @@ export async function saveLeadNote(leadId: string, rawKey: string, value: string
   const oldValue = lead[column] ?? "";
   const nextValue = value.trim();
 
-  const { error } = await supabaseAdmin()
+  const { data: saved, error } = await supabaseAdmin()
     .from("leads")
-    .update({ [column]: nextValue })
-    .eq("id", lead.id);
+    .update({ [column]: nextValue, updated_at: new Date().toISOString() })
+    .eq("id", lead.id)
+    .select("id")
+    .single();
   if (error) throw new Error(`saveLeadNote: ${error.message}`);
+  if (!saved) throw new Error("saveLeadNote: Supabase did not return the updated lead.");
 
   await audit({
     actorId: actor.id,

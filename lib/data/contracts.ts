@@ -36,6 +36,15 @@ export interface LeadFilters {
   duplicate?: boolean;
   bookingStatus?: string;
   moderator?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface LeadListResult {
+  leads: Lead[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 /** Operational KPI counts for the moderator dashboard cards. */
@@ -59,6 +68,7 @@ export interface DashboardMetrics {
 export interface DataProvider {
   now(): Date;
   getLeads(filters?: LeadFilters): Promise<Lead[]>;
+  getLeadsPage?(filters?: LeadFilters): Promise<LeadListResult>;
   getLead(id: string): Promise<Lead | undefined>;
   messagesFor(leadId: string, channels?: Message["channel"][]): Promise<Message[]>;
   /** Comments live in their own table; the Conversation thread never contains them. */

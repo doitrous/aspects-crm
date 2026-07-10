@@ -1,0 +1,28 @@
+import { NextResponse } from "next/server";
+import { requireSession } from "@/lib/data/session";
+import { loadLeadTab } from "@/lib/loadLeadDetail";
+
+const TABS = new Set(["Overview", "Conversation", "Comments", "Booking", "Payments", "Log"]);
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  await requireSession();
+  const { id } = await params;
+  const url = new URL(request.url);
+  const tab = url.searchParams.get("tab") ?? "";
+
+  if (!TABS.has(tab)) {
+    return NextResponse.json({ error: "Unknown lead tab." }, { status: 400 });
+  }
+
+  try {
+    const data = await loadLeadTab(id, tab as "Overview" | "Conversation" | "Comments" | "Booking" | "Payments" | "Log");
+    if (!data) return NextResponse.json({ error: "Lead not found." }, { status: 404 });
+    return NextResponse.json(data);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not load lead tab.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

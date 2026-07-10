@@ -23,7 +23,8 @@ export interface LeadActionState {
 
 function toState(err: unknown): LeadActionState {
   if (err instanceof LeadMutationError) return { ok: null, error: err.message };
-  throw err;
+  if (err instanceof Error) return { ok: null, error: err.message || "Action failed." };
+  return { ok: null, error: "Action failed." };
 }
 
 function refreshLead(leadId: string) {

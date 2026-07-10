@@ -20,13 +20,14 @@ import type {
 import type {
   DashboardMetrics,
   DataProvider,
+  LeadListResult,
   LeadFilters,
 } from "@/lib/data/contracts";
 import { mockProvider } from "@/lib/data/mock";
 import { resolveCrmDataSource } from "@/lib/data/source";
 import { supabaseProvider } from "@/lib/data/supabase";
 
-export type { LeadFilters, DashboardMetrics } from "@/lib/data/contracts";
+export type { LeadFilters, DashboardMetrics, LeadListResult } from "@/lib/data/contracts";
 
 export { resolveCrmDataSource } from "@/lib/data/source";
 
@@ -43,6 +44,14 @@ export const NOW: Date = provider.now();
 
 export function getLeads(filters?: LeadFilters): Promise<Lead[]> {
   return provider.getLeads(filters);
+}
+export async function getLeadsPage(filters?: LeadFilters): Promise<LeadListResult> {
+  if (provider.getLeadsPage) return provider.getLeadsPage(filters);
+  const pageSize = Math.min(100, Math.max(1, Math.floor(filters?.pageSize ?? 30)));
+  const page = Math.max(1, Math.floor(filters?.page ?? 1));
+  const all = await provider.getLeads(filters);
+  const from = (page - 1) * pageSize;
+  return { leads: all.slice(from, from + pageSize), total: all.length, page, pageSize };
 }
 export function getLead(id: string): Promise<Lead | undefined> {
   return provider.getLead(id);

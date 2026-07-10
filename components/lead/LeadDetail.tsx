@@ -63,6 +63,9 @@ const TABS = [
   "Log",
 ] as const;
 type Tab = (typeof TABS)[number];
+type LoadableTab = "Overview" | "Conversation" | "Comments" | "Booking" | "Payments" | "Log";
+
+const tabCache = new Map<string, Partial<LeadDetailData>>();
 
 /** Short channel label shown next to the status badge, e.g. "IG DM". */
 const CHANNEL_LABEL: Record<Platform, string> = {
@@ -155,7 +158,8 @@ function DetailField({ label, value }: { label: string; value: React.ReactNode }
   );
 }
 
-export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: () => void }) {
+export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailData; onClose?: () => void }) {
+  const [data, setData] = useState<LeadDetailData>(initialData);
   const { lead } = data;
   const searchParams = useSearchParams();
   const requestedTab = searchParams.get("tab");
@@ -167,17 +171,70 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionOk, setActionOk] = useState<string | null>(null);
   const [lostModal, setLostModal] = useState(false);
+  const [confirmStage, setConfirmStage] = useState<PipelineStage | null>(null);
   const [lostReasonId, setLostReasonId] = useState("");
   const [lostNotes, setLostNotes] = useState("");
   const [escalateModal, setEscalateModal] = useState(false);
   const [escalationReason, setEscalationReason] = useState("");
   const [escalationSeverity, setEscalationSeverity] = useState("medium");
+  const [loadedTabs, setLoadedTabs] = useState<Set<string>>(() => new Set());
+  const [loadingTab, setLoadingTab] = useState<string | null>(null);
+  const [tabError, setTabError] = useState<string | null>(null);
 
   const pm = PLATFORM_META[lead.platform];
 
   useEffect(() => {
     if (requestedTab && TABS.includes(requestedTab as Tab)) setTab(requestedTab as Tab);
   }, [requestedTab]);
+
+  useEffect(() => {
+    const loadable: LoadableTab[] = ["Overview", "Conversation", "Comments", "Booking", "Payments", "Log"];
+    if (!loadable.includes(tab as LoadableTab)) return;
+    const cacheKey = `${lead.id}:${tab}`;
+    const cached = tabCache.get(cacheKey);
+    if (cached) {
+      setData((current) => ({ ...current, ...cached }));
+      setLoadedTabs((current) => new Set(current).add(tab));
+      return;
+    }
+    if (loadedTabs.has(tab)) return;
+
+    let cancelled = false;
+    setLoadingTab(tab);
+    setTabError(null);
+    fetch(`/api/leads/${encodeURIComponent(lead.id)}/tab?tab=${encodeURIComponent(tab)}`, {
+      headers: { accept: "application/json" },
+    })
+      .then(async (res) => {
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error ?? "Could not load this tab.");
+        return payload as Partial<LeadDetailData>;
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        tabCache.set(cacheKey, payload);
+        setData((current) => ({ ...current, ...payload }));
+        setLoadedTabs((current) => new Set(current).add(tab));
+      })
+      .catch((err) => {
+        if (!cancelled) setTabError(err instanceof Error ? err.message : "Could not load this tab.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTab(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lead.id, loadedTabs, tab]);
+
+  function invalidateTab(nextTab: LoadableTab) {
+    tabCache.delete(`${lead.id}:${nextTab}`);
+    setLoadedTabs((current) => {
+      const next = new Set(current);
+      next.delete(nextTab);
+      return next;
+    });
+  }
 
   function run(action: () => Promise<{ ok: string | null; error: string | null }>, onOk?: () => void) {
     startTransition(async () => {
@@ -203,7 +260,16 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
       setLostModal(true);
       return;
     }
-    run(() => updateLeadStageAction(lead.id, next), () => setStage(next));
+    setConfirmStage(next);
+  }
+
+  function submitStageChange() {
+    if (!confirmStage) return;
+    const next = confirmStage;
+    run(() => updateLeadStageAction(lead.id, next), () => {
+      setStage(next);
+      setConfirmStage(null);
+    });
   }
 
   function toggleTag(tag: string) {
@@ -371,6 +437,16 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
+        {loadingTab === tab && (
+          <div className="border-b border-line-soft bg-toolbar px-5 py-2 text-[12px] font-medium text-ink-500">
+            Loading {tab}...
+          </div>
+        )}
+        {tabError && (
+          <div className="m-4 rounded-control bg-danger-bg px-3 py-2 text-[12px] font-medium text-danger">
+            {tabError}
+          </div>
+        )}
         {tab === "Overview" && (
           <div className="flex flex-col gap-5 p-5">
             {/* Lead details */}
@@ -515,9 +591,25 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
           />
         )}
 
-        {tab === "Booking" && <BookingTab lead={lead} bookings={data.bookings} catalog={data.bookingCatalog} />}
+        {tab === "Booking" && (
+          loadedTabs.has("Booking") ? (
+            <BookingTab lead={lead} bookings={data.bookings} catalog={data.bookingCatalog} />
+          ) : (
+            <div className="p-5 text-[12px] text-ink-400">Loading live booking...</div>
+          )
+        )}
 
-        {tab === "Payments" && <PaymentsTab financials={data.financials} error={data.financialsError} />}
+        {tab === "Payments" && (
+          loadedTabs.has("Payments") ? (
+            <PaymentsTab
+              financials={data.financials}
+              error={data.financialsError}
+              onChanged={() => invalidateTab("Payments")}
+            />
+          ) : (
+            <div className="p-5 text-[12px] text-ink-400">Loading financials...</div>
+          )
+        )}
 
         {tab === "Log" && (
           <div className="flex flex-col gap-7 p-5">
@@ -573,6 +665,36 @@ export function LeadDetail({ data, onClose }: { data: LeadDetailData; onClose?: 
               className="rounded-control bg-danger px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-60"
             >
               Mark Lost
+            </button>
+          </div>
+        </Modal>
+      )}
+      {confirmStage && (
+        <Modal title="Confirm Status Change" onClose={() => setConfirmStage(null)}>
+          <div className="space-y-2 text-[12.5px] text-ink-700">
+            <div>
+              <span className="font-semibold text-ink-500">Patient/lead:</span>{" "}
+              {lead.patientName} ({lead.id})
+            </div>
+            <div>
+              <span className="font-semibold text-ink-500">Old status:</span>{" "}
+              {STATUS_PILL_LABEL[stage]}
+            </div>
+            <div>
+              <span className="font-semibold text-ink-500">New status:</span>{" "}
+              {STATUS_PILL_LABEL[confirmStage]}
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button className="rounded-control border border-line px-3 py-2 text-[12px]" onClick={() => setConfirmStage(null)}>
+              Cancel
+            </button>
+            <button
+              disabled={pending}
+              onClick={submitStageChange}
+              className="rounded-control bg-primary px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-60"
+            >
+              Confirm change
             </button>
           </div>
         </Modal>
