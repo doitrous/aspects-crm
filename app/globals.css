@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background: theme("colors.canvas");
+  color: theme("colors.ink.900");
+  font-family: theme("fontFamily.sans");
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Prototype scrollbar treatment */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: theme("colors.primary.DEFAULT") !important;
+  box-shadow: theme("boxShadow.focus");
+}
+
+/* Dark mode groundwork — off by default (prototype ships light). */
+[data-theme="dark"] {
+  color-scheme: dark;
+}

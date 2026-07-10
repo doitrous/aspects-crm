@@ -1,0 +1,279 @@
+-- ============================================================
+-- Aspects Clinica CRM — initial schema
+-- Mirrors lib/types.ts. Apply with the Supabase CLI once creds
+-- are provided. RLS policies are added in 0002_rls.sql.
+-- All visible dates are formatted client-side as "Jun 06, 2026".
+-- ============================================================
+
+create extension if not exists "pgcrypto";
+create extension if not exists "pg_trgm"; -- fuzzy name matching for duplicates
+
+-- ── enums ───────────────────────────────────────────────────
+create type role            as enum ('admin','auditor','moderator','viewer');
+create type platform        as enum ('facebook','instagram','whatsapp','walk_in','phone','web','referral');
+create type pipeline_stage  as enum ('new','qualified','booked','follow_up','post_op','lost');
+create type booking_status  as enum ('none','unconfirmed','confirmed','completed','cancelled','no_show');
+create type msg_direction   as enum ('incoming','outgoing');
+create type msg_channel     as enum ('facebook','instagram','whatsapp','comment');
+create type esc_severity    as enum ('low','medium','high','critical');
+create type esc_status      as enum ('open','assigned','resolved');
+create type dup_status      as enum ('none','suspected','merged','not_duplicate');
+
+-- ── reference / people ──────────────────────────────────────
+create table users (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  email       text unique,
+  role        role not null default 'moderator',
+  initials    text,
+  created_at  timestamptz not null default now()
+);
+
+create table specialties (
+  id    text primary key,
+  name  text not null
+);
+
+create table doctors (
+  id      uuid primary key default gen_random_uuid(),
+  name    text not null,
+  rating  numeric(2,1),
+  branch  text
+);
+
+create table doctor_specialties (
+  doctor_id    uuid references doctors(id) on delete cascade,
+  specialty_id text references specialties(id) on delete cascade,
+  primary key (doctor_id, specialty_id)
+);
+
+create table sources (
+  id    text primary key,
+  name  text not null
+);
+
+create table campaigns (
+  id       uuid primary key default gen_random_uuid(),
+  name     text not null,
+  source   text references sources(id),
+  utm      text
+);
+
+-- ── patients & leads ────────────────────────────────────────
+create table patients (
+  id          uuid primary key default gen_random_uuid(),
+  mrn         text unique,
+  name        text not null,
+  phone       text,
+  gender      text,
+  created_at  timestamptz not null default now()
+);
+
+create table leads (
+  id                   text primary key,              -- e.g. AC-2026-0142
+  mrn                  text,
+  patient_id           uuid references patients(id),
+  patient_name         text not null,
+  phone                text,
+  gender               text,
+  platform             platform not null,
+  platform_id          text,
+  chat_link            text,
+  source_id            text references sources(id),
+  campaign_id          uuid references campaigns(id),
+  specialty_id         text references specialties(id),
+  doctor_id            uuid references doctors(id),
+  branch               text,
+  patient_type         text not null default 'new',
+  stage                pipeline_stage not null default 'new',
+  assigned_moderator   uuid references users(id),
+  tags                 text[] not null default '{}',
+  unread               boolean not null default true,
+  incoming_unanswered  boolean not null default true,
+  overdue              boolean not null default false,
+  escalated            boolean not null default false,
+  duplicate_status     dup_status not null default 'none',
+  last_message         text,
+  last_message_at      timestamptz,
+  lost_reason          text,
+  booking_status       booking_status not null default 'none',
+  created_at           timestamptz not null default now()
+);
+
+-- common search indexes
+create index leads_phone_idx        on leads (phone);
+create index leads_name_trgm_idx    on leads using gin (patient_name gin_trgm_ops);
+create index leads_mrn_idx          on leads (mrn);
+create index leads_platform_id_idx  on leads (platform_id);
+create index leads_source_idx       on leads (source_id);
+create index leads_doctor_idx       on leads (doctor_id);
+create index leads_specialty_idx    on leads (specialty_id);
+create index leads_stage_idx        on leads (stage);
+create index leads_created_idx      on leads (created_at);
+
+-- ── notes / follow-ups ──────────────────────────────────────
+create table lead_notes (
+  lead_id         text primary key references leads(id) on delete cascade,
+  client_notes    text default '',
+  medical_history text default '',
+  general_notes   text default '',
+  updated_at      timestamptz not null default now()
+);
+
+create table lead_followups (
+  id            uuid primary key default gen_random_uuid(),
+  lead_id       text references leads(id) on delete cascade,
+  next_date     date,
+  reason        text,
+  status        text not null default 'none',
+  owner         uuid references users(id),
+  last_contact  date,
+  outcome       text,
+  notes         text,
+  updated_at    timestamptz not null default now()
+);
+create index followups_lead_idx on lead_followups (lead_id);
+create index followups_next_idx on lead_followups (next_date);
+
+-- ── messages (unified) & comments ───────────────────────────
+create table lead_messages (
+  id           uuid primary key default gen_random_uuid(),
+  lead_id      text references leads(id) on delete cascade,
+  channel      msg_channel not null,
+  direction    msg_direction not null,
+  body         text not null,
+  author_name  text,
+  post_ref     text,                    -- for comments: post/ad source
+  external_id  text,                    -- provider message id (idempotency)
+  created_at   timestamptz not null default now()
+);
+create index messages_lead_idx on lead_messages (lead_id, created_at);
+create unique index messages_external_idx on lead_messages (channel, external_id) where external_id is not null;
+
+-- WhatsApp shares lead_messages via channel='whatsapp'. A dedicated
+-- table is unnecessary given the normalized model.
+
+-- ── bookings ────────────────────────────────────────────────
+create table booking_slots (
+  id           uuid primary key default gen_random_uuid(),
+  doctor_id    uuid references doctors(id),
+  branch       text,
+  room         text,
+  start_at     timestamptz not null,
+  duration_min int not null default 30,
+  is_booked    boolean not null default false
+);
+create index slots_doctor_time_idx on booking_slots (doctor_id, start_at);
+
+create table bookings (
+  id               uuid primary key default gen_random_uuid(),
+  lead_id          text references leads(id) on delete set null,
+  doctor_id        uuid references doctors(id),
+  specialty_id     text references specialties(id),
+  branch           text,
+  room             text,
+  start_at         timestamptz not null,
+  duration_min     int not null default 30,
+  status           booking_status not null default 'unconfirmed',
+  source           platform,
+  calendar_synced  boolean not null default false,
+  external_ref     text,   -- id in adminaspectsclinica booking system
+  created_at       timestamptz not null default now()
+);
+create index bookings_lead_idx    on bookings (lead_id);
+create index bookings_time_idx    on bookings (doctor_id, start_at);
+
+-- ── escalations ─────────────────────────────────────────────
+create table escalations (
+  id               uuid primary key default gen_random_uuid(),
+  lead_id          text references leads(id) on delete cascade,
+  reason           text not null,
+  severity         esc_severity not null default 'medium',
+  status           esc_status not null default 'open',
+  raised_by        uuid references users(id),
+  assigned_to      uuid references users(id),
+  resolution_note  text,
+  resolved_by      uuid references users(id),
+  resolved_at      timestamptz,
+  created_at       timestamptz not null default now()
+);
+create index escalations_status_idx on escalations (status);
+create index escalations_lead_idx   on escalations (lead_id);
+
+-- ── duplicates ──────────────────────────────────────────────
+create table duplicate_reviews (
+  id          uuid primary key default gen_random_uuid(),
+  reason      text,
+  confidence  numeric(3,2),
+  lead_ids    text[] not null,
+  status      dup_status not null default 'suspected',
+  reviewed_by uuid references users(id),
+  reviewed_at timestamptz,
+  created_at  timestamptz not null default now()
+);
+
+-- ── history / audit / timeline ──────────────────────────────
+create table pipeline_stage_history (
+  id         uuid primary key default gen_random_uuid(),
+  lead_id    text references leads(id) on delete cascade,
+  stage      pipeline_stage not null,
+  changed_by uuid references users(id),
+  reason     text,
+  changed_at timestamptz not null default now()
+);
+create index stage_history_lead_idx on pipeline_stage_history (lead_id, changed_at);
+
+create table lead_timeline_events (
+  id       uuid primary key default gen_random_uuid(),
+  lead_id  text references leads(id) on delete cascade,
+  kind     text not null,
+  label    text not null,
+  actor    text,
+  at       timestamptz not null default now()
+);
+create index timeline_lead_idx on lead_timeline_events (lead_id, at);
+
+create table audit_logs (
+  id            uuid primary key default gen_random_uuid(),
+  lead_id       text,
+  actor         uuid references users(id),
+  source        text,                    -- moderator|auditor|admin|ai|ingestion|import|system
+  field         text,
+  old_value     text,
+  new_value     text,
+  action        text,
+  undone        boolean not null default false,
+  created_at    timestamptz not null default now()
+);
+create index audit_lead_idx on audit_logs (lead_id, created_at);
+
+-- ── ingestion & settings ────────────────────────────────────
+create table ingestion_events (
+  id            uuid primary key default gen_random_uuid(),
+  source        text,
+  platform      platform,
+  is_new_lead   boolean,
+  lead_id       text,
+  patient_name  text,
+  raw           jsonb,
+  normalized    jsonb,
+  status        text,
+  error         text,
+  created_at    timestamptz not null default now()
+);
+
+create table crm_settings (
+  key    text primary key,
+  value  jsonb not null
+);
+
+-- Auditor daily report (previous-day auditing model)
+create table auditor_daily_reports (
+  id              uuid primary key default gen_random_uuid(),
+  report_date     date not null,
+  moderator_id    uuid references users(id),
+  payload         jsonb not null default '{}',   -- manual + auto fields
+  created_by      uuid references users(id),
+  created_at      timestamptz not null default now(),
+  unique (report_date, moderator_id)
+);
