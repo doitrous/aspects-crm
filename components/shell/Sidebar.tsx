@@ -54,7 +54,7 @@ export function Sidebar({
             className={cn(
               "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] transition-colors",
               active
-                ? "bg-primary-soft font-semibold text-primary"
+                ? "bg-primary-hover font-semibold text-white shadow-sm ring-1 ring-primary/30"
                 : "font-medium text-ink-600 hover:bg-line-faint",
             )}
           >
@@ -64,7 +64,7 @@ export function Sidebar({
               <span
                 className={cn(
                   "ml-auto font-mono text-[10.5px] font-semibold",
-                  active ? "text-primary" : "text-ink-400",
+                  active ? "text-white/80" : "text-ink-400",
                 )}
               >
                 {count}
