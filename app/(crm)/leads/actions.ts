@@ -7,6 +7,7 @@ import {
   createManualLead,
   escalateLead,
   saveLeadNote,
+  markLeadRead,
   scheduleFollowUp,
   setLeadTagAssignments,
   snoozeFollowUp,
@@ -29,13 +30,10 @@ function toState(err: unknown): LeadActionState {
   return { ok: null, error: "The change could not be saved. Please try again." };
 }
 
-function refreshLead(leadId: string) {
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/leads");
-  revalidatePath("/dashboard");
-  revalidatePath("/follow-up");
-  revalidatePath("/escalations");
-  revalidatePath("/duplicates");
+function refreshLeadLists() {
+  for (const path of ["/leads", "/qualified", "/follow-up", "/post-op", "/database", "/dashboard"]) {
+    revalidatePath(path, "page");
+  }
 }
 
 export async function saveLeadNoteAction(
@@ -48,8 +46,18 @@ export async function saveLeadNoteAction(
   } catch (err) {
     return toState(err);
   }
-  refreshLead(leadId);
   return { ok: "Saved.", error: null };
+}
+
+export async function markLeadReadAction(leadId: string): Promise<LeadActionState> {
+  try {
+    await markLeadRead(leadId);
+  } catch (err) {
+    return toState(err);
+  }
+  revalidatePath("/leads");
+  revalidatePath("/database");
+  return { ok: "Marked as read.", error: null };
 }
 
 export async function updateLeadStageAction(
@@ -63,7 +71,7 @@ export async function updateLeadStageAction(
   } catch (err) {
     return toState(err);
   }
-  refreshLead(leadId);
+  refreshLeadLists();
   return { ok: "Status saved.", error: null };
 }
 
@@ -76,7 +84,6 @@ export async function setLeadTagsAction(
   } catch (err) {
     return toState(err);
   }
-  refreshLead(leadId);
   return { ok: "Tags saved.", error: null };
 }
 
@@ -90,7 +97,7 @@ export async function escalateLeadAction(
   } catch (err) {
     return toState(err);
   }
-  refreshLead(leadId);
+  revalidatePath("/escalations", "page");
   return { ok: "Escalated.", error: null };
 }
 
@@ -103,7 +110,7 @@ export async function clearLeadEscalationAction(
   } catch (err) {
     return toState(err);
   }
-  refreshLead(leadId);
+  revalidatePath("/escalations", "page");
   return { ok: "Un-escalated.", error: null };
 }
 
@@ -118,7 +125,8 @@ export async function scheduleFollowUpAction(
   } catch (err) {
     return toState(err);
   }
-  refreshLead(leadId);
+  revalidatePath("/follow-up", "page");
+  revalidatePath("/post-op", "page");
   return { ok: "Follow-up scheduled.", error: null };
 }
 
@@ -132,7 +140,8 @@ export async function completeFollowUpAction(
   } catch (err) {
     return toState(err);
   }
-  refreshLead(leadId);
+  revalidatePath("/follow-up", "page");
+  revalidatePath("/post-op", "page");
   return { ok: "Follow-up completed.", error: null };
 }
 
@@ -146,7 +155,8 @@ export async function snoozeFollowUpAction(
   } catch (err) {
     return toState(err);
   }
-  refreshLead(leadId);
+  revalidatePath("/follow-up", "page");
+  revalidatePath("/post-op", "page");
   return { ok: "Follow-up snoozed.", error: null };
 }
 
@@ -159,7 +169,7 @@ export async function createManualLeadAction(formData: FormData): Promise<LeadAc
       sourceId: String(formData.get("sourceId") ?? "") || undefined,
       serviceName: String(formData.get("serviceName") ?? "") || undefined,
     });
-    refreshLead(leadId);
+    refreshLeadLists();
     return { ok: "Lead created.", error: null, leadId };
   } catch (err) {
     return toState(err);

@@ -274,6 +274,7 @@ export interface TimelineEvent {
     | "attribution"
     | "audit";
   label: string;
+  body?: string;
   actor?: string;
 }
 
@@ -326,6 +327,8 @@ export interface Lead {
 
   // derived / operational
   unread: boolean;
+  attentionMessage?: string;
+  attentionTab?: "Log" | "Messenger" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments / Financials";
   incomingUnanswered: boolean;
   overdue: boolean;
   escalated: boolean;
@@ -364,6 +367,8 @@ export interface LeadSummary {
   createdAt: string;
   serviceName?: string;
   assignedModerator?: string;
+  attentionMessage?: string;
+  attentionTab?: string;
 }
 
 /** An escalation enriched with its lead, for the auditor escalations queue. */

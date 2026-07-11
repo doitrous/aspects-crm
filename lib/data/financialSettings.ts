@@ -79,6 +79,48 @@ export type FinancialModerator = {
   name: string;
 };
 
+export type FinancialBundle = {
+  id: string;
+  name: string;
+  specialtyId: string | null;
+  specialtyName: string | null;
+  bundleType: "bundle" | "package" | "addon";
+  price: number;
+  currency: string;
+  active: boolean;
+  startsOn: string | null;
+  expiresOn: string | null;
+};
+
+export type AddonRule = {
+  id: string;
+  triggerServiceName: string;
+  addonServiceName: string;
+  addonPrice: number;
+  redeemWithinDays: number;
+  active: boolean;
+};
+
+export type PaymentMethodSetting = {
+  id: string;
+  methodKey: string;
+  displayName: string;
+  ledgerMethod: PaymentMethod;
+  displayOrder: number;
+  active: boolean;
+};
+
+export type StaffCommissionRule = {
+  id: string;
+  moderatorId: string | null;
+  doctorId: string | null;
+  serviceId: string | null;
+  serviceName: string | null;
+  specialtyId: string | null;
+  commissionPct: number;
+  active: boolean;
+};
+
 export type FinancialSettingsData = {
   services: FinancialServiceSetting[];
   discountRules: FinancialDiscountRule[];
@@ -89,6 +131,10 @@ export type FinancialSettingsData = {
   moderators: FinancialModerator[];
   doctors: Awaited<ReturnType<typeof financialDoctorCatalog>>;
   paymentMethods: PaymentMethod[];
+  paymentMethodSettings: PaymentMethodSetting[];
+  bundles: FinancialBundle[];
+  addonRules: AddonRule[];
+  staffCommissionRules: StaffCommissionRule[];
   externalCostCategories: ExternalCostCategory[];
 };
 
@@ -123,6 +169,10 @@ export async function financialSettingsData(): Promise<FinancialSettingsData> {
     consumableDefaults,
     externalDefaults,
     moderatorsRes,
+    bundlesRes,
+    addonRulesRes,
+    paymentMethodsRes,
+    commissionsRes,
   ] = await Promise.all([
     financialDoctorCatalog(),
     db.from("crm_financial_service_settings").select("*").order("service_name"),
@@ -132,6 +182,10 @@ export async function financialSettingsData(): Promise<FinancialSettingsData> {
     db.from("crm_service_consumable_defaults").select("*").order("service_name"),
     db.from("crm_service_external_cost_defaults").select("*").order("service_name"),
     db.from("crm_users").select("id,full_name,email").in("role", ["moderator", "manager", "owner_admin"]).eq("is_active", true).order("full_name"),
+    db.from("crm_financial_bundles").select("*").order("created_at", { ascending: false }).limit(30),
+    db.from("crm_service_addon_rules").select("*").order("created_at", { ascending: false }).limit(30),
+    db.from("crm_payment_method_settings").select("*").order("display_order").limit(30),
+    db.from("crm_staff_commission_rules").select("*").order("created_at", { ascending: false }).limit(30),
   ]);
 
   for (const [name, res] of Object.entries({ serviceSettings, discountRules, compRules, components, moderatorsRes })) {
@@ -249,6 +303,44 @@ export async function financialSettingsData(): Promise<FinancialSettingsData> {
       active: Boolean(r.active),
     })),
     paymentMethods: PAYMENT_METHODS,
+    paymentMethodSettings: ((paymentMethodsRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
+      id: r.id as string,
+      methodKey: r.method_key as string,
+      displayName: r.display_name as string,
+      ledgerMethod: r.ledger_method as PaymentMethod,
+      displayOrder: num(r.display_order),
+      active: Boolean(r.active),
+    })),
+    bundles: ((bundlesRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
+      id: r.id as string,
+      name: r.name as string,
+      specialtyId: (r.specialty_id as string | null) ?? null,
+      specialtyName: (r.specialty_name as string | null) ?? null,
+      bundleType: r.bundle_type as FinancialBundle["bundleType"],
+      price: num(r.price),
+      currency: (r.currency as string) ?? "EGP",
+      active: Boolean(r.active),
+      startsOn: (r.starts_on as string | null) ?? null,
+      expiresOn: (r.expires_on as string | null) ?? null,
+    })),
+    addonRules: ((addonRulesRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
+      id: r.id as string,
+      triggerServiceName: r.trigger_service_name as string,
+      addonServiceName: r.addon_service_name as string,
+      addonPrice: num(r.addon_price),
+      redeemWithinDays: num(r.redeem_within_days),
+      active: Boolean(r.active),
+    })),
+    staffCommissionRules: ((commissionsRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
+      id: r.id as string,
+      moderatorId: (r.moderator_id as string | null) ?? null,
+      doctorId: (r.doctor_id as string | null) ?? null,
+      serviceId: (r.service_id as string | null) ?? null,
+      serviceName: (r.service_name as string | null) ?? null,
+      specialtyId: (r.specialty_id as string | null) ?? null,
+      commissionPct: num(r.commission_pct),
+      active: Boolean(r.active),
+    })),
     externalCostCategories: EXTERNAL_COST_CATEGORIES,
   };
 }

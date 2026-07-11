@@ -12,6 +12,12 @@ import {
   upsertExternalCostDefault,
   upsertServiceConsumableDefault,
   upsertServicePrice,
+  deleteDiscountRule,
+  setFinancialSettingActive,
+  upsertAddonRule,
+  upsertBundle,
+  upsertPaymentMethod,
+  upsertStaffCommission,
 } from "@/lib/data/financialSettingsMutations";
 import type { ExternalCostCategory } from "@/lib/data/financials";
 
@@ -190,4 +196,54 @@ export async function addFinancialDoctorAction(
     return fail(err);
   }
   return done("Doctor added to Admin catalog as inactive/not bookable.");
+}
+
+export async function deleteDiscountRuleAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  try { await deleteDiscountRule(str(fd, "id")); } catch (err) { return fail(err); }
+  return done("Discount rule deleted.");
+}
+
+export async function upsertBundleAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  try {
+    await upsertBundle({
+      id: str(fd, "id") || null, name: str(fd, "name"),
+      specialtyId: str(fd, "specialtyId") || null, specialtyName: str(fd, "specialtyName") || null,
+      bundleType: (str(fd, "bundleType") as "bundle" | "package" | "addon") || "bundle",
+      price: num(fd, "price"), currency: str(fd, "currency") || "EGP",
+      startsOn: str(fd, "startsOn") || null, expiresOn: str(fd, "expiresOn") || null,
+      active: bool(fd, "active"),
+    });
+  } catch (err) { return fail(err); }
+  return done("Bundle saved.");
+}
+
+export async function upsertAddonRuleAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  const trigger = String(fd.get("triggerServiceRef") ?? "").split("::");
+  const addon = String(fd.get("addonServiceRef") ?? "").split("::");
+  try {
+    await upsertAddonRule({ triggerServiceId: trigger[0] || null, triggerServiceName: trigger.slice(1).join("::"), addonServiceId: addon[0] || null, addonServiceName: addon.slice(1).join("::"), addonPrice: num(fd, "addonPrice"), redeemWithinDays: num(fd, "redeemWithinDays"), active: bool(fd, "active") });
+  } catch (err) { return fail(err); }
+  return done("Add-on rule saved.");
+}
+
+export async function upsertPaymentMethodAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  try { await upsertPaymentMethod({ id: str(fd, "id") || null, methodKey: str(fd, "methodKey"), displayName: str(fd, "displayName"), ledgerMethod: str(fd, "ledgerMethod") || "other", displayOrder: num(fd, "displayOrder"), active: bool(fd, "active") }); }
+  catch (err) { return fail(err); }
+  return done("Payment method saved.");
+}
+
+export async function upsertStaffCommissionAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  const svc = serviceRef(fd);
+  try { await upsertStaffCommission({ moderatorId: str(fd, "moderatorId") || null, doctorId: str(fd, "doctorId") || null, serviceId: svc.serviceId, serviceName: svc.serviceName || null, specialtyId: str(fd, "specialtyId") || null, commissionPct: num(fd, "commissionPct"), active: bool(fd, "active") }); }
+  catch (err) { return fail(err); }
+  return done("Commission rule saved.");
+}
+
+export async function setFinancialSettingActiveAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  const allowed = new Set(["crm_service_consumable_defaults", "crm_service_external_cost_defaults", "crm_financial_bundles", "crm_service_addon_rules", "crm_payment_method_settings", "crm_staff_commission_rules"]);
+  const table = str(fd, "table");
+  if (!allowed.has(table)) return { error: "Invalid settings table." };
+  try { await setFinancialSettingActive(table as Parameters<typeof setFinancialSettingActive>[0], str(fd, "id"), bool(fd, "active")); }
+  catch (err) { return fail(err); }
+  return done("Setting updated.");
 }

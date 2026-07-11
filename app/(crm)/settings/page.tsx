@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
 import { SchedulingSettings } from "@/components/settings/SchedulingSettings";
+import { FinancialSettingsManager } from "@/components/financial/FinancialSettingsManager";
 import { SettingsManager, type IntegrationStatus } from "@/components/settings/SettingsManager";
 import { bookingConfigured } from "@/lib/booking/client";
 import { bookingSchedulingSnapshot } from "@/lib/booking/service";
@@ -9,6 +10,7 @@ import { whatsappConfigured } from "@/lib/whatsapp/config";
 import { can } from "@/lib/auth/permissions";
 import { requireSession } from "@/lib/data/session";
 import { leadSourcesList } from "@/lib/data";
+import { financialSettingsData } from "@/lib/data/financialSettings";
 import {
   getAiPrompt,
   getAuditorSettings,
@@ -18,6 +20,7 @@ import {
   listLostReasons,
   listSlaRules,
   listTags,
+  listIngestLogs,
 } from "@/lib/data/settingsData";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +42,7 @@ export default async function SettingsPage() {
   if (!can(user.role, "settings.view")) notFound();
   const canManage = can(user.role, "settings.manage");
 
-  const [tags, lostReasons, escalationReasons, slaRules, followUpStages, auditorSettings, aiPrompt, emailRules, sources, scheduling] =
+  const [tags, lostReasons, escalationReasons, slaRules, followUpStages, auditorSettings, aiPrompt, emailRules, sources, scheduling, financial, ingestLogs] =
     await Promise.all([
       listTags(),
       listLostReasons(),
@@ -51,6 +54,8 @@ export default async function SettingsPage() {
       listEmailRules(),
       leadSourcesList(),
       bookingSchedulingSnapshot(),
+      financialSettingsData(),
+      listIngestLogs(),
     ]);
 
   return (
@@ -70,6 +75,8 @@ export default async function SettingsPage() {
           sources={sources}
           integrations={integrations()}
           scheduling={<SchedulingSettings snapshot={scheduling} />}
+          financial={<FinancialSettingsManager data={financial} />}
+          ingestLogs={ingestLogs}
         />
       </div>
     </>

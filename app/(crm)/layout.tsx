@@ -5,6 +5,7 @@ import { isNewReservation } from "@/lib/reservationStatus";
 import { listAccounts, requireSession } from "@/lib/data/session";
 import { I18nProvider } from "@/lib/i18n/context";
 import { getPreferences } from "@/lib/i18n/server";
+import { ArabicPageTranslator } from "@/components/i18n/ArabicPageTranslator";
 
 /** New/unread reservation count for the sidebar badge. Isolated from the shell:
  *  a booking-platform outage must never break CRM navigation. */
@@ -50,6 +51,7 @@ export default async function CrmLayout({
 
   return (
     <I18nProvider locale={prefs.locale}>
+      <ArabicPageTranslator />
       <div className="flex h-screen overflow-hidden bg-panel">
         <Sidebar
           counts={counts}

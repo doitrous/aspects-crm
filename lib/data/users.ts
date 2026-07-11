@@ -51,6 +51,32 @@ export async function listUsers(filters: UserFilters = {}): Promise<ManagedUser[
   return users;
 }
 
+export async function listUsersPage(filters: UserFilters = {}, page = 1, pageSize = 30): Promise<{ users: ManagedUser[]; total: number; page: number; pageSize: number }> {
+  const safePage = Math.max(1, Math.trunc(page));
+  let query = supabaseAdmin().from("crm_users").select(COLS, { count: "exact" });
+  const q = filters.q?.trim().replace(/[%,()]/g, " ");
+  if (q) query = query.or(`full_name.ilike.%${q}%,email.ilike.%${q}%`);
+  if (filters.role && filters.role !== "all") {
+    query = filters.role === "admin" ? query.in("role", ["owner_admin", "manager"]) : query.eq("role", filters.role);
+  }
+  if (filters.status && filters.status !== "all") query = query.eq("is_active", filters.status === "active");
+  const from = (safePage - 1) * pageSize;
+  const { data, count, error } = await query.order("full_name", { ascending: true }).range(from, from + pageSize - 1).returns<CrmUserRow[]>();
+  if (error) throw new Error(`listUsersPage: ${error.message}`);
+  return { users: (data ?? []).map(toManaged), total: count ?? 0, page: safePage, pageSize };
+}
+
+export type UserSessionEvent = { id: string; eventType: "login" | "logout"; occurredAt: string };
+
+export async function userSessionEvents(userId: string): Promise<UserSessionEvent[]> {
+  const { data, error } = await supabaseAdmin().from("crm_user_session_events").select("id,event_type,occurred_at").eq("user_id", userId).order("occurred_at", { ascending: false }).limit(30);
+  if (error) {
+    if (error.code === "42P01") return [];
+    throw new Error(`userSessionEvents: ${error.message}`);
+  }
+  return (data ?? []).map((row) => ({ id: row.id as string, eventType: row.event_type as "login" | "logout", occurredAt: row.occurred_at as string }));
+}
+
 /** All accounts as {@link AccountRef}s — the input `guardRoleChange` needs. */
 async function accountRefs(): Promise<AccountRef[]> {
   const { data } = await supabaseAdmin()

@@ -17,7 +17,15 @@ const SECTIONS: Section[] = [
   { key: "generalNotes", title: "Notes", accent: "#b54708", bg: "#fffaeb" },
 ];
 
-export function NotesTab({ leadId, note }: { leadId: string; note: LeadNote }) {
+export function NotesTab({
+  leadId,
+  note,
+  onSaved,
+}: {
+  leadId: string;
+  note: LeadNote;
+  onSaved?: (key: Section["key"], value: string) => void;
+}) {
   const [values, setValues] = useState({
     clientNotes: note.clientNotes,
     medicalHistory: note.medicalHistory,
@@ -39,8 +47,11 @@ export function NotesTab({ leadId, note }: { leadId: string; note: LeadNote }) {
           setError(result.error);
           return;
         }
+        onSaved?.(key, values[key]);
         setSaved(key);
         setTimeout(() => setSaved((s) => (s === key ? null : s)), 1600);
+      } catch (saveError) {
+        setError(saveError instanceof Error ? saveError.message : "Could not save note.");
       } finally {
         setPendingKey(null);
       }
@@ -63,6 +74,7 @@ export function NotesTab({ leadId, note }: { leadId: string; note: LeadNote }) {
               {s.title}
             </h3>
             <button
+              data-testid={`save-note-${s.key}`}
               onClick={() => save(s.key)}
               disabled={pendingKey !== null}
               className="rounded-control bg-panel px-2.5 py-1 text-[11px] font-semibold text-ink-600 shadow-sm hover:text-primary disabled:opacity-60"
@@ -71,6 +83,8 @@ export function NotesTab({ leadId, note }: { leadId: string; note: LeadNote }) {
             </button>
           </div>
           <textarea
+            data-testid={`note-${s.key}`}
+            data-patient-content
             value={values[s.key]}
             onChange={(e) => setValues((v) => ({ ...v, [s.key]: e.target.value }))}
             placeholder={`Add ${s.title.toLowerCase()}…`}

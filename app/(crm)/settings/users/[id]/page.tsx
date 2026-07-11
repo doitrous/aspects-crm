@@ -5,7 +5,7 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { can } from "@/lib/auth/permissions";
 import { requireSession } from "@/lib/data/session";
-import { listUsers, userRoleHistory, type RoleHistoryEntry } from "@/lib/data/users";
+import { listUsers, userRoleHistory, userSessionEvents, type RoleHistoryEntry } from "@/lib/data/users";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +49,7 @@ export default async function UserHistoryPage({
   const user = (await listUsers()).find((u) => u.id === id);
   if (!user) notFound();
 
-  const history = await userRoleHistory(id);
+  const [history, sessions] = await Promise.all([userRoleHistory(id), userSessionEvents(id)]);
 
   return (
     <>
@@ -111,6 +111,11 @@ export default async function UserHistoryPage({
               ))}
             </ul>
           )}
+        </Card>
+
+        <Card className="mt-4">
+          <CardHeader title={`Login activity (${sessions.length})`} />
+          {sessions.length === 0 ? <EmptyState title="No login activity recorded" hint="Login and logout events appear here after migration 0016 is deployed." /> : <ul>{sessions.map((event) => <li key={event.id} className="flex items-center justify-between border-b border-line-soft px-4 py-2.5 text-[12px] last:border-0"><span className="font-semibold capitalize text-ink-800">{event.eventType}</span><span className="tabular-nums text-ink-500">{when(event.occurredAt)}</span></li>)}</ul>}
         </Card>
       </div>
     </>

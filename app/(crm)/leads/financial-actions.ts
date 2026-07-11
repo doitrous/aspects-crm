@@ -39,12 +39,6 @@ function toState(err: unknown): FinancialActionState {
   return { error: "The financial change could not be saved. Please try again.", ok: null };
 }
 
-/** Both the drawer and the full page render the same data, so revalidate both. */
-function revalidateLead(leadId: string): void {
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/leads");
-}
-
 const str = (fd: FormData, k: string): string => String(fd.get(k) ?? "").trim();
 const money = (fd: FormData, k: string): number => Number(str(fd, k));
 const flag = (fd: FormData, k: string): boolean => str(fd, k) === "true";
@@ -82,7 +76,6 @@ export async function saveQuoteAction(
     return toState(err);
   }
 
-  revalidateLead(leadId);
   return { error: null, ok: "Quoted price saved." };
 }
 
@@ -140,7 +133,6 @@ export async function addTransactionAction(
     return toState(err);
   }
 
-  revalidateLead(leadId);
   return { error: null, ok: "Transaction recorded." };
 }
 
@@ -162,7 +154,6 @@ export async function setTransactionStatusAction(
     return toState(err);
   }
 
-  revalidateLead(leadId);
   return { error: null, ok: `Payment marked ${status}.` };
 }
 
@@ -189,7 +180,6 @@ export async function addDoctorFundedAction(
     return toState(err);
   }
 
-  revalidateLead(leadId);
   return { error: null, ok: "Doctor payment recorded." };
 }
 
@@ -214,7 +204,6 @@ export async function addConsumableAction(
     return toState(err);
   }
 
-  revalidateLead(leadId);
   return { error: null, ok: "Consumable added." };
 }
 
@@ -257,7 +246,6 @@ export async function addExternalCostAction(
     return toState(err);
   }
 
-  revalidateLead(leadId);
   return { error: null, ok: "External cost added." };
 }
 
@@ -279,7 +267,6 @@ export async function requestApprovalAction(
     return toState(err);
   }
 
-  revalidateLead(leadId);
   revalidatePath("/escalations");
   return { error: null, ok: "Sent for approval." };
 }
@@ -310,7 +297,6 @@ export async function decideApprovalAction(
     return toState(err);
   }
 
-  revalidateLead(leadId);
   revalidatePath("/escalations");
   return { error: null, ok: decision === "approved" ? "Price approved." : "Request rejected." };
 }

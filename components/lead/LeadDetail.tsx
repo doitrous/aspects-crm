@@ -45,6 +45,7 @@ import {
   setLeadTagsAction,
   snoozeFollowUpAction,
   updateLeadStageAction,
+  markLeadReadAction,
 } from "@/app/(crm)/leads/actions";
 import {
   resolveEscalationAction,
@@ -180,6 +181,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
   const [confirmStage, setConfirmStage] = useState<PipelineStage | null>(null);
   const [lostReasonId, setLostReasonId] = useState("");
   const [lostNotes, setLostNotes] = useState("");
+  const lostReasonIsOther = data.lostReasons.find((reason) => reason.id === lostReasonId)?.label.trim().toLowerCase() === "other";
   const [escalateModal, setEscalateModal] = useState(false);
   const [escalationReasonId, setEscalationReasonId] = useState("");
   const [escalationReason, setEscalationReason] = useState("");
@@ -197,6 +199,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
   useEffect(() => {
     const loadable: LoadableTab[] = ["Overview", "Messenger", "WhatsApp", "Comments", "Follow-Up", "Booking", "Payments / Financials", "Log"];
     if (!loadable.includes(tab as LoadableTab)) return;
+    if (loadedTabs.has(tab)) return;
     const cacheKey = `${lead.id}:${tab}`;
     const cached = tabCache.get(cacheKey);
     if (cached) {
@@ -204,7 +207,6 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
       setLoadedTabs((current) => new Set(current).add(tab));
       return;
     }
-    if (loadedTabs.has(tab)) return;
 
     let cancelled = false;
     setLoadingTab(tab);
@@ -289,6 +291,15 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
     }, () => setTags(next));
   }
 
+  function markRead() {
+    run(() => markLeadReadAction(lead.id), () => {
+      setData((current) => ({
+        ...current,
+        lead: { ...current.lead, unread: false, incomingUnanswered: false, attentionMessage: undefined, attentionTab: undefined },
+      }));
+    });
+  }
+
   function submitLost() {
     run(
       () => updateLeadStageAction(lead.id, "lost", lostReasonId, lostNotes),
@@ -328,6 +339,16 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Header: identity + status/channel badges + close */}
       <div className="flex-none border-b border-line-soft px-5 pb-4 pt-4">
+        {lead.unread && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={markRead}
+            className="mb-2 inline-flex items-center gap-1.5 rounded-control border border-primary/30 bg-primary-soft px-2.5 py-1.5 text-[11.5px] font-semibold text-primary hover:bg-primary-softer disabled:opacity-60"
+          >
+            ✓ Mark as read
+          </button>
+        )}
         <div className="flex items-start gap-3">
           <div className="flex h-11 w-11 flex-none items-center justify-center rounded-full bg-primary-avatar text-[15px] font-bold text-primary">
             {lead.patientName.slice(0, 2).toUpperCase()}
@@ -462,6 +483,17 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
         )}
         {tab === "Overview" && (
           <div className="flex flex-col gap-5 p-5">
+            {lead.attentionMessage && (
+              <button
+                type="button"
+                onClick={() => setTab((lead.attentionTab as Tab | undefined) ?? "Log")}
+                className="rounded-control border border-amber-300 bg-amber-50 px-3 py-2 text-left text-[12.5px] font-semibold text-amber-900 hover:border-amber-500"
+              >
+                <span className="block text-[11px] uppercase text-amber-700">Escalation resolved</span>
+                <span data-patient-content className="mt-0.5 block font-normal">{lead.attentionMessage}</span>
+                <span className="mt-1 block text-[11px] text-primary">Open admin / auditor message →</span>
+              </button>
+            )}
             {/* Lead details */}
             <section>
               <SectionLabel>Lead details</SectionLabel>
@@ -606,7 +638,21 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
 
         {tab === "Comments" && <CommentsPanel comments={data.comments} />}
 
-        {tab === "Notes" && <NotesTab leadId={lead.id} note={lead.note} />}
+        {tab === "Notes" && (
+          <NotesTab
+            leadId={lead.id}
+            note={data.lead.note}
+            onSaved={(key, value) =>
+              setData((current) => ({
+                ...current,
+                lead: {
+                  ...current.lead,
+                  note: { ...current.lead.note, [key]: value, updatedAt: new Date().toISOString() },
+                },
+              }))
+            }
+          />
+        )}
 
         {tab === "Follow-Up" && (
           <FollowUpPanel
@@ -688,6 +734,8 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               value={lostNotes}
               onChange={(e) => setLostNotes(e.target.value)}
               className="mt-1 min-h-[88px] w-full rounded-control border border-line bg-panel p-2 text-[12.5px]"
+              required={lostReasonIsOther}
+              placeholder={lostReasonIsOther ? "Describe the reason" : "Optional details"}
             />
           </label>
           <div className="mt-4 flex justify-end gap-2">
@@ -695,7 +743,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               Cancel
             </button>
             <button
-              disabled={pending || !lostReasonId}
+              disabled={pending || !lostReasonId || (lostReasonIsOther && !lostNotes.trim())}
               onClick={submitLost}
               className="rounded-control bg-danger px-3 py-2 text-[12px] font-semibold text-white disabled:opacity-60"
             >
@@ -1125,6 +1173,7 @@ function TimelinePanel({ events, embedded }: { events: TimelineEvent[]; embedded
               style={{ backgroundColor: eventDotColor(e) }}
             />
             <div className="text-[13.5px] font-semibold text-ink-900">{eventLabel(e)}</div>
+            {e.body && <div data-patient-content className="mt-1 whitespace-pre-wrap rounded-control bg-line-faint/60 px-2.5 py-2 text-[12px] text-ink-700">{e.body}</div>}
             <div className="mt-0.5 text-[12px] text-ink-400">
               {formatDateTime(e.at)}
               {e.actor ? ` · ${e.actor}` : ""}

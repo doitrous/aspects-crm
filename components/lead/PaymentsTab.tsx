@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import {
   addConsumableAction,
   addDoctorFundedAction,
@@ -126,10 +126,12 @@ function Feedback({ state }: { state: { error: string | null; ok: string | null 
   return null;
 }
 
-function useNotifyChanged(ok: string | null, onChanged?: () => void) {
+function useNotifyChanged(state: FinancialActionState, onChanged?: () => void) {
+  const callback = useRef(onChanged);
+  callback.current = onChanged;
   useEffect(() => {
-    if (ok) onChanged?.();
-  }, [ok, onChanged]);
+    if (state.ok) callback.current?.();
+  }, [state]);
 }
 
 /** Collapsible "Add …" form, so the tab opens as a summary rather than a wall of inputs. */
@@ -168,8 +170,8 @@ function AddPanel({ label, children }: { label: string; children: React.ReactNod
 function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [saveState, save, saving] = useActionState(saveQuoteAction, IDLE);
   const [escState, escalate, escalating] = useActionState(requestApprovalAction, IDLE);
-  useNotifyChanged(saveState.ok, onChanged);
-  useNotifyChanged(escState.ok, onChanged);
+  useNotifyChanged(saveState, onChanged);
+  useNotifyChanged(escState, onChanged);
 
   const [raw, setRaw] = useState(fin.summary.hasQuote ? String(fin.summary.quotedPrice) : "");
   const [confirming, setConfirming] = useState(false);
@@ -393,8 +395,8 @@ function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: (
   const [addState, add, adding] = useActionState(addTransactionAction, IDLE);
   const [statusState, setStatus, settingStatus] = useActionState(setTransactionStatusAction, IDLE);
   const [kind, setKind] = useState("payment");
-  useNotifyChanged(addState.ok, onChanged);
-  useNotifyChanged(statusState.ok, onChanged);
+  useNotifyChanged(addState, onChanged);
+  useNotifyChanged(statusState, onChanged);
 
   const cur = fin.currency;
   const reversible = fin.payments.filter((p) => p.kind === "payment" && p.status === "completed");
@@ -582,7 +584,7 @@ function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: (
 
 function Approvals({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [state, decide, deciding] = useActionState(decideApprovalAction, IDLE);
-  useNotifyChanged(state.ok, onChanged);
+  useNotifyChanged(state, onChanged);
   if (fin.approvals.length === 0) return null;
 
   return (
@@ -676,7 +678,7 @@ function Approvals({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => 
 function Consumables({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [state, add, adding] = useActionState(addConsumableAction, IDLE);
   const [override, setOverride] = useState(false);
-  useNotifyChanged(state.ok, onChanged);
+  useNotifyChanged(state, onChanged);
 
   return (
     <section>
@@ -759,7 +761,7 @@ function Consumables({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
 
 function ExternalCosts({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [state, add, adding] = useActionState(addExternalCostAction, IDLE);
-  useNotifyChanged(state.ok, onChanged);
+  useNotifyChanged(state, onChanged);
 
   return (
     <section>
@@ -841,7 +843,7 @@ function ExternalCosts({ fin, onChanged }: { fin: LeadFinancials; onChanged?: ()
 
 function Doctors({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [state, add, adding] = useActionState(addDoctorFundedAction, IDLE);
-  useNotifyChanged(state.ok, onChanged);
+  useNotifyChanged(state, onChanged);
 
   return (
     <section>

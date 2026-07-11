@@ -164,6 +164,7 @@ interface LeadRow {
   last_contact_at: string | null;
   created_at: string;
   updated_at: string;
+  metadata: Record<string, unknown> | null;
 }
 
 /**
@@ -180,7 +181,7 @@ const LEAD_COLUMNS =
   "campaign,doctor_id,branch_id,coordinator_user_id,escalation_status,has_unread," +
   "is_reply_overdue,booking_appointment_id,lost_reason_id,notes,medical_notes," +
   "medical_history,ai_summary,last_incoming_at,last_outgoing_at,last_contact_at," +
-  "created_at,updated_at";
+  "created_at,updated_at,metadata";
 
 interface Lookups {
   usersById: Map<string, string>; // crm_users.id -> full_name
@@ -372,6 +373,7 @@ function mapLead(row: LeadRow, lk: Lookups, tags: string[] = [], followUp?: Foll
   const gender = row.gender === "male" || row.gender === "female" ? row.gender : undefined;
   const lastMessageAt =
     row.last_incoming_at ?? row.last_outgoing_at ?? row.last_contact_at ?? row.updated_at;
+  const metadata = row.metadata ?? {};
   return {
     id: row.lead_id,
     uid: row.id,
@@ -397,6 +399,8 @@ function mapLead(row: LeadRow, lk: Lookups, tags: string[] = [], followUp?: Foll
       : undefined,
     tags,
     unread: row.has_unread,
+    attentionMessage: typeof metadata.moderator_notice === "string" ? metadata.moderator_notice : undefined,
+    attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab as Lead["attentionTab"] : undefined,
     incomingUnanswered: row.has_unread,
     overdue: row.is_reply_overdue,
     escalated: ESCALATED_STATES.includes(row.escalation_status ?? "none"),
@@ -427,13 +431,15 @@ interface SummaryRow {
   coordinator_user_id: string | null;
   created_at: string;
   last_contact_at?: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 const SUMMARY_COLUMNS =
   "id,lead_id,name,status,platform,phone_country_code,phone_number," +
-  "normalized_phone,service_name,coordinator_user_id,created_at,last_contact_at";
+  "normalized_phone,service_name,coordinator_user_id,created_at,last_contact_at,metadata";
 
 function rowToSummary(r: SummaryRow, usersById: Map<string, string>): LeadSummary {
+  const metadata = r.metadata ?? {};
   return {
     id: r.lead_id,
     uid: r.id,
@@ -446,6 +452,8 @@ function rowToSummary(r: SummaryRow, usersById: Map<string, string>): LeadSummar
     assignedModerator: r.coordinator_user_id
       ? usersById.get(r.coordinator_user_id)
       : undefined,
+    attentionMessage: typeof metadata.moderator_notice === "string" ? metadata.moderator_notice : undefined,
+    attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab : undefined,
   };
 }
 
@@ -907,7 +915,7 @@ export const supabaseProvider: DataProvider = {
       supabaseAdmin().from("leads").select("created_at").eq("id", uid).maybeSingle(),
       supabaseAdmin()
         .from("lead_timeline_events")
-        .select("id,event_type,title,actor_user_id,event_at")
+        .select("id,event_type,title,body,actor_user_id,event_at")
         .eq("lead_id", uid)
         .order("event_at", { ascending: false })
         .limit(200),
@@ -934,6 +942,7 @@ export const supabaseProvider: DataProvider = {
       at: e.event_at as string,
       kind: kindOf((e.event_type as string) ?? ""),
       label: (e.title as string) ?? "Event",
+      body: (e.body as string | null) ?? undefined,
       actor: e.actor_user_id ? usersById.get(e.actor_user_id as string) : undefined,
     }));
 

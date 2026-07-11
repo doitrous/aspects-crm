@@ -877,8 +877,7 @@ export async function updateReservationStatus(input: {
     appointment_id: input.appointmentId,
     previous_status: previous,
     new_status: input.status,
-    changed_by: actor.id,
-    notes: input.notes?.trim() || `Status changed from CRM to ${input.status}`,
+    notes: input.notes?.trim() || `Status changed from CRM to ${input.status} by ${actor.name} (${actor.id})`,
   });
   if (historyError) throw new BookingError(`Could not write booking status history: ${historyError.message}`);
 

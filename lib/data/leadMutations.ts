@@ -55,7 +55,7 @@ function asNoteKey(value: string): NoteKey {
 async function resolveLead(leadId: string) {
   const { data, error } = await supabaseAdmin()
     .from("leads")
-    .select("id,lead_id,status,notes,medical_notes,medical_history,lost_reason_id,lost_notes,escalation_status")
+    .select("id,lead_id,status,notes,medical_notes,medical_history,lost_reason_id,lost_notes,escalation_status,metadata,has_unread")
     .eq("lead_id", leadId)
     .maybeSingle();
   if (error) throw new Error(`resolveLead: ${error.message}`);
@@ -70,7 +70,33 @@ async function resolveLead(leadId: string) {
     lost_reason_id: string | null;
     lost_notes: string | null;
     escalation_status: string | null;
+    metadata: Record<string, unknown> | null;
+    has_unread: boolean;
   };
+}
+
+export async function markLeadRead(leadId: string): Promise<void> {
+  const [actor, lead] = await Promise.all([writeLeadActor(), resolveLead(leadId)]);
+  if (!lead.has_unread && !lead.metadata?.moderator_notice) return;
+  const metadata = { ...(lead.metadata ?? {}) };
+  delete metadata.moderator_notice;
+  delete metadata.moderator_notice_tab;
+  delete metadata.moderator_notice_escalation_id;
+  delete metadata.moderator_notice_at;
+  const { error } = await supabaseAdmin()
+    .from("leads")
+    .update({ has_unread: false, unread_since: null, metadata, updated_at: new Date().toISOString() })
+    .eq("id", lead.id);
+  if (error) throw new Error(`markLeadRead: ${error.message}`);
+  await audit({
+    actorId: actor.id,
+    action: "lead.marked_read",
+    entityType: "lead",
+    entityId: lead.id,
+    oldValues: { has_unread: lead.has_unread },
+    newValues: { has_unread: false },
+    metadata: { lead_id: leadId, actor_name: actor.name },
+  });
 }
 
 async function audit(params: {
@@ -142,8 +168,7 @@ export async function activeLostReasons(): Promise<ReferenceOption[]> {
 
 export async function saveLeadNote(leadId: string, rawKey: string, value: string): Promise<void> {
   const key = asNoteKey(rawKey);
-  const actor = await writeLeadActor();
-  const lead = await resolveLead(leadId);
+  const [actor, lead] = await Promise.all([writeLeadActor(), resolveLead(leadId)]);
   const column = NOTE_COLUMN[key] as "notes" | "medical_history" | "medical_notes";
   const oldValue = lead[column] ?? "";
   const nextValue = value.trim();
@@ -157,7 +182,7 @@ export async function saveLeadNote(leadId: string, rawKey: string, value: string
   if (error) throw new Error(`saveLeadNote: ${error.message}`);
   if (!saved) throw new Error("saveLeadNote: Supabase did not return the updated lead.");
 
-  await audit({
+  await Promise.all([audit({
     actorId: actor.id,
     action: "lead.note_updated",
     entityType: "lead",
@@ -165,14 +190,13 @@ export async function saveLeadNote(leadId: string, rawKey: string, value: string
     oldValues: { [column]: oldValue },
     newValues: { [column]: nextValue },
     metadata: { lead_id: leadId, field: column, label: NOTE_LABEL[key], actor_name: actor.name },
-  });
-  await timeline({
+  }), timeline({
     leadUid: lead.id,
     actorId: actor.id,
     eventType: "note_updated",
     title: `Note updated: ${NOTE_LABEL[key]}`,
     metadata: { field: column },
-  });
+  })]);
 }
 
 export async function updateLeadStage(params: {
@@ -181,8 +205,7 @@ export async function updateLeadStage(params: {
   lostReasonId?: string;
   lostNotes?: string;
 }): Promise<void> {
-  const actor = await writeLeadActor();
-  const lead = await resolveLead(params.leadId);
+  const [actor, lead] = await Promise.all([writeLeadActor(), resolveLead(params.leadId)]);
   const nextStatus = UI_TO_DB_STAGE[params.stage];
   const patch: Record<string, unknown> = { status: nextStatus };
 
@@ -210,7 +233,7 @@ export async function updateLeadStage(params: {
     await ensureFollowUpPlanForLead(params.leadId);
   }
 
-  await audit({
+  await Promise.all([audit({
     actorId: actor.id,
     action: "lead.status_updated",
     entityType: "lead",
@@ -222,8 +245,7 @@ export async function updateLeadStage(params: {
     },
     newValues: patch,
     metadata: { lead_id: params.leadId, actor_name: actor.name },
-  });
-  await timeline({
+  }), timeline({
     leadUid: lead.id,
     actorId: actor.id,
     eventType: "stage_change",
@@ -235,7 +257,7 @@ export async function updateLeadStage(params: {
       from_label: lead.status ? DB_TO_LABEL[lead.status] : null,
       to_label: DB_TO_LABEL[nextStatus],
     },
-  });
+  })]);
 }
 
 export async function setLeadTagAssignments(leadId: string, tagIds: string[]): Promise<void> {
@@ -570,7 +592,7 @@ export async function resolveEscalationWorkflow(params: {
   escalationId: string;
   resolution: "returned" | "resolved";
   note?: string;
-}): Promise<void> {
+}): Promise<{ leadId: string; resolution: "returned" | "resolved"; note: string | null }> {
   const actor = await writeLeadActor();
   const db = supabaseAdmin();
   const now = new Date().toISOString();
@@ -583,6 +605,13 @@ export async function resolveEscalationWorkflow(params: {
   if (!escalation) throw new LeadMutationError("Escalation not found.");
   const leadUid = escalation.lead_id as string;
   const note = params.note?.trim() || null;
+  const { data: leadRow, error: leadLoadError } = await db
+    .from("leads")
+    .select("lead_id,metadata")
+    .eq("id", leadUid)
+    .maybeSingle<{ lead_id: string; metadata: Record<string, unknown> | null }>();
+  if (leadLoadError) throw new Error(`resolveEscalationWorkflow(lead): ${leadLoadError.message}`);
+  if (!leadRow) throw new LeadMutationError("Lead not found for this escalation.");
 
   if (params.resolution === "returned") {
     const { error } = await db
@@ -592,7 +621,18 @@ export async function resolveEscalationWorkflow(params: {
     if (error) throw new Error(`returnEscalation: ${error.message}`);
     const { error: leadError } = await db
       .from("leads")
-      .update({ escalation_status: "in_review", has_unread: true, unread_since: now })
+      .update({
+        escalation_status: "in_review",
+        has_unread: true,
+        unread_since: now,
+        metadata: {
+          ...(leadRow.metadata ?? {}),
+          moderator_notice: note ?? "The escalation was reviewed and returned by an admin or auditor.",
+          moderator_notice_tab: "Log",
+          moderator_notice_escalation_id: params.escalationId,
+          moderator_notice_at: now,
+        },
+      })
       .eq("id", leadUid);
     if (leadError) throw new Error(`returnEscalationLead: ${leadError.message}`);
     const { error: unreadError } = await db.from("crm_unread_events").insert({
@@ -634,6 +674,7 @@ export async function resolveEscalationWorkflow(params: {
     body: note,
     metadata: { escalation_id: params.escalationId },
   });
+  return { leadId: leadRow.lead_id, resolution: params.resolution, note };
 }
 
 export async function mergeDuplicateFlag(flagId: string, notes?: string): Promise<void> {

@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { can } from "@/lib/auth/permissions";
 import { requireSession } from "@/lib/data/session";
-import { listUnlinkedAuthUsers, listUsers, type UserFilters } from "@/lib/data/users";
+import { listUnlinkedAuthUsers, listUsersPage, type UserFilters } from "@/lib/data/users";
 import type { Role } from "@/lib/types";
 import { UsersTable, type UserRow } from "./UsersTable";
 import { UnlinkedAuthUsers } from "./UnlinkedAuthUsers";
@@ -32,7 +33,7 @@ function parseStatus(v: string | undefined): "all" | "active" | "inactive" {
 export default async function UsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; role?: string; status?: string }>;
+    searchParams: Promise<{ q?: string; role?: string; status?: string; page?: string }>;
 }) {
   const { effective: user } = await requireSession();
   if (!can(user.role, "users.view")) notFound();
@@ -44,7 +45,12 @@ export default async function UsersPage({
     status: parseStatus(sp.status),
   };
 
-  const users = await listUsers(filters);
+  const requestedPage = Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1);
+  const [usersPage, adminsPage] = await Promise.all([
+    listUsersPage(filters, requestedPage, 30),
+    listUsersPage({ role: "admin", status: "active" }, 1, 1),
+  ]);
+  const users = usersPage.users;
   const rows: UserRow[] = users.map((u) => ({
     id: u.id,
     name: u.name,
@@ -57,7 +63,16 @@ export default async function UsersPage({
 
   const canMutate = can(user.role, "users.changeRole");
   const canInvite = can(user.role, "users.invite");
-  const activeAdmins = users.filter((u) => u.role === "admin" && u.isActive).length;
+  const activeAdmins = adminsPage.total;
+  const pageCount = Math.max(1, Math.ceil(usersPage.total / usersPage.pageSize));
+  const pageHref = (page: number) => {
+    const params = new URLSearchParams();
+    if (sp.q) params.set("q", sp.q);
+    if (filters.role && filters.role !== "all") params.set("role", filters.role);
+    if (filters.status && filters.status !== "all") params.set("status", filters.status);
+    params.set("page", String(page));
+    return `/settings/users?${params.toString()}`;
+  };
 
   // Only admins (who may invite) see + resolve unlinked Auth users. The Admin
   // API read is server-only; a failure here must not break the roster.
@@ -127,6 +142,7 @@ export default async function UsersPage({
             </p>
           )}
           <UsersTable users={rows} currentUserId={user.id} canMutate={canMutate} />
+          {pageCount > 1 && <div className="flex items-center justify-between border-t border-line-soft px-4 py-3 text-[12px]"><Link aria-disabled={requestedPage <= 1} className={requestedPage <= 1 ? "pointer-events-none text-ink-300" : "font-semibold text-primary"} href={pageHref(requestedPage - 1)}>Previous</Link><span>Page {requestedPage} of {pageCount} · {usersPage.total} users</span><Link aria-disabled={requestedPage >= pageCount} className={requestedPage >= pageCount ? "pointer-events-none text-ink-300" : "font-semibold text-primary"} href={pageHref(requestedPage + 1)}>Next</Link></div>}
         </Card>
 
         {canInvite && <UnlinkedAuthUsers users={unlinkedAuthUsers} />}

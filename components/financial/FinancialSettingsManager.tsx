@@ -9,6 +9,12 @@ import {
   upsertExternalCostDefaultAction,
   upsertServiceConsumableDefaultAction,
   upsertServicePriceAction,
+  deleteDiscountRuleAction,
+  setFinancialSettingActiveAction,
+  upsertAddonRuleAction,
+  upsertBundleAction,
+  upsertPaymentMethodAction,
+  upsertStaffCommissionAction,
   type FinancialSettingsActionState,
 } from "@/app/(crm)/financial/settings/actions";
 import { Card } from "@/components/ui/Card";
@@ -24,8 +30,9 @@ type Tab =
   | "discounts"
   | "consumables"
   | "doctors"
+  | "commissions"
+  | "bundles"
   | "payments"
-  | "external"
   | "exceptional"
   | "reports"
   | "general";
@@ -36,8 +43,9 @@ const TABS: Array<{ key: Tab; label: string }> = [
   { key: "discounts", label: "Discount Rules" },
   { key: "consumables", label: "Consumables" },
   { key: "doctors", label: "Doctor Compensation" },
+  { key: "commissions", label: "Moderator Commissions" },
+  { key: "bundles", label: "Bundles & Add-ons" },
   { key: "payments", label: "Payment Methods" },
-  { key: "external", label: "External Cost Defaults" },
   { key: "exceptional", label: "Exceptional Pricing" },
   { key: "reports", label: "Financial Reports" },
   { key: "general", label: "General Financial Settings" },
@@ -99,8 +107,20 @@ function ServicePriceForm({ service }: { service: FinancialServiceSetting }) {
   );
 }
 
+function ActiveToggle({ table, id, active }: { table: string; id: string; active: boolean }) {
+  const [state, action, pending] = useActionState(setFinancialSettingActiveAction, IDLE);
+  return <form action={action} className="inline-flex items-center gap-1">
+    <input type="hidden" name="table" value={table} /><input type="hidden" name="id" value={id} />
+    <input type="hidden" name="active" value={String(!active)} />
+    <button disabled={pending} className="text-[11px] font-semibold text-primary hover:underline disabled:opacity-50">{pending ? "Saving..." : active ? "Deactivate" : "Activate"}</button>
+    <Feedback state={state} />
+  </form>;
+}
+
 function Discounts({ data }: { data: FinancialSettingsData }) {
   const [state, action, pending] = useActionState(upsertDiscountRuleAction, IDLE);
+  const [page, setPage] = useState(1);
+  const pages = Math.max(1, Math.ceil(data.discountRules.length / 30));
   return (
     <Card className="p-4">
       <h3 className="mb-1 text-[13px] font-bold text-ink-900">Discount Rules</h3>
@@ -116,10 +136,27 @@ function Discounts({ data }: { data: FinancialSettingsData }) {
         <div className="flex items-center gap-2"><Save pending={pending}>Add rule</Save><Feedback state={state} /></div>
       </form>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-[12px]"><thead><tr className="border-b border-line-soft text-left text-[10px] uppercase text-ink-400"><th className="py-1.5">Scope</th><th>Moderator</th><th>Service</th><th>Max</th><th>Window</th><th>State</th></tr></thead><tbody>{data.discountRules.map((r) => <tr key={r.id} className="border-b border-line-faint"><td className="py-1.5">{r.scope}</td><td>{r.moderatorName ?? "-"}</td><td>{r.serviceName ?? r.serviceId ?? "-"}</td><td>{r.maxDiscountPct}%</td><td>{r.effectiveFrom ?? "now"} - {r.effectiveTo ?? "open"}</td><td>{r.active ? "Active" : "Off"}</td></tr>)}</tbody></table>
+        <table className="w-full min-w-[860px] text-[12px]"><thead><tr className="border-b border-line-soft text-left text-[10px] uppercase text-ink-400"><th className="py-1.5">Scope</th><th>Moderator</th><th>Service</th><th>Max</th><th>Window</th><th>State</th><th>Actions</th></tr></thead><tbody>{data.discountRules.slice((page - 1) * 30, page * 30).map((r) => <DiscountRuleRow key={r.id} rule={r} />)}</tbody></table>
       </div>
+      {pages > 1 && <div className="mt-3 flex items-center justify-between text-[11.5px]"><button disabled={page === 1} onClick={() => setPage((p) => p - 1)} className="font-semibold text-primary disabled:text-ink-300">Previous</button><span>Page {page} of {pages}</span><button disabled={page === pages} onClick={() => setPage((p) => p + 1)} className="font-semibold text-primary disabled:text-ink-300">Next</button></div>}
     </Card>
   );
+}
+
+function DiscountRuleRow({ rule: r }: { rule: FinancialSettingsData["discountRules"][number] }) {
+  const [editing, setEditing] = useState(false);
+  const [state, action, pending] = useActionState(upsertDiscountRuleAction, IDLE);
+  const [delState, delAction, delPending] = useActionState(deleteDiscountRuleAction, IDLE);
+  if (editing) return <tr className="border-b border-line-faint"><td colSpan={7} className="py-2"><form action={action} className="flex flex-wrap items-end gap-2">
+    <input type="hidden" name="id" value={r.id} /><input type="hidden" name="scope" value={r.scope} />
+    <input type="hidden" name="moderatorId" value={r.moderatorId ?? ""} /><input type="hidden" name="serviceId" value={r.serviceId ?? ""} /><input type="hidden" name="serviceName" value={r.serviceName ?? ""} />
+    <label className={label}>Maximum discount %<input className={field} name="maxDiscountPct" type="number" min={0} max={100} step="0.01" defaultValue={r.maxDiscountPct} /></label>
+    <label className={label}>Effective from<input className={field} name="effectiveFrom" type="date" defaultValue={r.effectiveFrom ?? ""} /></label>
+    <label className={label}>Effective to<input className={field} name="effectiveTo" type="date" defaultValue={r.effectiveTo ?? ""} /></label>
+    <label className="pb-2 text-[12px]"><input name="active" type="checkbox" defaultChecked={r.active} /> Active</label>
+    <Save pending={pending} /><button type="button" onClick={() => setEditing(false)} className="h-8 px-2 text-[12px]">Cancel</button><Feedback state={state} />
+  </form></td></tr>;
+  return <tr className="border-b border-line-faint"><td className="py-1.5">{r.scope}</td><td>{r.moderatorName ?? "-"}</td><td>{r.serviceName ?? r.serviceId ?? "-"}</td><td>{r.maxDiscountPct}%</td><td>{r.effectiveFrom ?? "now"} - {r.effectiveTo ?? "open"}</td><td>{r.active ? "Active" : "Off"}</td><td className="flex gap-2 py-1.5"><button onClick={() => setEditing(true)} className="font-semibold text-primary">Edit</button><form action={delAction}><input type="hidden" name="id" value={r.id} /><button disabled={delPending} className="font-semibold text-red-600">{delPending ? "Deleting..." : "Delete"}</button></form><Feedback state={delState} /></td></tr>;
 }
 
 function Consumables({ data }: { data: FinancialSettingsData }) {
@@ -146,8 +183,32 @@ function Consumables({ data }: { data: FinancialSettingsData }) {
         <div><h4 className="mb-1 text-[12px] font-bold text-ink-800">Components</h4>{data.consumableComponents.map((c) => <div key={c.id} className="flex justify-between border-b border-line-faint py-1 text-[12px]"><span>{c.name}</span><span>{money(c.unitCost)} EGP {c.active ? "" : "(off)"}</span></div>)}</div>
         <div><h4 className="mb-1 text-[12px] font-bold text-ink-800">Service defaults</h4>{data.serviceConsumableDefaults.map((c) => <div key={c.id} className="border-b border-line-faint py-1 text-[12px]"><span className="font-semibold">{c.serviceName}</span> - {c.description}: {money(c.totalCost)} EGP {c.active ? "" : "(off)"}</div>)}</div>
       </div>
+      <div className="mt-5 border-t border-line-soft pt-4"><ExternalDefaults data={data} /></div>
     </Card>
   );
+}
+
+function Bundles({ data }: { data: FinancialSettingsData }) {
+  const [bundleState, bundleAction, bundlePending] = useActionState(upsertBundleAction, IDLE);
+  const [addonState, addonAction, addonPending] = useActionState(upsertAddonRuleAction, IDLE);
+  return <Card className="p-4"><h3 className="text-[13px] font-bold">Bundles & Add-ons</h3><p className="mb-3 text-[11.5px] text-ink-500">Active offers are available to moderators. Add-on redemption is anchored to the procedure date.</p>
+    <form action={bundleAction} className="mb-4 grid gap-2 md:grid-cols-4 md:items-end"><label className={label}>Name<input name="name" required className={field} /></label><label className={label}>Type<select name="bundleType" className={field}><option value="bundle">Bundle</option><option value="package">Package</option><option value="addon">Add-on</option></select></label><label className={label}>Specialty<select name="specialtyId" className={field}><option value="">All specialties</option>{data.doctors.specialties.map((s) => <option key={s.id} value={s.id}>{s.nameEn}</option>)}</select></label><label className={label}>Price<input name="price" type="number" min={0} step="0.01" required className={field} /></label><label className={label}>Starts<input name="startsOn" type="date" className={field} /></label><label className={label}>Expires<input name="expiresOn" type="date" className={field} /></label><input type="hidden" name="currency" value="EGP" /><label className="pb-2 text-[12px]"><input name="active" type="checkbox" defaultChecked /> Active</label><div><Save pending={bundlePending}>Add bundle</Save><Feedback state={bundleState} /></div></form>
+    <form action={addonAction} className="mb-4 grid gap-2 md:grid-cols-4 md:items-end"><label className={label}>Reserved service<select name="triggerServiceRef" required className={field}><ServiceOptions services={data.services} /></select></label><label className={label}>Add-on service<select name="addonServiceRef" required className={field}><ServiceOptions services={data.services} /></select></label><label className={label}>Add-on price<input name="addonPrice" type="number" min={0} step="0.01" required className={field} /></label><label className={label}>Redeem within days<input name="redeemWithinDays" type="number" min={0} defaultValue={10} className={field} /></label><input type="hidden" name="active" value="true" /><div><Save pending={addonPending}>Add rule</Save><Feedback state={addonState} /></div></form>
+    <div className="grid gap-3 md:grid-cols-2"><div><h4 className="text-[12px] font-bold">Current bundles</h4>{data.bundles.map((b) => <div key={b.id} className="flex items-center justify-between border-b py-1 text-[12px]"><span>{b.name} · {money(b.price)} {b.currency} · {b.expiresOn ?? "no expiry"}</span><ActiveToggle table="crm_financial_bundles" id={b.id} active={b.active} /></div>)}</div><div><h4 className="text-[12px] font-bold">Add-on rules</h4>{data.addonRules.map((a) => <div key={a.id} className="flex items-center justify-between border-b py-1 text-[12px]"><span>{a.triggerServiceName} → {a.addonServiceName}: {money(a.addonPrice)} EGP / {a.redeemWithinDays} days</span><ActiveToggle table="crm_service_addon_rules" id={a.id} active={a.active} /></div>)}</div></div>
+  </Card>;
+}
+
+function StaffCommissions({ data }: { data: FinancialSettingsData }) {
+  const [state, action, pending] = useActionState(upsertStaffCommissionAction, IDLE);
+  return <Card className="p-4"><h3 className="text-[13px] font-bold">Moderator / doctor commissions</h3><p className="mb-3 text-[11.5px] text-ink-500">Set commission by moderator, doctor, specialty, and service. Leave a dimension blank when it should apply broadly.</p><form action={action} className="grid gap-2 md:grid-cols-4 md:items-end"><label className={label}>Moderator<select name="moderatorId" className={field}><option value="">Any</option>{data.moderators.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label><label className={label}>Doctor<select name="doctorId" className={field}><option value="">Any</option>{data.doctors.doctors.map((d) => <option key={d.id} value={d.id}>{d.nameEn}</option>)}</select></label><label className={label}>Specialty<select name="specialtyId" className={field}><option value="">Any</option>{data.doctors.specialties.map((s) => <option key={s.id} value={s.id}>{s.nameEn}</option>)}</select></label><label className={label}>Service<select name="serviceRef" className={field}><ServiceOptions services={data.services} /></select></label><label className={label}>Commission %<input name="commissionPct" type="number" min={0} max={100} step="0.01" required className={field} /></label><input type="hidden" name="active" value="true" /><div><Save pending={pending}>Add commission</Save><Feedback state={state} /></div></form><div className="mt-4">{data.staffCommissionRules.map((r) => <div key={r.id} className="flex items-center justify-between border-b py-1 text-[12px]"><span>{r.commissionPct}% · {r.serviceName ?? "all services"}</span><ActiveToggle table="crm_staff_commission_rules" id={r.id} active={r.active} /></div>)}</div></Card>;
+}
+
+function PaymentMethods({ data }: { data: FinancialSettingsData }) {
+  return <Card className="p-4"><h3 className="text-[13px] font-bold">Payment Methods</h3><p className="mb-3 text-[11.5px] text-ink-500">Custom labels map to a canonical ledger method; deactivation preserves historical transactions.</p>{data.paymentMethodSettings.map((m) => <PaymentMethodForm key={m.id} method={m} data={data} />)}<PaymentMethodForm data={data} /></Card>;
+}
+function PaymentMethodForm({ method, data }: { method?: FinancialSettingsData["paymentMethodSettings"][number]; data: FinancialSettingsData }) {
+  const [state, action, pending] = useActionState(upsertPaymentMethodAction, IDLE);
+  return <form action={action} className="flex flex-wrap items-end gap-2 border-b py-2">{method && <input type="hidden" name="id" value={method.id} />}<label className={label}>Key<input name="methodKey" required readOnly={Boolean(method)} defaultValue={method?.methodKey ?? ""} className={field} /></label><label className={label}>Display name<input name="displayName" required defaultValue={method?.displayName ?? ""} className={field} /></label><label className={label}>Ledger method<select name="ledgerMethod" defaultValue={method?.ledgerMethod ?? "other"} className={field}>{data.paymentMethods.map((m) => <option key={m} value={m}>{m}</option>)}</select></label><label className={label}>Order<input name="displayOrder" type="number" defaultValue={method?.displayOrder ?? data.paymentMethodSettings.length * 10 + 10} className={`${field} w-20`} /></label><label className="pb-2 text-[12px]"><input name="active" type="checkbox" defaultChecked={method?.active ?? true} /> Active</label><Save pending={pending}>{method ? "Save" : "Add method"}</Save><Feedback state={state} /></form>;
 }
 
 function Doctors({ data }: { data: FinancialSettingsData }) {
@@ -186,7 +247,7 @@ function Doctors({ data }: { data: FinancialSettingsData }) {
 function ExternalDefaults({ data }: { data: FinancialSettingsData }) {
   const [state, action, pending] = useActionState(upsertExternalCostDefaultAction, IDLE);
   return (
-    <Card className="p-4">
+    <div>
       <h3 className="mb-1 text-[13px] font-bold text-ink-900">External Cost Categories / Defaults</h3>
       <form action={action} className="mb-4 grid gap-2 md:grid-cols-5 md:items-end">
         <label className={label}>Service<select name="serviceRef" required className={field}><ServiceOptions services={data.services} /></select></label>
@@ -198,7 +259,7 @@ function ExternalDefaults({ data }: { data: FinancialSettingsData }) {
         <div className="flex items-center gap-2"><Save pending={pending}>Add default</Save><Feedback state={state} /></div>
       </form>
       {data.externalCostDefaults.map((e) => <div key={e.id} className="border-b border-line-faint py-1 text-[12px]"><span className="font-semibold">{e.serviceName}</span> - {e.category}: {e.description} {money(e.amount)} EGP {e.active ? "" : "(off)"}</div>)}
-    </Card>
+    </div>
   );
 }
 
@@ -215,8 +276,9 @@ export function FinancialSettingsManager({ data }: { data: FinancialSettingsData
         {tab === "discounts" && <Discounts data={data} />}
         {tab === "consumables" && <Consumables data={data} />}
         {tab === "doctors" && <Doctors data={data} />}
-        {tab === "payments" && <Card className="p-4"><h3 className="mb-1 text-[13px] font-bold text-ink-900">Payment Methods</h3><p className="mb-2 text-[11.5px] text-ink-500">These are the canonical ledger payment method enum values used by Payments, Bulk Import, and reports.</p><div className="flex flex-wrap gap-2">{data.paymentMethods.map((m) => <span key={m} className="rounded-pill bg-line-faint px-2.5 py-1 text-[12px] font-semibold text-ink-700">{m}</span>)}</div></Card>}
-        {tab === "external" && <ExternalDefaults data={data} />}
+        {tab === "commissions" && <StaffCommissions data={data} />}
+        {tab === "bundles" && <Bundles data={data} />}
+        {tab === "payments" && <PaymentMethods data={data} />}
         {tab === "exceptional" && <Card className="p-4"><h3 className="mb-1 text-[13px] font-bold text-ink-900">Exceptional Pricing</h3><p className="mb-3 text-[11.5px] text-ink-500">Exceptional pricing uses `crm_discount_approvals` plus the existing escalation workflow. Approvals are handled from lead Payments and the Financial Dashboard exceptions view.</p><a href="/financial?tab=exceptions" className="text-[12px] font-semibold text-primary hover:underline">Open exceptional pricing cases</a></Card>}
         {tab === "reports" && <Card className="p-4"><h3 className="mb-1 text-[13px] font-bold text-ink-900">Financial Reports</h3><p className="mb-3 text-[11.5px] text-ink-500">Reports read the same canonical financial tables and preserve the cash-flow vs profitability date basis.</p><a href="/financial" className="text-[12px] font-semibold text-primary hover:underline">Open Financial Dashboard</a></Card>}
         {tab === "general" && <Card className="p-4"><h3 className="mb-1 text-[13px] font-bold text-ink-900">General Financial Settings</h3><p className="mb-3 text-[11.5px] text-ink-500">Financial records freeze base service price when a lead financial record is created. Payment transactions are append-only. Refunds/reversals/chargebacks reference original payments.</p><div className="grid gap-2 sm:grid-cols-2"><Stat label="Currency default" value="EGP" /><Stat label="Cash-flow basis" value="Payment date" /><Stat label="Profitability basis" value="Service date" /><Stat label="Doctor-funded payments" value="Separate from compensation" /></div></Card>}

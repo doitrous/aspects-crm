@@ -25,10 +25,12 @@ import type {
   AuditorSettingsRow,
   AiPromptSetting,
   EmailRuleSetting,
+  IngestLogSetting,
 } from "@/lib/data/settingsData";
 import type { LeadSourceInfo } from "@/lib/types";
 
 const SETTINGS_IDLE: SettingsActionState = { ok: false };
+const SETTINGS_PAGE_SIZE = 30;
 
 const field =
   "rounded-control border border-line-soft bg-white px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary disabled:opacity-60";
@@ -51,6 +53,14 @@ function SaveButton({ pending, children = "Save" }: { pending: boolean; children
       {pending ? "Saving…" : children}
     </button>
   );
+}
+
+function PagedItems<T>({ items, render }: { items: T[]; render: (item: T) => ReactNode }) {
+  const [page, setPage] = useState(1);
+  const pages = Math.max(1, Math.ceil(items.length / SETTINGS_PAGE_SIZE));
+  const safePage = Math.min(page, pages);
+  const visible = items.slice((safePage - 1) * SETTINGS_PAGE_SIZE, safePage * SETTINGS_PAGE_SIZE);
+  return <>{visible.map(render)}{pages > 1 && <div className="mt-3 flex items-center justify-between border-t border-line-soft pt-3 text-[11.5px]"><button disabled={safePage === 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="font-semibold text-primary disabled:text-ink-300">Previous</button><span>Page {safePage} of {pages}</span><button disabled={safePage === pages} onClick={() => setPage((p) => Math.min(pages, p + 1))} className="font-semibold text-primary disabled:text-ink-300">Next</button></div>}</>;
 }
 
 /* ── Tags ─────────────────────────────────────────────────────── */
@@ -448,7 +458,9 @@ type TabKey =
   | "integrations"
   | "scheduling"
   | "financial"
-  | "email";
+  | "email"
+  | "ingestion"
+  | "users";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "general", label: "General CRM Settings" },
@@ -464,6 +476,8 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "reporting", label: "Reporting Settings" },
   { key: "ai", label: "AI Reply Assistant" },
   { key: "integrations", label: "Integrations" },
+  { key: "ingestion", label: "Ingestion Log" },
+  { key: "users", label: "Users & Roles" },
   { key: "scheduling", label: "Scheduling" },
   { key: "financial", label: "Financial Settings" },
   { key: "email", label: "Email Rules" },
@@ -489,6 +503,8 @@ export function SettingsManager({
   sources,
   integrations,
   scheduling,
+  financial,
+  ingestLogs,
 }: {
   canManage: boolean;
   tags: TagSetting[];
@@ -502,6 +518,8 @@ export function SettingsManager({
   sources: LeadSourceInfo[];
   integrations: IntegrationStatus[];
   scheduling: ReactNode;
+  financial: ReactNode;
+  ingestLogs: IngestLogSetting[];
 }) {
   const [tab, setTab] = useState<TabKey>("general");
 
@@ -565,7 +583,7 @@ export function SettingsManager({
           <Card className="p-4">
             <h3 className="mb-1 text-[13px] font-bold text-ink-900">Tags & Colors</h3>
             <p className="mb-2 text-[11.5px] text-ink-500">Moderators may only apply tags from this list — they cannot invent new ones.</p>
-            {tags.map((t) => <TagForm key={t.id} tag={t} canManage={canManage} />)}
+            <PagedItems items={tags} render={(t) => <TagForm key={t.id} tag={t} canManage={canManage} />} />
             {canManage && <div className="mt-2"><TagForm canManage={canManage} /></div>}
           </Card>
         )}
@@ -574,7 +592,7 @@ export function SettingsManager({
           <Card className="p-4">
             <h3 className="mb-1 text-[13px] font-bold text-ink-900">Lost Reasons</h3>
             <p className="mb-2 text-[11.5px] text-ink-500">The controlled list a moderator must choose from when marking a lead Lost.</p>
-            {lostReasons.map((r) => <LostReasonForm key={r.id} reason={r} canManage={canManage} />)}
+            <PagedItems items={lostReasons} render={(r) => <LostReasonForm key={r.id} reason={r} canManage={canManage} />} />
             {canManage && <div className="mt-2"><LostReasonForm canManage={canManage} /></div>}
           </Card>
         )}
@@ -588,7 +606,7 @@ export function SettingsManager({
                 Run migration 0013_crm_escalation_reasons.sql to enable persisted escalation reason management.
               </p>
             )}
-            {escalationReasons.map((r) => <EscalationReasonForm key={r.id} reason={r} canManage={canManage} />)}
+            <PagedItems items={escalationReasons} render={(r) => <EscalationReasonForm key={r.id} reason={r} canManage={canManage} />} />
             {canManage && <div className="mt-2"><EscalationReasonForm canManage={canManage} /></div>}
           </Card>
         )}
@@ -606,7 +624,7 @@ export function SettingsManager({
           <Card className="p-4">
             <h3 className="mb-1 text-[13px] font-bold text-ink-900">Follow-Up Stages</h3>
             <p className="mb-2 text-[11.5px] text-ink-500">Flexible sequences — any number of steps, arbitrary delays, per workflow type. Consumed by the Follow-Up tab.</p>
-            {followUpStages.map((s) => <FollowUpStageForm key={s.id} stage={s} canManage={canManage} tags={tags} />)}
+            <PagedItems items={followUpStages} render={(s) => <FollowUpStageForm key={s.id} stage={s} canManage={canManage} tags={tags} />} />
             {canManage && <div className="mt-2"><FollowUpStageForm canManage={canManage} tags={tags} /></div>}
           </Card>
         )}
@@ -618,7 +636,7 @@ export function SettingsManager({
               CRM-visible sources from lead_sources. Platform remains the communication channel; source is marketing/intake attribution.
             </p>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {sources.map((s) => <SourceCard key={s.id} src={s} />)}
+              <PagedItems items={sources} render={(s) => <SourceCard key={s.id} src={s} />} />
             </div>
           </Card>
         )}
@@ -682,34 +700,26 @@ export function SettingsManager({
           </Card>
         )}
 
-        {tab === "financial" && (
+        {tab === "ingestion" && (
           <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Financial Settings</h3>
-            <p className="mb-3 text-[11.5px] text-ink-500">
-              Financial configuration is managed in the dedicated Admin/Auditor financial settings area.
-            </p>
-            <Link
-              href="/financial/settings"
-              className="inline-flex h-8 items-center rounded-control bg-primary px-3 text-[12px] font-semibold text-white hover:bg-primary-hover"
-            >
-              Open Financial Settings
-            </Link>
-            <InfoGrid
-              rows={[
-                { label: "Service pricing", value: "crm_financial_service_settings", hint: "Current prices feed lead quotes while historical records keep frozen base prices." },
-                { label: "Discount rules", value: "crm_discount_rules", hint: "Global, service, moderator, and moderator + service precedence is enforced server-side." },
-                { label: "Costs and compensation", value: "Canonical financial tables", hint: "Consumables, external costs, doctor compensation, and doctor-funded payments stay separate." },
-              ]}
-            />
+            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Ingestion Log</h3>
+            <p className="mb-3 text-[11.5px] text-ink-500">Latest 30 message-ingestion events from the canonical ingest API log.</p>
+            <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-[11.5px]"><thead><tr className="border-b text-left text-[10px] uppercase text-ink-400"><th className="py-2">Time</th><th>Platform</th><th>Event</th><th>Direction</th><th>User / conversation</th><th>Result</th><th>Message</th></tr></thead><tbody>{ingestLogs.map((row) => <tr key={row.id} className="border-b border-line-faint"><td className="py-2 tabular-nums">{new Date(row.createdAt).toLocaleString()}</td><td>{row.platform ?? row.source ?? "-"}</td><td>{row.eventType ?? "-"} {row.eventAction ?? ""}</td><td>{row.direction ?? "-"}</td><td className="max-w-[180px] truncate" data-no-translate>{row.platformUserId ?? row.conversationKey ?? "-"}</td><td>{row.skipped ? `Skipped: ${row.skipReason ?? "unknown"}` : row.errors.length ? "Error" : row.created ? "Created" : row.updated ? "Updated" : "Processed"}</td><td className="max-w-[260px] truncate" data-patient-content>{row.messageText ?? "-"}</td></tr>)}</tbody></table>{ingestLogs.length === 0 && <p className="py-5 text-center text-ink-400">No ingestion events recorded.</p>}</div>
           </Card>
         )}
+
+        {tab === "users" && (
+          <Card className="p-4"><h3 className="mb-1 text-[13px] font-bold text-ink-900">Users & Roles</h3><p className="mb-3 text-[11.5px] text-ink-500">Manage names, roles, activation, role history, and the latest 30 login/logout events per user.</p><Link href="/settings/users" className="inline-flex h-8 items-center rounded-control bg-primary px-3 text-[12px] font-semibold text-white">Open user management</Link></Card>
+        )}
+
+        {tab === "financial" && <div>{financial}</div>}
 
         {tab === "email" && (
           <Card className="p-4">
             <h3 className="mb-1 text-[13px] font-bold text-ink-900">Email automation rules</h3>
             <p className="mb-3 text-[11.5px] text-ink-500">Rules are disabled by default. Review recipients and templates, then enable. Sends are logged in Emails.</p>
             <div className="flex flex-col gap-3">
-              {emailRules.map((r) => <EmailRuleForm key={r.id} rule={r} canManage={canManage} />)}
+              <PagedItems items={emailRules} render={(r) => <EmailRuleForm key={r.id} rule={r} canManage={canManage} />} />
               {canManage && <EmailRuleForm canManage={canManage} />}
             </div>
           </Card>

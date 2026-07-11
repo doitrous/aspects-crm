@@ -50,7 +50,7 @@ const SHELL_COLUMNS =
   "campaign,doctor_id,coordinator_user_id,escalation_status,has_unread," +
   "is_reply_overdue,booking_appointment_id,lost_reason_id,notes,medical_notes," +
   "medical_history,ai_summary,last_incoming_at,last_outgoing_at,last_contact_at," +
-  "created_at,updated_at";
+  "created_at,updated_at,metadata";
 
 type ShellRow = {
   id: string;
@@ -84,6 +84,7 @@ type ShellRow = {
   last_contact_at: string | null;
   created_at: string;
   updated_at: string;
+  metadata: Record<string, unknown> | null;
 };
 
 async function loadLeadShell(id: string): Promise<Lead | null> {
@@ -115,6 +116,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
   const user = userRes.data as { full_name?: string | null; email?: string | null } | null;
   const lost = lostReasonRes.data as { label?: string | null } | null;
   const lastMessageAt = row.last_incoming_at ?? row.last_outgoing_at ?? row.last_contact_at ?? row.updated_at;
+  const metadata = row.metadata ?? {};
 
   return {
     id: row.lead_id,
@@ -136,6 +138,8 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     assignedModerator: user ? (user.full_name?.trim() || user.email || undefined) : undefined,
     tags,
     unread: row.has_unread,
+    attentionMessage: typeof metadata.moderator_notice === "string" ? metadata.moderator_notice : undefined,
+    attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab as Lead["attentionTab"] : undefined,
     incomingUnanswered: row.has_unread,
     overdue: row.is_reply_overdue,
     escalated: ["escalated", "in_review"].includes(row.escalation_status ?? "none"),

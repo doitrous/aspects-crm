@@ -93,6 +93,24 @@ export interface EmailRuleSetting {
   dedupeWindowHours: number | null;
 }
 
+export interface IngestLogSetting {
+  id: string;
+  createdAt: string;
+  source: string | null;
+  platform: string | null;
+  eventType: string | null;
+  eventAction: string | null;
+  direction: string | null;
+  platformUserId: string | null;
+  conversationKey: string | null;
+  messageText: string | null;
+  created: boolean;
+  updated: boolean;
+  skipped: boolean;
+  skipReason: string | null;
+  errors: unknown[];
+}
+
 export async function listTags(): Promise<TagSetting[]> {
   const { data, error } = await supabaseAdmin()
     .from("lead_tags")
@@ -237,5 +255,23 @@ export async function listEmailRules(): Promise<EmailRuleSetting[]> {
     bodyTemplate: (r.body_template as string) ?? null,
     schedule: (r.schedule ?? {}) as Record<string, unknown>,
     dedupeWindowHours: (r.dedupe_window_hours as number) ?? null,
+  }));
+}
+
+export async function listIngestLogs(): Promise<IngestLogSetting[]> {
+  const { data, error } = await supabaseAdmin()
+    .from("crm_ingest_logs")
+    .select("id,created_at,source,platform,event_type,event_action,direction,platform_user_id,conversation_key,message_text,created,updated,skipped,skip_reason,errors")
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) throw new Error(`listIngestLogs: ${error.message}`);
+  return (data ?? []).map((r) => ({
+    id: r.id as string, createdAt: r.created_at as string,
+    source: (r.source as string | null) ?? null, platform: (r.platform as string | null) ?? null,
+    eventType: (r.event_type as string | null) ?? null, eventAction: (r.event_action as string | null) ?? null,
+    direction: (r.direction as string | null) ?? null, platformUserId: (r.platform_user_id as string | null) ?? null,
+    conversationKey: (r.conversation_key as string | null) ?? null, messageText: (r.message_text as string | null) ?? null,
+    created: Boolean(r.created), updated: Boolean(r.updated), skipped: Boolean(r.skipped),
+    skipReason: (r.skip_reason as string | null) ?? null, errors: Array.isArray(r.errors) ? r.errors : [],
   }));
 }

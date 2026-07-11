@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import {
   createLeadBookingAction,
   getBookingSlotsAction,
@@ -205,6 +205,7 @@ export function BookingTab({
   catalog: BookingCatalog;
 }) {
   const [step, setStep] = useState(1);
+  const [bookingRows, setBookingRows] = useState(bookings);
   const [specialtyId, setSpecialtyId] = useState(lead.specialtyId ?? catalog.specialties[0]?.id ?? "");
   const doctorsForSpecialty = useMemo(
     () => catalog.doctors.filter((d) => !specialtyId || d.specialtyId === specialtyId),
@@ -227,7 +228,9 @@ export function BookingTab({
   const [primaryComplaint, setPrimaryComplaint] = useState("");
   const [notes, setNotes] = useState("");
   const status: ReservationStatus = "reserved";
-  const [pending, startTransition] = useTransition();
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [bookingPending, setBookingPending] = useState(false);
+  const [statusPending, setStatusPending] = useState<string | null>(null);
   const [message, setMessage] = useState<{ ok?: string; error?: string }>({});
 
   const services = useMemo(
@@ -246,12 +249,18 @@ export function BookingTab({
   const selectedSlot = slots.find((s) => s.time === slot);
   const maxDate = addDays(catalog.settings.bookingWindowDays);
 
-  function loadSlotsForDate(nextDate = date) {
-    startTransition(async () => {
+  async function loadSlotsForDate(nextDate = date) {
+    setAvailabilityLoading(true);
+    try {
       setMessage({});
       setSlot("");
       setDate(nextDate);
-      const result = await getBookingSlotsAction(doctorId, branchId, nextDate, serviceId || null);
+      const result = await Promise.race([
+        getBookingSlotsAction(doctorId, branchId, nextDate, serviceId || null),
+        new Promise<Awaited<ReturnType<typeof getBookingSlotsAction>>>((resolve) =>
+          setTimeout(() => resolve({ ok: null, error: "Availability took too long to load. Please retry." }), 20_000),
+        ),
+      ]);
       if (result.error) {
         setSlots([]);
         setMessage({ error: result.error });
@@ -259,7 +268,12 @@ export function BookingTab({
       }
       setSlots(result.slots ?? []);
       if ((result.slots ?? []).length === 0) setMessage({ error: "No live slots are available for this selection." });
-    });
+    } catch (error) {
+      setSlots([]);
+      setMessage({ error: error instanceof Error ? error.message : "Could not load availability." });
+    } finally {
+      setAvailabilityLoading(false);
+    }
   }
 
   function proceedToDateTime() {
@@ -269,10 +283,10 @@ export function BookingTab({
     }
     setMessage({});
     setStep(2);
-    loadSlotsForDate(date);
+    void loadSlotsForDate(date);
   }
 
-  function createBooking() {
+  async function createBooking() {
     const fd = new FormData();
     fd.set("leadId", lead.id);
     fd.set("specialtyId", specialtyId);
@@ -289,7 +303,8 @@ export function BookingTab({
     fd.set("primaryComplaint", primaryComplaint);
     fd.set("notes", notes);
     fd.set("status", status);
-    startTransition(async () => {
+    setBookingPending(true);
+    try {
       setMessage({});
       const result = await createLeadBookingAction(fd);
       if (result.error) setMessage({ error: result.error });
@@ -297,16 +312,30 @@ export function BookingTab({
         setMessage({ ok: result.ok ?? "Booking created." });
         setStep(4);
       }
-    });
+    } catch (error) {
+      setMessage({ error: error instanceof Error ? error.message : "Could not create booking." });
+    } finally {
+      setBookingPending(false);
+    }
   }
 
-  function changeStatus(appointmentId: string, next: ReservationStatus) {
-    startTransition(async () => {
+  async function changeStatus(appointmentId: string, next: ReservationStatus) {
+    setStatusPending(appointmentId);
+    try {
       setMessage({});
       const result = await updateReservationStatusAction(appointmentId, next, lead.id);
       if (result.error) setMessage({ error: result.error });
-      else setMessage({ ok: result.ok ?? "Booking status updated." });
-    });
+      else {
+        setBookingRows((current) => current.map((booking) => booking.id === appointmentId
+          ? { ...booking, status: next === "reserved" ? "unconfirmed" : next === "attended" ? "completed" : next === "cancelled" ? "cancelled" : next === "no_show" ? "no_show" : "confirmed" }
+          : booking));
+        setMessage({ ok: result.ok ?? "Booking status updated." });
+      }
+    } catch (error) {
+      setMessage({ error: error instanceof Error ? error.message : "Could not update booking status." });
+    } finally {
+      setStatusPending(null);
+    }
   }
 
   if (!catalog.configured) {
@@ -335,13 +364,13 @@ export function BookingTab({
 
       <section>
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-400">Existing bookings</div>
-        {bookings.length === 0 ? (
+        {bookingRows.length === 0 ? (
           <div className="rounded-card border border-line p-3 text-[12px] text-ink-400">
             No appointments are linked to this lead yet.
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {bookings.map((b) => (
+            {bookingRows.map((b) => (
               <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line p-3">
                 <div>
                   <div className="font-mono text-[10.5px] text-ink-400">{b.id}</div>
@@ -353,7 +382,7 @@ export function BookingTab({
                 <div className="flex items-center gap-2">
                   <Badge style={BOOKING_META[b.status]} />
                   <select
-                    disabled={pending}
+                    disabled={statusPending === b.id}
                     value={
                       b.status === "unconfirmed"
                         ? "reserved"
@@ -365,7 +394,7 @@ export function BookingTab({
                               ? "cancelled"
                               : "confirmed"
                     }
-                    onChange={(e) => changeStatus(b.id, e.target.value as ReservationStatus)}
+                    onChange={(e) => void changeStatus(b.id, e.target.value as ReservationStatus)}
                     className={fieldClass()}
                   >
                     {RESERVATION_STATUS.map((s) => (
@@ -468,7 +497,7 @@ export function BookingTab({
             </div>
             <button
               type="button"
-              disabled={pending || !specialtyId || !doctorId || !branchId}
+              disabled={availabilityLoading || !specialtyId || !doctorId || !branchId}
               onClick={proceedToDateTime}
               className="h-10 rounded-control bg-primary px-4 text-[12.5px] font-semibold text-white hover:bg-primary-hover disabled:bg-[#9bb0bf]"
             >
@@ -484,12 +513,12 @@ export function BookingTab({
               <div className="text-[11.5px] text-[#208a96]">{selectedSpecialty?.nameEn ?? ""}</div>
               <div className="text-[11.5px] text-ink-500">{selectedBranch?.nameEn ?? ""}</div>
             </div>
-            <DateGrid selected={date} maxDate={maxDate} onSelect={(next) => loadSlotsForDate(next)} />
+            <DateGrid selected={date} maxDate={maxDate} onSelect={(next) => void loadSlotsForDate(next)} />
             <div>
               <div className="mb-2 text-[12.5px] font-bold text-ink-900">
                 Available Time Slots <span className="font-normal text-ink-400">(same-day slots require advance notice)</span>
               </div>
-              {pending ? (
+              {availabilityLoading ? (
                 <div className="rounded-card border border-line p-3 text-[12px] text-ink-400">Loading live availability...</div>
               ) : slots.length > 0 ? (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -620,11 +649,11 @@ export function BookingTab({
               </button>
               <button
                 type="button"
-                disabled={pending || !slot || !patientName.trim() || !phoneNumber.trim()}
-                onClick={createBooking}
+                disabled={bookingPending || !slot || !patientName.trim() || !phoneNumber.trim()}
+                onClick={() => void createBooking()}
                 className="h-10 rounded-control bg-primary text-[12.5px] font-semibold text-white hover:bg-primary-hover disabled:bg-[#9bb0bf]"
               >
-                {pending ? "Saving..." : "Confirm Booking"}
+                {bookingPending ? "Saving..." : "Confirm Booking"}
               </button>
             </div>
             <p className="text-center text-[11.5px] text-ink-400">By confirming, the appointment is written to the live booking system and linked to this CRM lead.</p>

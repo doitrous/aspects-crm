@@ -55,7 +55,11 @@ export function LeadsTable({ leads, now }: { leads: Lead[]; now: string }) {
         <tbody>
           {leads.map((lead) => {
             const pm = PLATFORM_META[lead.platform];
-            const open = () => router.push(`/leads/${lead.id}`);
+            const open = () => router.push(
+              lead.attentionTab
+                ? `/leads/${lead.id}?tab=${encodeURIComponent(lead.attentionTab)}`
+                : `/leads/${lead.id}`,
+            );
             return (
               <tr
                 key={lead.id}
@@ -74,16 +78,21 @@ export function LeadsTable({ leads, now }: { leads: Lead[]; now: string }) {
                 <td className="px-[18px] py-3">
                   <div className="flex items-center gap-2">
                     <Indicators lead={lead} />
-                    <span className="font-semibold text-ink-900 group-hover:text-primary">
+                    <span data-patient-content className="font-semibold text-ink-900 group-hover:text-primary">
                       {lead.patientName}
                     </span>
                   </div>
+                  {lead.attentionMessage && (
+                    <div className="mt-1 max-w-[260px] truncate rounded bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800">
+                      Escalation resolved: <span data-patient-content>{lead.attentionMessage}</span>
+                    </div>
+                  )}
                   <div className="mt-0.5 font-mono text-[10.5px] text-ink-400">
                     {lead.id}
                     {lead.mrn ? ` · ${lead.mrn}` : ""}
                   </div>
                 </td>
-                <td className="px-3 py-3 text-ink-600">{lead.phone}</td>
+                <td data-patient-content className="px-3 py-3 text-ink-600">{lead.phone}</td>
                 <td className="px-3 py-3">
                   {pm && (
                     <span

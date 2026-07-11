@@ -4,6 +4,19 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { supabaseSession } from "@/lib/supabase/session";
 import { USER_COOKIE } from "@/lib/data/userCookie";
+import { supabaseAdmin } from "@/lib/supabase/server";
+
+async function recordSessionEvent(authUserId: string, eventType: "login" | "logout"): Promise<void> {
+  const db = supabaseAdmin();
+  const { data: profile } = await db.from("crm_users").select("id").eq("auth_user_id", authUserId).maybeSingle();
+  const { error } = await db.from("crm_user_session_events").insert({
+    user_id: profile?.id ?? null,
+    auth_user_id: authUserId,
+    event_type: eventType,
+    metadata: { source: "crm_web" },
+  });
+  if (error && error.code !== "42P01") console.error("Could not record CRM session event", error.message);
+}
 
 /** Shape returned to the login form via `useActionState`. */
 export interface SignInState {
@@ -37,7 +50,7 @@ export async function signIn(
   }
 
   const supabase = await supabaseSession();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
     return { error: "Incorrect email or password." };
@@ -45,6 +58,7 @@ export async function signIn(
 
   // A fresh login never inherits a previous admin's impersonation preview.
   (await cookies()).delete(USER_COOKIE);
+  if (data.user) await recordSessionEvent(data.user.id, "login");
 
   redirect(safeNext(formData.get("next")));
 }
@@ -52,6 +66,8 @@ export async function signIn(
 /** Sign out and return to the login screen. */
 export async function signOut(): Promise<void> {
   const supabase = await supabaseSession();
+  const { data } = await supabase.auth.getUser();
+  if (data.user) await recordSessionEvent(data.user.id, "logout");
   await supabase.auth.signOut();
   (await cookies()).delete(USER_COOKIE);
   redirect("/login");
