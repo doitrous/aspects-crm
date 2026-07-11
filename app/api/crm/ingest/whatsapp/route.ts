@@ -7,10 +7,14 @@ export const runtime = "nodejs";
 
 type Media = {
   type?: string;
+  rawType?: string;
   url?: string;
   title?: string;
   name?: string;
+  stickerId?: string;
 };
+
+type DeliveryStatus = "sent" | "delivered" | "seen";
 
 type Payload = {
   messageId?: string;
@@ -22,9 +26,14 @@ type Payload = {
   direction?: "incoming" | "outgoing";
   text?: string;
   timestamp?: string;
+  deliveryStatusAt?: string;
   media?: Media[];
-  deliveryStatus?: "sent" | "delivered" | "seen" | null;
+  messageType?: string;
+  deliveryStatus?: DeliveryStatus | null;
   senderName?: string;
+  statusOnly?: boolean;
+  rawPayload?: unknown;
+  messageMetadata?: Record<string, unknown>;
 };
 
 function bearer(req: Request): string | null {
@@ -44,6 +53,56 @@ function records(body: unknown): Payload[] {
     return (body as { records: Payload[] }).records;
   }
   return body ? [body as Payload] : [];
+}
+
+function isoOrNow(value?: string | null): string {
+  return value && !Number.isNaN(new Date(value).getTime())
+    ? new Date(value).toISOString()
+    : new Date().toISOString();
+}
+
+async function updateExistingMessage(
+  db: ReturnType<typeof supabaseAdmin>,
+  messageId: string,
+  input: Payload,
+  at: string,
+): Promise<{ statusUpdated: boolean; metadataUpdated: boolean }> {
+  let metadataUpdated = false;
+  if (input.messageMetadata && Object.keys(input.messageMetadata).length) {
+    const { error } = await db
+      .from("crm_messages")
+      .update({ message_metadata: input.messageMetadata })
+      .eq("id", messageId);
+    if (error) throw new Error(`whatsappMessage(metadata): ${error.message}`);
+    metadataUpdated = true;
+  }
+
+  if (!input.deliveryStatus) return { statusUpdated: false, metadataUpdated };
+
+  const patch: Record<string, string> =
+    input.deliveryStatus === "seen"
+      ? { delivery_status: "seen", seen_at: at }
+      : input.deliveryStatus === "delivered"
+        ? { delivery_status: "delivered", delivered_at: at }
+        : { delivery_status: "sent" };
+
+  let query = db
+    .from("crm_messages")
+    .update(patch)
+    .eq("id", messageId)
+    .eq("direction", "outgoing");
+
+  if (input.deliveryStatus === "seen") {
+    query = query.neq("delivery_status", "seen");
+  } else if (input.deliveryStatus === "delivered") {
+    query = query.neq("delivery_status", "seen").neq("delivery_status", "delivered");
+  } else {
+    query = query.is("delivery_status", null);
+  }
+
+  const { data, error } = await query.select("id");
+  if (error) throw new Error(`whatsappMessage(status): ${error.message}`);
+  return { statusUpdated: Boolean(data?.length), metadataUpdated };
 }
 
 async function leadFor(input: Payload): Promise<{ id: string; lead_id: string }> {
@@ -88,11 +147,9 @@ async function leadFor(input: Payload): Promise<{ id: string; lead_id: string }>
 async function ingestOne(input: Payload) {
   if (!input.messageId) throw new Error("messageId is required.");
   const direction = input.direction === "outgoing" ? "outgoing" : "incoming";
-  const lead = await leadFor(input);
   const db = supabaseAdmin();
-  const messageAt = input.timestamp && !Number.isNaN(new Date(input.timestamp).getTime())
-    ? new Date(input.timestamp).toISOString()
-    : new Date().toISOString();
+  const messageAt = isoOrNow(input.timestamp);
+  const statusAt = isoOrNow(input.deliveryStatusAt ?? input.timestamp);
 
   const { data: existing, error: existingError } = await db
     .from("crm_messages")
@@ -101,9 +158,19 @@ async function ingestOne(input: Payload) {
     .eq("platform_message_id", input.messageId)
     .maybeSingle();
   if (existingError) throw new Error(`whatsappMessage(find): ${existingError.message}`);
-  if (existing?.id) return { leadId: lead.lead_id, messageId: existing.id as string, inserted: false };
+  if (existing?.id) {
+    const updates = await updateExistingMessage(db, existing.id as string, input, statusAt);
+    return { messageId: existing.id as string, inserted: false, ...updates };
+  }
+
+  if (input.statusOnly) {
+    return { messageId: input.messageId, inserted: false, skipped: true, reason: "status_without_message" };
+  }
+
+  const lead = await leadFor(input);
 
   const media = Array.isArray(input.media) ? input.media : [];
+  const deliveryStatus = direction === "outgoing" ? input.deliveryStatus ?? "sent" : input.deliveryStatus ?? null;
   const { data: message, error } = await db
     .from("crm_messages")
     .insert({
@@ -114,16 +181,20 @@ async function ingestOne(input: Payload) {
       platform_user_id: input.whatsappUserId || input.phone || input.conversationId || null,
       direction,
       message_text: input.text ?? "",
-      message_type: media[0]?.type || "text",
+      message_type: input.messageType || media[0]?.type || "text",
       attachment_count: media.length,
       is_conversation_content: true,
       message_at: messageAt,
       sent_by_name: input.senderName || (direction === "outgoing" ? "Aspects Clinica" : input.patientName) || null,
       sender_phone: input.phone || null,
-      delivery_status: direction === "outgoing" ? input.deliveryStatus ?? "sent" : input.deliveryStatus ?? null,
+      delivery_status: deliveryStatus,
+      delivered_at: deliveryStatus === "delivered" ? statusAt : null,
+      seen_at: deliveryStatus === "seen" ? statusAt : null,
       record_type: "message",
       event_type: "message",
       service: "WhatsApp",
+      raw_payload: input.rawPayload ?? {},
+      message_metadata: input.messageMetadata ?? null,
     })
     .select("id")
     .single();
@@ -135,10 +206,11 @@ async function ingestOne(input: Payload) {
         message_id: message.id,
         attachment_index: index,
         type: item.type || "file",
-        raw_type: item.type || null,
+        raw_type: item.rawType || item.type || null,
         url: item.url || null,
         title: item.title || null,
         name: item.name || null,
+        sticker_id: item.stickerId || null,
       })),
     );
     if (attachmentError) throw new Error(`whatsappAttachment(insert): ${attachmentError.message}`);

@@ -30,6 +30,14 @@ integration is not configured and does not fabricate messages or connection
 state. Outbound WhatsApp sending still requires provider credentials and is not
 claimed as verified.
 
+The n8n Code-node normalizer is tracked at
+`docs/whatsapp-n8n-normalizer.js`. Subscribe the WhatsApp Business Account
+webhook to `messages`, `message_echoes`, and `smb_message_echoes` when available.
+The normalizer ignores non-message account/admin webhook fields, normalizes
+incoming messages and outgoing echoes into CRM message records, and turns
+WhatsApp `sent` / `delivered` / `read` status callbacks into monotonic CRM
+delivery-state updates.
+
 ## Email
 
 Resend delivery uses the server-only `RESEND_API_KEY` and `EMAIL_FROM`. Missing
