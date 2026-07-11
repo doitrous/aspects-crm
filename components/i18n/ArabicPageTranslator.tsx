@@ -5,6 +5,8 @@ import { useI18n } from "@/lib/i18n/context";
 import { ARABIC_PATTERNS, ARABIC_UI } from "@/lib/i18n/uiArabic";
 
 const PROTECTED = "[data-patient-content], [data-no-translate], script, style, code, pre";
+const originalText = new Map<Text, string>();
+const originalAttributes = new Map<Element, Map<string, string>>();
 
 function translation(value: string): string | null {
   const trimmed = value.trim();
@@ -24,21 +26,54 @@ function isProtected(element: Element | null): boolean {
 
 function translateTree(root: Node): void {
   if (root.nodeType === Node.TEXT_NODE) {
+    const text = root as Text;
     const parent = root.parentElement;
     if (isProtected(parent)) return;
-    const next = translation(root.textContent ?? "");
-    if (next && next !== root.textContent) root.textContent = next;
+    const current = text.textContent ?? "";
+    const previous = originalText.get(text);
+    if (previous && translation(previous) === current) return;
+    const next = translation(current);
+    if (next && next !== current) {
+      originalText.set(text, current);
+      text.textContent = next;
+    }
     return;
   }
   if (!(root instanceof Element) || isProtected(root)) return;
 
   for (const attr of ["placeholder", "title", "aria-label"] as const) {
     const value = root.getAttribute(attr);
+    const previous = originalAttributes.get(root)?.get(attr);
+    if (previous && translation(previous) === value) continue;
     const next = value ? translation(value) : null;
-    if (next) root.setAttribute(attr, next);
+    if (next && next !== value) {
+      const attributes = originalAttributes.get(root) ?? new Map<string, string>();
+      attributes.set(attr, value!);
+      originalAttributes.set(root, attributes);
+      root.setAttribute(attr, next);
+    }
   }
   if (root.matches("input, textarea")) return;
   for (const child of Array.from(root.childNodes)) translateTree(child);
+}
+
+function restoreEnglish(): void {
+  for (const [text, original] of originalText) {
+    if (text.isConnected && text.textContent === translation(original)) {
+      text.textContent = original;
+    }
+  }
+  originalText.clear();
+
+  for (const [element, attributes] of originalAttributes) {
+    if (!element.isConnected) continue;
+    for (const [attr, original] of attributes) {
+      if (element.getAttribute(attr) === translation(original)) {
+        element.setAttribute(attr, original);
+      }
+    }
+  }
+  originalAttributes.clear();
 }
 
 /** Translates shared CRM UI copy while preserving all patient-entered content. */
@@ -46,7 +81,10 @@ export function ArabicPageTranslator() {
   const { locale } = useI18n();
 
   useEffect(() => {
-    if (locale !== "ar") return;
+    if (locale !== "ar") {
+      restoreEnglish();
+      return;
+    }
     let observer: MutationObserver | null = null;
     // The CRM uses streamed Server Components. Wait until their hydration has
     // settled so translating SSR text cannot create a hydration mismatch.
