@@ -211,11 +211,11 @@ export function BookingTab({
     () => catalog.doctors.filter((d) => !specialtyId || d.specialtyId === specialtyId),
     [catalog.doctors, specialtyId],
   );
-  const [doctorId, setDoctorId] = useState(lead.doctorId ?? doctorsForSpecialty[0]?.id ?? "");
+  const [doctorId, setDoctorId] = useState(
+    lead.doctorId ?? (doctorsForSpecialty.length === 1 ? doctorsForSpecialty[0].id : ""),
+  );
   const selectedDoctor = catalog.doctors.find((d) => d.id === doctorId);
-  const branchIds = new Set((selectedDoctor?.schedules ?? []).filter((s) => s.active).map((s) => s.branchId));
-  const branches = catalog.branches.filter((b) => branchIds.has(b.id));
-  const [branchId, setBranchId] = useState(branches[0]?.id ?? "");
+  const [branchId, setBranchId] = useState(selectedDoctor?.schedules.find((schedule) => schedule.active)?.branchId ?? "");
   const [serviceId, setServiceId] = useState("");
   const [date, setDate] = useState(today());
   const [slots, setSlots] = useState<BookingSlot[]>([]);
@@ -248,6 +248,14 @@ export function BookingTab({
   const selectedService = catalog.services.find((s) => s.id === serviceId);
   const selectedSlot = slots.find((s) => s.time === slot);
   const maxDate = addDays(catalog.settings.bookingWindowDays);
+  const nearbyBookings = useMemo(() => {
+    const selectedDate = new Date(`${date}T12:00:00`).getTime();
+    return bookingRows.filter((booking) => {
+      if (booking.status === "cancelled" || booking.status === "no_show") return false;
+      const distanceDays = Math.abs(new Date(booking.startAt).getTime() - selectedDate) / 86_400_000;
+      return distanceDays <= 30;
+    });
+  }, [bookingRows, date]);
 
   async function loadSlotsForDate(nextDate = date) {
     setAvailabilityLoading(true);
@@ -278,7 +286,7 @@ export function BookingTab({
 
   function proceedToDateTime() {
     if (!specialtyId || !doctorId || !branchId) {
-      setMessage({ error: "Choose a specialty, doctor, and branch." });
+      setMessage({ error: "Choose a specialty and doctor with an available schedule." });
       return;
     }
     setMessage({});
@@ -310,6 +318,20 @@ export function BookingTab({
       if (result.error) setMessage({ error: result.error });
       else {
         setMessage({ ok: result.ok ?? "Booking created." });
+        if (result.appointmentId && selectedSlot) {
+          setBookingRows((current) => [{
+            id: result.appointmentId!,
+            leadId: lead.id,
+            doctorId,
+            specialtyId,
+            branch: selectedBranch?.nameEn ?? "Aspects Clinica",
+            startAt: `${date}T${slot}:00`,
+            durationMin: Math.max(1, Math.round((new Date(`2000-01-01T${selectedSlot.endTime}:00`).getTime() - new Date(`2000-01-01T${slot}:00`).getTime()) / 60_000)),
+            status: "unconfirmed",
+            source: "web",
+            calendarSynced: true,
+          }, ...current]);
+        }
         setStep(4);
       }
     } catch (error) {
@@ -425,9 +447,10 @@ export function BookingTab({
                   onChange={(e) => {
                     const nextSpecialty = e.target.value;
                     setSpecialtyId(nextSpecialty);
-                    const firstDoctor = catalog.doctors.find((d) => d.specialtyId === nextSpecialty);
-                    setDoctorId(firstDoctor?.id ?? "");
-                    setBranchId(firstDoctor?.schedules.find((s) => s.active)?.branchId ?? "");
+                    const matchingDoctors = catalog.doctors.filter((d) => d.specialtyId === nextSpecialty);
+                    const automaticDoctor = matchingDoctors.length === 1 ? matchingDoctors[0] : undefined;
+                    setDoctorId(automaticDoctor?.id ?? "");
+                    setBranchId(automaticDoctor?.schedules.find((s) => s.active)?.branchId ?? "");
                     setServiceId("");
                     setSlots([]);
                     setSlot("");
@@ -475,14 +498,7 @@ export function BookingTab({
               </div>
             )}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-[12px] font-semibold text-ink-600">
-                Branch
-                <select value={branchId} onChange={(e) => { setBranchId(e.target.value); setSlots([]); setSlot(""); }} className={`mt-1 w-full ${fieldClass()}`}>
-                  <option value="">Select branch...</option>
-                  {branches.map((b) => <option key={b.id} value={b.id}>{b.nameEn}</option>)}
-                </select>
-              </label>
+            <div>
               <label className="text-[12px] font-semibold text-ink-600">
                 Service / Procedure <span className="text-ink-400">(optional)</span>
                 <select value={serviceId} onChange={(e) => { setServiceId(e.target.value); setSlots([]); setSlot(""); }} className={`mt-1 w-full ${fieldClass()}`}>
@@ -511,7 +527,6 @@ export function BookingTab({
             <div className="rounded-card bg-[#eef7ff] p-3">
               <div className="text-[13px] font-bold text-ink-900">{selectedDoctor?.nameEn ?? "Selected doctor"}</div>
               <div className="text-[11.5px] text-[#208a96]">{selectedSpecialty?.nameEn ?? ""}</div>
-              <div className="text-[11.5px] text-ink-500">{selectedBranch?.nameEn ?? ""}</div>
             </div>
             <DateGrid selected={date} maxDate={maxDate} onSelect={(next) => void loadSlotsForDate(next)} />
             <div>
@@ -624,12 +639,19 @@ export function BookingTab({
         {step === 4 && (
           <div className="mt-4 flex flex-col gap-4">
             <div className="text-[16px] font-bold text-ink-900">Review & Confirm</div>
+            {nearbyBookings.length > 0 && !message.ok && (
+              <div className="rounded-control border border-warn/40 bg-[#fffaeb] px-3 py-2.5 text-[12px] font-semibold text-warn">
+                Notice: this patient already has {nearbyBookings.length} active booking{nearbyBookings.length === 1 ? "" : "s"} within 30 days of this date.
+                <div className="mt-1 font-normal text-ink-600">
+                  {nearbyBookings.map((booking) => formatDateTime(booking.startAt)).join(" · ")}
+                </div>
+              </div>
+            )}
             <div className="rounded-card bg-[#eef7ff] p-4">
               <div className="mb-3 text-[13px] font-bold text-primary">Appointment Details</div>
               <div className="grid gap-2 text-[12.5px]">
                 <div className="flex justify-between gap-3"><span className="text-ink-500">Doctor</span><strong>{selectedDoctor?.nameEn ?? "-"}</strong></div>
                 <div className="flex justify-between gap-3"><span className="text-ink-500">Specialty</span><strong>{selectedSpecialty?.nameEn ?? "-"}</strong></div>
-                <div className="flex justify-between gap-3"><span className="text-ink-500">Location</span><strong>{selectedBranch?.nameEn ?? "-"}</strong></div>
                 <div className="flex justify-between gap-3"><span className="text-ink-500">Service</span><strong>{selectedService?.nameEn ?? "General Consultation"}</strong></div>
                 <div className="flex justify-between gap-3"><span className="text-ink-500">Date</span><strong>{formatDate(date)}</strong></div>
                 <div className="flex justify-between gap-3"><span className="text-ink-500">Time</span><strong>{slot ? `${formatClock(slot)} - ${formatClock(selectedSlot?.endTime ?? slot)}` : "-"}</strong></div>

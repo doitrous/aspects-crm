@@ -55,6 +55,15 @@ async function logSystemLeadEvent(params: {
   if (timeline.error) throw new Error(`syncReservation(timeline): ${timeline.error.message}`);
 }
 
+async function linkBooking(leadUid: string, appointmentId: string, source = "website"): Promise<void> {
+  const { error } = await supabaseAdmin().from("crm_lead_booking_links").upsert({
+    lead_id: leadUid,
+    appointment_id: appointmentId,
+    source,
+  }, { onConflict: "appointment_id" });
+  if (error) throw new Error(`syncReservation(booking link): ${error.message}`);
+}
+
 export async function syncReservationsToLeads(reservations: Reservation[]): Promise<Map<string, string>> {
   const db = supabaseAdmin();
   const result = new Map<string, string>();
@@ -84,13 +93,26 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
       ingested_at: now,
     };
 
-    const { data: byAppointment, error: byAppointmentError } = await db
-      .from("leads")
-      .select("id,lead_id,metadata")
-      .eq("booking_appointment_id", reservation.id)
+    const { data: existingLink, error: existingLinkError } = await db
+      .from("crm_lead_booking_links")
+      .select("lead_id")
+      .eq("appointment_id", reservation.id)
       .maybeSingle();
+    if (existingLinkError) throw new Error(`syncReservation(find booking link): ${existingLinkError.message}`);
+    let byAppointment = null;
+    let byAppointmentError = null;
+    if (existingLink?.lead_id) {
+      const result = await db.from("leads").select("id,lead_id,metadata").eq("id", existingLink.lead_id).maybeSingle();
+      byAppointment = result.data;
+      byAppointmentError = result.error;
+    } else {
+      const result = await db.from("leads").select("id,lead_id,metadata").eq("booking_appointment_id", reservation.id).maybeSingle();
+      byAppointment = result.data;
+      byAppointmentError = result.error;
+    }
     if (byAppointmentError) throw new Error(`syncReservation(find appointment): ${byAppointmentError.message}`);
     if (byAppointment) {
+      await linkBooking(byAppointment.id as string, reservation.id);
       result.set(reservation.id, byAppointment.lead_id as string);
       continue;
     }
@@ -100,6 +122,7 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
         .from("leads")
         .select("id,lead_id,metadata,booking_appointment_id,status")
         .eq("normalized_phone", normalizedPhone)
+        .is("merged_into_lead_id", null)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -119,6 +142,7 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
           })
           .eq("id", byPhone.id);
         if (updateError) throw new Error(`syncReservation(link): ${updateError.message}`);
+        await linkBooking(byPhone.id as string, reservation.id);
         await logSystemLeadEvent({
           leadUid: byPhone.id as string,
           action: "lead.booking_linked",
@@ -158,6 +182,7 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
       .select("id,lead_id")
       .single();
     if (createError) throw new Error(`syncReservation(create): ${createError.message}`);
+    await linkBooking(created.id as string, reservation.id);
     await logSystemLeadEvent({
       leadUid: created.id as string,
       action: "lead.created_from_booking",

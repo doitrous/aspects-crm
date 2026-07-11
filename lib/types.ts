@@ -367,6 +367,7 @@ export interface LeadSummary {
   createdAt: string;
   serviceName?: string;
   assignedModerator?: string;
+  tags?: string[];
   attentionMessage?: string;
   attentionTab?: string;
 }

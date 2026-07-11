@@ -510,7 +510,10 @@ export const supabaseProvider: DataProvider = {
       loadDuplicateSet(),
     ]);
 
-    let query = applyLeadFilters(supabaseAdmin().from("leads").select(LEAD_COLUMNS, { count: "exact" }), filters);
+    let query = applyLeadFilters(
+      supabaseAdmin().from("leads").select(LEAD_COLUMNS, { count: "exact" }).is("merged_into_lead_id", null),
+      filters,
+    );
     if (filters.duplicate) {
       const ids = [...dupSet];
       query = query.in("id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
@@ -548,6 +551,7 @@ export const supabaseProvider: DataProvider = {
       .from("leads")
       .select(LEAD_COLUMNS)
       .eq("lead_id", id)
+      .is("merged_into_lead_id", null)
       .maybeSingle();
     if (error) throw new Error(`getLead: ${error.message}`);
     if (!data) return undefined;
@@ -809,28 +813,38 @@ export const supabaseProvider: DataProvider = {
     if (!bookingConfigured()) return [];
     const { data: leadRow, error: leadError } = await supabaseAdmin()
       .from("leads")
-      .select("booking_appointment_id")
+      .select("id,booking_appointment_id")
       .eq("lead_id", leadId)
       .maybeSingle();
     if (leadError) throw new Error(`bookingsFor(lead): ${leadError.message}`);
-    const appointmentId = leadRow?.booking_appointment_id as string | null | undefined;
-    if (!appointmentId) return [];
+    if (!leadRow) return [];
+    const legacyId = leadRow.booking_appointment_id as string | null | undefined;
+    const { data: links, error: linksError } = await supabaseAdmin()
+      .from("crm_lead_booking_links")
+      .select("appointment_id")
+      .eq("lead_id", leadRow.id)
+      .order("created_at", { ascending: false });
+    if (linksError) throw new Error(`bookingsFor(links): ${linksError.message}`);
+    const appointmentIds = [...new Set([
+      ...((links ?? []).map((link) => link.appointment_id as string)),
+      ...(legacyId ? [legacyId] : []),
+    ])];
+    if (appointmentIds.length === 0) return [];
     const { data, error } = await bookingDb()
       .from("appointments")
       .select("id,doctor_id,specialty_id,branch_id,appointment_date,start_time,end_time,duration_at_booking,status,branches(name_en,name_ar)")
-      .eq("id", appointmentId)
-      .maybeSingle();
+      .in("id", appointmentIds)
+      .order("appointment_date", { ascending: false })
+      .order("start_time", { ascending: false });
     if (error) throw new Error(`bookingsFor: ${error.message}`);
-    if (!data) return [];
-    const row = data as unknown as Row;
-    const branchRel = row.branches as { name_en?: string | null; name_ar?: string | null } | { name_en?: string | null; name_ar?: string | null }[] | null;
-    const branch = Array.isArray(branchRel) ? branchRel[0] : branchRel;
-    const startDate = String(row.appointment_date);
-    const startTime = String(row.start_time).slice(0, 5);
-    const endTime = String(row.end_time).slice(0, 5);
-    const status = bookingStatusForReservation(String(row.status) as ReservationStatus);
-    return [
-      {
+    return ((data ?? []) as unknown as Row[]).map((row) => {
+      const branchRel = row.branches as { name_en?: string | null; name_ar?: string | null } | { name_en?: string | null; name_ar?: string | null }[] | null;
+      const branch = Array.isArray(branchRel) ? branchRel[0] : branchRel;
+      const startDate = String(row.appointment_date);
+      const startTime = String(row.start_time).slice(0, 5);
+      const endTime = String(row.end_time).slice(0, 5);
+      const status = bookingStatusForReservation(String(row.status) as ReservationStatus);
+      return {
         id: String(row.id),
         leadId,
         doctorId: String(row.doctor_id ?? ""),
@@ -843,8 +857,8 @@ export const supabaseProvider: DataProvider = {
         status,
         source: "web",
         calendarSynced: true,
-      },
-    ];
+      };
+    });
   },
 
   async escalationsFor(leadId: string): Promise<Escalation[]> {
@@ -963,14 +977,16 @@ export const supabaseProvider: DataProvider = {
     const leadCount = () => db.from("leads").select("id", { count: "exact", head: true });
     const n = async (p: PromiseLike<{ count: number | null }>) => (await p).count ?? 0;
 
-    const [newLeads, unread, overdue, qualified, followUp, booked, dupSet, escalations] =
+    const [newLeads, unread, overdue, qualified, booked, followUp, lost, appointments, dupSet, escalations] =
       await Promise.all([
-        n(leadCount().eq("status", "new_lead")),
-        n(leadCount().eq("has_unread", true)),
-        n(leadCount().eq("is_reply_overdue", true)),
-        n(leadCount().eq("status", "qualified")),
-        n(leadCount().eq("status", "follow_up")),
-        n(leadCount().not("booking_appointment_id", "is", null)),
+        n(leadCount().is("merged_into_lead_id", null).eq("status", "new_lead")),
+        n(leadCount().is("merged_into_lead_id", null).eq("has_unread", true)),
+        n(leadCount().is("merged_into_lead_id", null).eq("is_reply_overdue", true)),
+        n(leadCount().is("merged_into_lead_id", null).eq("status", "qualified")),
+        n(leadCount().is("merged_into_lead_id", null).eq("status", "booked")),
+        n(leadCount().is("merged_into_lead_id", null).eq("status", "follow_up")),
+        n(leadCount().is("merged_into_lead_id", null).eq("status", "lost")),
+        n(leadCount().is("merged_into_lead_id", null).not("booking_appointment_id", "is", null)),
         loadDuplicateSet(),
         n(db.from("escalations").select("id", { count: "exact", head: true }).neq("status", "resolved")),
       ]);
@@ -981,10 +997,12 @@ export const supabaseProvider: DataProvider = {
       incomingUnanswered: unread,
       overdue,
       qualified,
+      booked,
       followUp,
+      lost,
       duplicates: dupSet.size,
       escalations,
-      unconfirmedAppts: booked,
+      unconfirmedAppts: appointments,
     };
   },
 
@@ -1000,7 +1018,7 @@ export const supabaseProvider: DataProvider = {
     };
     const statuses = ["new_lead", "qualified", "booked", "follow_up", "post_op_follow_up", "lost"] as const;
     const counts = await Promise.all(statuses.map(async (status) => {
-      const { count, error } = await db.from("leads").select("id", { count: "exact", head: true }).eq("status", status);
+      const { count, error } = await db.from("leads").select("id", { count: "exact", head: true }).is("merged_into_lead_id", null).eq("status", status);
       if (error) throw new Error(`pipelineCounts(${status}): ${error.message}`);
       return count ?? 0;
     }));
@@ -1082,6 +1100,7 @@ export const supabaseProvider: DataProvider = {
       .from("leads")
       .select(SUMMARY_COLUMNS, { count: "exact" })
       .in("status", statuses)
+      .is("merged_into_lead_id", null)
       .order("updated_at", { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) throw new Error(`followUpQueue: ${error.message}`);

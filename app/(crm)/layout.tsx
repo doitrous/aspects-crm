@@ -43,7 +43,10 @@ export default async function CrmLayout({
   ]);
   const counts: Record<string, number> = {
     newLeads: m.newLeads,
+    qualified: m.qualified,
+    booked: m.booked,
     followUp: m.followUp,
+    lost: m.lost,
     duplicates: m.duplicates,
     escalations: m.escalations,
     reservations,

@@ -62,7 +62,9 @@ export interface DashboardMetrics {
   incomingUnanswered: number;
   overdue: number;
   qualified: number;
+  booked: number;
   followUp: number;
+  lost: number;
   duplicates: number;
   escalations: number;
   unconfirmedAppts: number;

@@ -205,3 +205,12 @@ Not fully verified due authenticated browser/session limitations in this run:
 - Financial totals after payment by browser refresh.
 - Live booking slot load in browser.
 - 20,000-row live benchmark. The production CRM currently measured at 26 leads; migration/index behavior should be re-tested after applying `0011` to a staging-sized dataset.
+
+## 2026-07-11 Lead Placement / Booking Follow-Up
+
+| Screen/action | Previous query path | Query/data change | Measurement | Remaining concern |
+|---|---|---|---|---|
+| Booked and Lost lists | No dedicated page; Booked was mixed into Qualified | Dedicated 30-row server pages over indexed `leads.status`; merged rows excluded | No new live timing captured | Re-run timings after deployment against production-sized data. |
+| Lead Booking tab | One `leads.booking_appointment_id` followed by one appointment row | One bounded CRM booking-link query followed by one booking-source `IN (...)` query returning all appointments for that lead | No live two-booking timing captured | Appointment history is intentionally complete; pagination may be needed for unusually large per-patient histories. |
+| Lead list tags | Batched tag lookup already loaded names but UI discarded them | No additional query; existing batched page lookup is rendered | Query count unchanged | Color values are not selected in this pass. |
+| Merged leads in lists/counts | Merged rows could remain visible because list/count queries ignored `merged_into_lead_id` | Existing lead queries add `merged_into_lead_id IS NULL`; query count unchanged | No live timing captured | Index `leads_merged_into_idx` from migration `0009` must exist in production. |

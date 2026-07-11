@@ -64,6 +64,9 @@ export async function createLeadBookingAction(formData: FormData): Promise<Booki
     revalidatePath("/calendar");
     revalidatePath("/dashboard");
     revalidatePath("/leads");
+    revalidatePath("/qualified");
+    revalidatePath("/booked");
+    revalidatePath("/database");
     // Best-effort notification — an email failure must never fail the booking.
     try {
       await notifyBookingCreated({

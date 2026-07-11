@@ -91,6 +91,15 @@ export function LeadsTable({ leads, now }: { leads: Lead[]; now: string }) {
                     {lead.id}
                     {lead.mrn ? ` · ${lead.mrn}` : ""}
                   </div>
+                  {lead.tags.length > 0 && (
+                    <div className="mt-1 flex max-w-[280px] flex-wrap gap-1">
+                      {lead.tags.map((tag) => (
+                        <span key={tag} className="rounded-pill border border-primary/20 bg-primary-soft px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </td>
                 <td data-patient-content className="px-3 py-3 text-ink-600">{lead.phone}</td>
                 <td className="px-3 py-3">

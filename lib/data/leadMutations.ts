@@ -677,12 +677,13 @@ export async function resolveEscalationWorkflow(params: {
   return { leadId: leadRow.lead_id, resolution: params.resolution, note };
 }
 
-export async function mergeDuplicateFlag(flagId: string, notes?: string): Promise<void> {
+export async function mergeDuplicateFlag(flagId: string, notes?: string, keepStatus?: PipelineStage): Promise<void> {
   const actor = await writeLeadActor();
-  const { error } = await supabaseAdmin().rpc("crm_merge_duplicate_flag", {
+  const { error } = await supabaseAdmin().rpc("crm_merge_duplicate_flag_with_status", {
     target_flag_id: flagId,
     actor_id: actor.id,
     merge_note: notes?.trim() || null,
+    keep_status: keepStatus ? UI_TO_DB_STAGE[keepStatus] : null,
   });
   if (error) throw new Error(`mergeDuplicateFlag: ${error.message}`);
 }

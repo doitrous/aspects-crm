@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 /**
  * Small async action button used across the auditor queues. Shows a pending
@@ -12,13 +13,14 @@ export function ResolveButton({
   pendingLabel = "Working…",
   tone = "primary",
 }: {
-  action: () => Promise<void>;
+  action: () => Promise<void | { error?: string | null }>;
   label: string;
   pendingLabel?: string;
   tone?: "primary" | "ghost";
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   const base =
     "rounded-control px-3 py-1.5 text-[11.5px] font-semibold transition-colors disabled:opacity-60";
@@ -36,7 +38,9 @@ export function ResolveButton({
           startTransition(async () => {
             setError(null);
             try {
-              await action();
+              const result = await action();
+              if (result && result.error) throw new Error(result.error);
+              router.refresh();
             } catch (e) {
               setError(e instanceof Error ? e.message : "Failed");
             }

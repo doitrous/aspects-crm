@@ -127,6 +127,12 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (byAppt) {
+    const { error: linkError } = await db.from("crm_lead_booking_links").upsert({
+      lead_id: byAppt.id,
+      appointment_id: body.bookingAppointmentId,
+      source: "website_ingest",
+    }, { onConflict: "appointment_id" });
+    if (linkError) return NextResponse.json({ ok: false, error: "booking_link_failed" }, { status: 500 });
     await db
       .from(LEADS)
       .update({
@@ -146,6 +152,7 @@ export async function POST(req: Request) {
       .from(LEADS)
       .select("id, lead_id, metadata")
       .eq("normalized_phone", normalizedPhone)
+      .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -163,6 +170,12 @@ export async function POST(req: Request) {
           updated_at: now,
         })
         .eq("id", byPhone.id);
+      const { error: linkError } = await db.from("crm_lead_booking_links").upsert({
+        lead_id: byPhone.id,
+        appointment_id: body.bookingAppointmentId,
+        source: "website_ingest",
+      }, { onConflict: "appointment_id" });
+      if (linkError) return NextResponse.json({ ok: false, error: "booking_link_failed" }, { status: 500 });
       return NextResponse.json({ ok: true, action: "linked", leadId: byPhone.id, leadCode: byPhone.lead_id });
     }
   }
@@ -204,6 +217,12 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
+  const { error: linkError } = await db.from("crm_lead_booking_links").upsert({
+    lead_id: created.id,
+    appointment_id: body.bookingAppointmentId,
+    source: "website_ingest",
+  }, { onConflict: "appointment_id" });
+  if (linkError) return NextResponse.json({ ok: false, error: "booking_link_failed" }, { status: 500 });
 
   // Best-effort booking-created notification for the new public reservation.
   // Idempotent on the appointment id, so a re-POST does not re-notify. An email

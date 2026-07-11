@@ -31,7 +31,7 @@ function toState(err: unknown): LeadActionState {
 }
 
 function refreshLeadLists() {
-  for (const path of ["/leads", "/qualified", "/follow-up", "/post-op", "/database", "/dashboard"]) {
+  for (const path of ["/leads", "/qualified", "/booked", "/follow-up", "/post-op", "/lost", "/database", "/dashboard"]) {
     revalidatePath(path, "page");
   }
 }
@@ -55,8 +55,7 @@ export async function markLeadReadAction(leadId: string): Promise<LeadActionStat
   } catch (err) {
     return toState(err);
   }
-  revalidatePath("/leads");
-  revalidatePath("/database");
+  refreshLeadLists();
   return { ok: "Marked as read.", error: null };
 }
 

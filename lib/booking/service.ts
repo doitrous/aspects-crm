@@ -810,8 +810,17 @@ export async function createLeadBooking(input: {
     appointment_id: appointment.id,
     previous_status: null,
     new_status: status,
+    changed_by: null,
     notes: `Created from CRM lead ${input.leadId}`,
   });
+
+  const { error: linkError } = await supabaseAdmin().from("crm_lead_booking_links").upsert({
+    lead_id: lead.id,
+    appointment_id: appointment.id,
+    linked_by: actor.id,
+    source: "crm",
+  }, { onConflict: "appointment_id" });
+  if (linkError) throw new BookingError(`Appointment was created, but booking history link failed: ${linkError.message}`);
 
   const now = new Date().toISOString();
   const bookingMeta = {
@@ -849,6 +858,10 @@ export async function createLeadBooking(input: {
   revalidatePath("/calendar");
   revalidatePath("/reservations");
   revalidatePath("/dashboard");
+  revalidatePath("/leads");
+  revalidatePath("/qualified");
+  revalidatePath("/booked");
+  revalidatePath("/database");
   return { appointmentId: appointment.id };
 }
 
@@ -877,6 +890,7 @@ export async function updateReservationStatus(input: {
     appointment_id: input.appointmentId,
     previous_status: previous,
     new_status: input.status,
+    changed_by: null,
     notes: input.notes?.trim() || `Status changed from CRM to ${input.status} by ${actor.name} (${actor.id})`,
   });
   if (historyError) throw new BookingError(`Could not write booking status history: ${historyError.message}`);
@@ -915,4 +929,6 @@ export async function updateReservationStatus(input: {
   revalidatePath("/calendar");
   revalidatePath("/reservations");
   revalidatePath("/dashboard");
+  revalidatePath("/booked");
+  revalidatePath("/database");
 }

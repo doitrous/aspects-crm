@@ -344,7 +344,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
             type="button"
             disabled={pending}
             onClick={markRead}
-            className="mb-2 inline-flex items-center gap-1.5 rounded-control border border-primary/30 bg-primary-soft px-2.5 py-1.5 text-[11.5px] font-semibold text-primary hover:bg-primary-softer disabled:opacity-60"
+            className="mb-3 inline-flex min-h-10 items-center gap-2 rounded-control border-2 border-primary bg-primary px-4 py-2 text-[13px] font-extrabold text-white shadow-sm hover:bg-primary-hover disabled:opacity-60"
           >
             ✓ Mark as read
           </button>
@@ -1225,11 +1225,9 @@ function DuplicatesPanel({
             ))}
           </div>
           <div className="mt-2.5 flex flex-wrap gap-2">
-            <DuplicateActionButton
-              action={() => resolveDuplicateAction(g.id, "merged")}
-              label="Merge duplicate"
-              pendingLabel="Merging..."
-            />
+            <Link href="/duplicates" className="rounded-control border border-primary bg-primary-soft px-2.5 py-1.5 text-[11.5px] font-semibold text-primary hover:bg-primary-softer">
+              Review and merge
+            </Link>
             <DuplicateActionButton
               action={() => resolveDuplicateAction(g.id, "linked")}
               label="Link identities"
@@ -1252,10 +1250,11 @@ function DuplicateActionButton({
   label,
   pendingLabel,
 }: {
-  action: () => Promise<void>;
+  action: () => Promise<{ error?: string | null }>;
   label: string;
   pendingLabel: string;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   return (
@@ -1267,7 +1266,9 @@ function DuplicateActionButton({
           startTransition(async () => {
             setError(null);
             try {
-              await action();
+              const result = await action();
+              if (result.error) setError(result.error);
+              else router.refresh();
             } catch (err) {
               setError(err instanceof Error ? err.message : "Action failed.");
             }

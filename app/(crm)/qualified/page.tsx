@@ -23,7 +23,7 @@ export default async function QualifiedLeadsPage({ searchParams }: { searchParam
   const channel = str(sp.channel);
   const filters: LeadFilters = {
     q: str(sp.q),
-    stages: ["qualified", "booked"],
+    stage: "qualified",
     platform: channel?.startsWith("platform:") ? channel.slice("platform:".length) : str(sp.platform),
     doctorId: str(sp.doctor),
     specialtyId: str(sp.specialty),
@@ -55,7 +55,7 @@ export default async function QualifiedLeadsPage({ searchParams }: { searchParam
 
   return (
     <>
-      <Topbar title="Qualified Leads" search="Search qualified and booked patients" overdue={m.overdue} unread={m.unread} />
+      <Topbar title="Qualified Leads" search="Search qualified patients" overdue={m.overdue} unread={m.unread} />
       <Suspense fallback={null}>
         <LeadsToolbar sources={sources} doctors={catalog.doctors.map((d) => ({ id: d.id, name: d.nameEn }))} specialties={catalog.specialties.map((s) => ({ id: s.id, name: s.nameEn }))} basePath="/qualified" stageLocked />
       </Suspense>
