@@ -393,12 +393,20 @@ export function BookingTab({
         ) : (
           <div className="flex flex-col gap-2">
             {bookingRows.map((b) => (
-              <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line p-3">
-                <div>
-                  <div className="font-mono text-[10.5px] text-ink-400">{b.id}</div>
-                  <div className="text-[13px] font-semibold text-ink-900">{formatDateTime(b.startAt)}</div>
-                  <div className="text-[11.5px] text-ink-400">
-                    {b.doctorId} · {b.branch} · {b.durationMin}m
+              <div key={b.id} className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-primary/20 bg-primary-soft/35 p-4 shadow-sm">
+                <div className="min-w-[280px] flex-1">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="rounded-pill bg-primary/10 px-2 py-0.5 text-[10.5px] font-bold text-primary">Reservation</span>
+                    <span className="font-mono text-[10px] text-ink-400">{b.id}</span>
+                  </div>
+                  <div className="text-[14px] font-bold text-ink-900">
+                    {catalog.doctors.find((doctor) => doctor.id === b.doctorId)?.nameEn ?? "Doctor not assigned"}
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="rounded-control border border-line-soft bg-panel px-2.5 py-2"><div className="text-[10px] font-semibold uppercase text-ink-400">Date</div><div className="mt-0.5 text-[12px] font-bold text-ink-800">{formatDate(b.startAt)}</div></div>
+                    <div className="rounded-control border border-line-soft bg-panel px-2.5 py-2"><div className="text-[10px] font-semibold uppercase text-ink-400">Time</div><div className="mt-0.5 text-[12px] font-bold text-primary">{formatClock(b.startAt)}</div></div>
+                    <div className="rounded-control border border-line-soft bg-panel px-2.5 py-2"><div className="text-[10px] font-semibold uppercase text-ink-400">Duration</div><div className="mt-0.5 text-[12px] font-bold text-success">{b.durationMin} min</div></div>
+                    <div className="rounded-control border border-line-soft bg-panel px-2.5 py-2"><div className="text-[10px] font-semibold uppercase text-ink-400">Branch</div><div className="mt-0.5 truncate text-[12px] font-bold text-ink-800">{b.branch}</div></div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

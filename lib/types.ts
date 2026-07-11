@@ -316,8 +316,11 @@ export interface Lead {
   campaignId?: string;
   specialtyId?: string;
   serviceName?: string; // real DB stores a free-text service (leads.service_name)
+  serviceIds?: string[]; // canonical booking service ids stored in lead metadata
+  serviceNames?: string[]; // frozen labels for all selected services
   doctorId?: string;
   doctorName?: string; // resolved display name when available
+  doctorNames?: string[]; // all treating-doctor labels for compact lead views
   branch?: string;
   patientType: "new" | "returning";
   stage: PipelineStage;
@@ -379,6 +382,8 @@ export interface LeadSummary {
   platform: Platform;
   createdAt: string;
   serviceName?: string;
+  serviceNames?: string[];
+  doctorNames?: string[];
   assignedModerator?: string;
   tags?: string[];
   attentionMessage?: string;

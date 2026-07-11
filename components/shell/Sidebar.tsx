@@ -35,9 +35,8 @@ export function Sidebar({
   return (
     <aside className="flex w-[210px] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4">
       <div className="flex items-center gap-2.5 px-2 pb-4">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-[14px] font-extrabold text-white">
-          A
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/aspects-clinica-logo.png" alt="Aspects Clinica" className="h-10 w-14 flex-none object-contain" />
         <div className="text-[14px] font-bold leading-tight text-ink-900">
           Aspects Clinica
           <div className="text-[10px] font-medium text-ink-400">{t("shell.crm")}</div>
@@ -46,6 +45,8 @@ export function Sidebar({
 
       {nav.map((n) => {
         const active = current === n.href;
+        const booked = n.href === "/booked";
+        const lost = n.href === "/lost";
         const count = n.countKey ? counts[n.countKey] : undefined;
         return (
           <Link
@@ -53,9 +54,17 @@ export function Sidebar({
             href={n.href}
             className={cn(
               "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] transition-colors",
-              active
-                ? "bg-primary-hover font-semibold text-white shadow-sm ring-1 ring-primary/30"
-                : "font-medium text-ink-600 hover:bg-line-faint",
+              active && booked
+                ? "bg-success font-semibold text-white shadow-sm ring-1 ring-success/30"
+                : active && lost
+                  ? "bg-danger font-semibold text-white shadow-sm ring-1 ring-danger/30"
+                  : active
+                    ? "bg-primary-hover font-semibold text-white shadow-sm ring-1 ring-primary/30"
+                    : booked
+                      ? "bg-success/5 font-semibold text-success hover:bg-success/10"
+                      : lost
+                        ? "bg-danger-bg font-semibold text-danger hover:bg-danger/10"
+                        : "font-medium text-ink-600 hover:bg-line-faint",
             )}
           >
             <span className="w-4 text-center text-[13px]">{n.icon}</span>

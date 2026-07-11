@@ -388,8 +388,11 @@ function mapLead(row: LeadRow, lk: Lookups, tagRows: Array<{ name: string; color
     campaignId: row.campaign ?? undefined,
     specialtyId: undefined,
     serviceName: row.service_name ?? undefined,
+    serviceIds: Array.isArray(metadata.service_ids) ? metadata.service_ids.filter((value): value is string => typeof value === "string") : undefined,
+    serviceNames: Array.isArray(metadata.service_names) ? metadata.service_names.filter((value): value is string => typeof value === "string") : row.service_name ? [row.service_name] : undefined,
     doctorId: row.doctor_id ?? undefined,
     doctorName: undefined,
+    doctorNames: Array.isArray(metadata.treating_doctor_names) ? metadata.treating_doctor_names.filter((value): value is string => typeof value === "string") : undefined,
     branch: undefined,
     patientType: "new",
     stage: toUiStage(row.status),
@@ -450,6 +453,8 @@ function rowToSummary(r: SummaryRow, usersById: Map<string, string>): LeadSummar
     platform: toUiPlatform(r.platform),
     createdAt: r.created_at,
     serviceName: r.service_name ?? undefined,
+    serviceNames: Array.isArray(metadata.service_names) ? metadata.service_names.filter((value): value is string => typeof value === "string") : r.service_name ? [r.service_name] : undefined,
+    doctorNames: Array.isArray(metadata.treating_doctor_names) ? metadata.treating_doctor_names.filter((value): value is string => typeof value === "string") : undefined,
     assignedModerator: r.coordinator_user_id
       ? usersById.get(r.coordinator_user_id)
       : undefined,

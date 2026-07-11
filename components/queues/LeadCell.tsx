@@ -19,6 +19,11 @@ export function LeadCell({ lead, tab }: { lead?: LeadSummary; tab?: string }) {
         {lead.id}
         {pm && <span style={{ color: pm.fg }}>· {pm.label}</span>}
       </span>
+      {(lead.serviceNames?.length || lead.doctorNames?.length) ? (
+        <span className="mt-1 block max-w-[280px] truncate text-[10.5px] text-ink-500">
+          {[lead.serviceNames?.join(", "), lead.doctorNames?.join(", ")].filter(Boolean).join(" · ")}
+        </span>
+      ) : null}
     </Link>
   );
 }

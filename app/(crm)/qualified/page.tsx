@@ -4,6 +4,7 @@ import { LeadsToolbar } from "@/components/leads/LeadsToolbar";
 import { LeadsTable } from "@/components/leads/LeadsTable";
 import { getLeadsPage, dashboardMetrics, leadSourcesList, NOW, type LeadFilters } from "@/lib/data";
 import { financialDoctorCatalog } from "@/lib/booking/service";
+import { PaginationNav } from "@/components/ui/PaginationNav";
 
 export const dynamic = "force-dynamic";
 
@@ -63,11 +64,9 @@ export default async function QualifiedLeadsPage({ searchParams }: { searchParam
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
           {`Showing ${leads.length} of ${total} leads · page ${page} / ${pageCount}`}
         </div>
+        <PaginationNav page={page} pageCount={pageCount} hrefForPage={pageHref} />
         <LeadsTable leads={leads} now={NOW.toISOString()} />
-        <div className="flex items-center justify-end gap-2 px-[18px] py-3 text-[12px]">
-          <a href={pageHref(Math.max(1, page - 1))} aria-disabled={page <= 1} className={`rounded-control border border-line px-3 py-1.5 ${page <= 1 ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Previous</a>
-          <a href={pageHref(Math.min(pageCount, page + 1))} aria-disabled={page >= pageCount} className={`rounded-control border border-line px-3 py-1.5 ${page >= pageCount ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Next</a>
-        </div>
+        <PaginationNav page={page} pageCount={pageCount} hrefForPage={pageHref} />
       </div>
     </>
   );

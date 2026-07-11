@@ -3,6 +3,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { LeadCell } from "@/components/queues/LeadCell";
 import { followUpQueue } from "@/lib/data";
 import { formatDate } from "@/lib/format";
+import { PaginationNav } from "@/components/ui/PaginationNav";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function PostOpFollowUpPage({ searchParams }: { searchParam
   });
   const overdueCount = items.filter((i) => i.overdue).length;
   const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
+  const pageHref = (page: number) => `/post-op?page=${page}`;
 
   return (
     <>
@@ -25,6 +27,7 @@ export default async function PostOpFollowUpPage({ searchParams }: { searchParam
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
           Showing {items.length} of {result.total} in post-op follow-up · {overdueCount} overdue on this page
         </div>
+        <PaginationNav page={result.page} pageCount={pageCount} hrefForPage={pageHref} />
 
         {items.length === 0 ? (
           <EmptyState title="No post-op follow-ups scheduled" hint="Post-op stage leads appear here only when it is their primary stage." />
@@ -65,15 +68,7 @@ export default async function PostOpFollowUpPage({ searchParams }: { searchParam
             </table>
           </div>
         )}
-        {result.total > result.pageSize && (
-          <div className="flex items-center justify-between border-t border-line px-[18px] py-3 text-[12px] text-ink-500">
-            <span>Page {result.page} of {pageCount}</span>
-            <div className="flex gap-2">
-              <a href={`/post-op?page=${Math.max(1, result.page - 1)}`} aria-disabled={result.page <= 1} className={`rounded-control border border-line px-3 py-1.5 ${result.page <= 1 ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Previous</a>
-              <a href={`/post-op?page=${Math.min(pageCount, result.page + 1)}`} aria-disabled={result.page >= pageCount} className={`rounded-control border border-line px-3 py-1.5 ${result.page >= pageCount ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Next</a>
-            </div>
-          </div>
-        )}
+        <PaginationNav page={result.page} pageCount={pageCount} hrefForPage={pageHref} />
       </div>
     </>
   );

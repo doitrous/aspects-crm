@@ -43,7 +43,11 @@ function Side({ lead, tag }: { lead?: LeadSummary; tag: string }) {
         </div>
         <div className="flex justify-between gap-2">
           <dt className="text-ink-400">Service</dt>
-          <dd className="font-medium text-ink-700">{lead.serviceName ?? "—"}</dd>
+          <dd className="text-right font-medium text-ink-700">{lead.serviceNames?.join(", ") ?? lead.serviceName ?? "—"}</dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt className="text-ink-400">Doctors</dt>
+          <dd className="text-right font-medium text-ink-700">{lead.doctorNames?.join(", ") ?? "—"}</dd>
         </div>
         <div className="flex justify-between gap-2">
           <dt className="text-ink-400">Coordinator</dt>

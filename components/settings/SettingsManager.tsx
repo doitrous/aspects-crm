@@ -60,7 +60,8 @@ function PagedItems<T>({ items, render }: { items: T[]; render: (item: T) => Rea
   const pages = Math.max(1, Math.ceil(items.length / SETTINGS_PAGE_SIZE));
   const safePage = Math.min(page, pages);
   const visible = items.slice((safePage - 1) * SETTINGS_PAGE_SIZE, safePage * SETTINGS_PAGE_SIZE);
-  return <>{visible.map(render)}{pages > 1 && <div className="mt-3 flex items-center justify-between border-t border-line-soft pt-3 text-[11.5px]"><button disabled={safePage === 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="font-semibold text-primary disabled:text-ink-300">Previous</button><span>Page {safePage} of {pages}</span><button disabled={safePage === pages} onClick={() => setPage((p) => Math.min(pages, p + 1))} className="font-semibold text-primary disabled:text-ink-300">Next</button></div>}</>;
+  const controls = pages > 1 && <div className="my-3 flex items-center justify-end gap-2 border-y border-line-soft bg-toolbar/60 py-2.5 text-[11.5px]"><span className="me-auto font-medium text-ink-500">Page {safePage} of {pages}</span><button disabled={safePage === 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded-control border border-primary/30 bg-panel px-3 py-2 font-bold text-primary shadow-sm hover:bg-primary-soft disabled:opacity-40">Previous</button><button disabled={safePage === pages} onClick={() => setPage((p) => Math.min(pages, p + 1))} className="rounded-control border border-primary bg-primary px-3 py-2 font-bold text-white shadow-sm hover:bg-primary-hover disabled:opacity-40">Next</button></div>;
+  return <>{controls}{visible.map(render)}{controls}</>;
 }
 
 /* ── Tags ─────────────────────────────────────────────────────── */

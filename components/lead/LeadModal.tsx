@@ -34,7 +34,7 @@ export function LeadModal({ data }: { data: LeadDetailData }) {
         onClick={() => router.back()}
         className="absolute inset-0 animate-fadein cursor-default bg-black/40"
       />
-      <div className="relative z-10 flex h-full w-full animate-drawerin flex-col overflow-hidden bg-canvas shadow-toast sm:w-[82vw] sm:min-w-[760px] sm:max-w-[1500px]">
+      <div className="relative z-10 flex h-full w-full animate-drawerin flex-col overflow-hidden bg-canvas shadow-toast sm:w-[88vw] sm:min-w-[720px] lg:w-[67vw] lg:max-w-[1200px]">
         <LeadDetail data={data} onClose={() => router.back()} />
       </div>
     </div>

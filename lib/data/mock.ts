@@ -76,6 +76,8 @@ function toSummary(l: Lead): LeadSummary {
     platform: l.platform,
     createdAt: l.createdAt,
     serviceName: l.serviceName,
+    serviceNames: l.serviceNames,
+    doctorNames: l.doctorNames,
     assignedModerator: l.assignedModerator,
   };
 }

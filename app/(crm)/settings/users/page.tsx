@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { can } from "@/lib/auth/permissions";
@@ -8,6 +7,7 @@ import { listUnlinkedAuthUsers, listUsersPage, type UserFilters } from "@/lib/da
 import type { Role } from "@/lib/types";
 import { UsersTable, type UserRow } from "./UsersTable";
 import { UnlinkedAuthUsers } from "./UnlinkedAuthUsers";
+import { PaginationNav } from "@/components/ui/PaginationNav";
 
 export const dynamic = "force-dynamic";
 
@@ -141,8 +141,9 @@ export default async function UsersPage({
               You can view users and their history, but only an admin may change access.
             </p>
           )}
+          <PaginationNav page={requestedPage} pageCount={pageCount} hrefForPage={pageHref} summary={`Page ${requestedPage} of ${pageCount} · ${usersPage.total} users`} />
           <UsersTable users={rows} currentUserId={user.id} canMutate={canMutate} />
-          {pageCount > 1 && <div className="flex items-center justify-between border-t border-line-soft px-4 py-3 text-[12px]"><Link aria-disabled={requestedPage <= 1} className={requestedPage <= 1 ? "pointer-events-none text-ink-300" : "font-semibold text-primary"} href={pageHref(requestedPage - 1)}>Previous</Link><span>Page {requestedPage} of {pageCount} · {usersPage.total} users</span><Link aria-disabled={requestedPage >= pageCount} className={requestedPage >= pageCount ? "pointer-events-none text-ink-300" : "font-semibold text-primary"} href={pageHref(requestedPage + 1)}>Next</Link></div>}
+          <PaginationNav page={requestedPage} pageCount={pageCount} hrefForPage={pageHref} summary={`Page ${requestedPage} of ${pageCount} · ${usersPage.total} users`} />
         </Card>
 
         {canInvite && <UnlinkedAuthUsers users={unlinkedAuthUsers} />}

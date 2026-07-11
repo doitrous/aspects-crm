@@ -378,8 +378,9 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 href={lead.chatLink}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-1 inline-flex text-[12px] font-semibold text-primary hover:underline"
+                className="mt-2 inline-flex items-center gap-1.5 rounded-control border border-primary/30 bg-primary-soft px-2.5 py-1.5 text-[12px] font-bold text-primary shadow-sm transition hover:border-primary hover:bg-primary/10"
               >
+                <span aria-hidden>↗</span>
                 {lead.platform === "instagram"
                   ? "Open Instagram DM"
                   : lead.platform === "whatsapp"
@@ -418,19 +419,25 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
         </div>
 
         {/* Action row */}
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             onClick={() => setTab("Booking")}
-            className="flex-1 rounded-control bg-primary px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-primary-hover"
+            className="min-w-[170px] flex-1 rounded-control bg-primary px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-primary-hover"
           >
             Book appointment
+          </button>
+          <button
+            onClick={() => setTab("Payments")}
+            className="rounded-control border border-primary/35 bg-primary-soft px-3 py-2 text-[12px] font-bold text-primary hover:border-primary hover:bg-primary/10"
+          >
+            Submit payment
           </button>
           {lead.escalated ? (
             <button
               type="button"
               disabled={pending}
               onClick={() => run(() => clearLeadEscalationAction(lead.id))}
-              className="rounded-control border border-danger/30 bg-danger-bg px-3.5 py-2 text-[12.5px] font-semibold text-danger hover:bg-danger/10 disabled:opacity-60"
+              className="rounded-control border border-danger bg-danger px-3.5 py-2 text-[12.5px] font-bold text-white shadow-sm hover:bg-danger/85 disabled:opacity-60"
             >
               Un-Escalate
             </button>
@@ -439,7 +446,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               type="button"
               disabled={pending}
               onClick={() => setEscalateModal(true)}
-              className="rounded-control border border-line px-3.5 py-2 text-[12.5px] font-medium text-ink-700 hover:border-primary hover:text-primary disabled:opacity-60"
+              className="rounded-control border border-danger/35 bg-danger-bg px-3.5 py-2 text-[12.5px] font-bold text-danger shadow-sm hover:border-danger hover:bg-danger/10 disabled:opacity-60"
             >
               Escalate
             </button>
@@ -501,18 +508,19 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               </button>
             )}
             <section>
-              <div className="mb-2 flex items-center justify-between"><SectionLabel>Patient information</SectionLabel><span className="text-[10.5px] text-ink-400">Select all treating doctors that apply</span></div>
+              <div className="mb-2 flex items-center justify-between"><SectionLabel>Patient information</SectionLabel><span className="text-[10.5px] text-ink-400">Select all services and treating doctors that apply</span></div>
               <form
+                key={`profile-${lead.serviceIds?.join("-") ?? lead.serviceName ?? "none"}-${data.treatingDoctors.map((doctor) => doctor.doctorId).join("-") || lead.doctorId || "none"}`}
                 onSubmit={(event) => {
                   event.preventDefault();
                   const formData = new FormData(event.currentTarget);
                   run(() => updateLeadProfileAction(lead.id, formData), () => {
                     const specialtyId = String(formData.get("specialtyId") ?? "") || undefined;
-                    const serviceId = String(formData.get("serviceId") ?? "");
+                    const serviceIds = formData.getAll("serviceIds").map(String);
                     const doctorIds = formData.getAll("doctorIds").map(String);
-                    const service = data.bookingCatalog.services.find((row) => row.id === serviceId);
+                    const services = data.bookingCatalog.services.filter((row) => serviceIds.includes(row.id));
                     const doctors = data.bookingCatalog.doctors.filter((row) => doctorIds.includes(row.id));
-                    setData((current) => ({ ...current, lead: { ...current.lead, patientName: String(formData.get("name")), phone: String(formData.get("phone")), gender: (String(formData.get("gender")) || undefined) as Lead["gender"], specialtyId, serviceName: service?.nameEn, doctorId: doctors[0]?.id, doctorName: doctors[0]?.nameEn }, treatingDoctors: doctors.map((doctor, index) => ({ id: doctor.id, doctorId: doctor.id, doctorName: doctor.nameEn, specialtyId: doctor.specialtyId, serviceId: service?.id, serviceName: service?.nameEn, primary: index === 0 })) }));
+                    setData((current) => ({ ...current, lead: { ...current.lead, patientName: String(formData.get("name")), phone: String(formData.get("phone")), gender: (String(formData.get("gender")) || undefined) as Lead["gender"], specialtyId, serviceName: services[0]?.nameEn, serviceIds: services.map((service) => service.id), serviceNames: services.map((service) => service.nameEn), doctorId: doctors[0]?.id, doctorName: doctors[0]?.nameEn, doctorNames: doctors.map((doctor) => doctor.nameEn) }, treatingDoctors: doctors.map((doctor, index) => ({ id: doctor.id, doctorId: doctor.id, doctorName: doctor.nameEn, specialtyId: doctor.specialtyId, primary: index === 0 })) }));
                     invalidateTab("Overview");
                   });
                 }}
@@ -522,7 +530,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 <label className="text-[11.5px] font-semibold text-ink-500">Phone<input data-patient-content name="phone" required defaultValue={lead.phone} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]" /></label>
                 <label className="text-[11.5px] font-semibold text-ink-500">Gender<select name="gender" defaultValue={lead.gender ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Not specified</option><option value="female">Female</option><option value="male">Male</option></select></label>
                 <label className="text-[11.5px] font-semibold text-ink-500">Specialty<select name="specialtyId" defaultValue={lead.specialtyId ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Choose specialty</option>{data.bookingCatalog.specialties.map((row) => <option key={row.id} value={row.id}>{row.nameEn}</option>)}</select></label>
-                <label className="text-[11.5px] font-semibold text-ink-500">Service<select name="serviceId" defaultValue={data.bookingCatalog.services.find((row) => row.nameEn === lead.serviceName)?.id ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Choose service</option>{data.bookingCatalog.services.map((row) => <option key={row.id} value={row.id}>{row.nameEn}</option>)}</select></label>
+                <div className="text-[11.5px] font-semibold text-ink-500"><span>Services</span><div className="mt-1 max-h-28 overflow-auto rounded-control border border-line bg-panel p-2">{data.bookingCatalog.services.map((service) => <label key={service.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="serviceIds" value={service.id} defaultChecked={lead.serviceIds?.includes(service.id) || (!lead.serviceIds?.length && lead.serviceName === service.nameEn)} />{service.nameEn}</label>)}</div></div>
                 <div className="text-[11.5px] font-semibold text-ink-500"><span>Treating doctors</span><div className="mt-1 max-h-28 overflow-auto rounded-control border border-line bg-panel p-2">{data.bookingCatalog.doctors.map((doctor) => <label key={doctor.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="doctorIds" value={doctor.id} defaultChecked={data.treatingDoctors.some((row) => row.doctorId === doctor.id) || (!data.treatingDoctors.length && lead.doctorId === doctor.id)} />{doctor.nameEn}</label>)}</div></div>
                 <div className="md:col-span-2 xl:col-span-3 flex justify-end"><button disabled={pending || !data.bookingCatalog.configured} className="rounded-control bg-primary px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-50">{pending ? "Saving..." : "Save patient information"}</button></div>
               </form>
@@ -533,8 +541,8 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
                 <DetailField label="Phone" value={lead.phone} />
                 <DetailField label="Gender" value={<span className="capitalize">{lead.gender ?? "—"}</span>} />
-                <DetailField label="Service" value={lead.serviceName ?? specialtyName(lead.specialtyId)} />
-                <DetailField label="Doctor" value={lead.doctorName ?? doctorName(lead.doctorId)} />
+                <DetailField label="Services" value={lead.serviceNames?.length ? lead.serviceNames.join(", ") : lead.serviceName ?? specialtyName(lead.specialtyId)} />
+                <DetailField label="Treating doctors" value={data.treatingDoctors.length ? data.treatingDoctors.map((doctor) => doctor.doctorName).join(", ") : lead.doctorNames?.join(", ") ?? lead.doctorName ?? doctorName(lead.doctorId)} />
                 <DetailField label="Branch" value={lead.branch ?? "—"} />
                 <DetailField label="Patient type" value={<span className="capitalize">{lead.patientType}</span>} />
                 <DetailField label="Campaign" value={campaignName(lead.campaignId)} />
@@ -558,8 +566,12 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                         "rounded-pill border px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors disabled:opacity-60 " +
                         (active && s === "lost"
                           ? "border-danger/40 bg-danger-bg text-danger"
+                          : active && s === "booked"
+                            ? "border-success-strong bg-success text-white"
                           : active
                           ? "border-success-strong bg-success/5 text-success"
+                          : s === "booked"
+                            ? "border-success/35 bg-success/10 text-success hover:border-success hover:bg-success/15"
                           : s === "lost"
                             ? "border-danger/20 bg-panel text-danger hover:bg-danger-bg"
                           : "border-line bg-panel text-ink-600 hover:border-primary hover:text-primary")

@@ -32,6 +32,8 @@ export default async function LoginPage({
   return (
     <main className="flex min-h-screen items-center justify-center bg-canvas px-5">
       <div className="w-full max-w-[380px] rounded-card border border-line bg-panel p-7 shadow-card">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/aspects-clinica-logo.png" alt="Aspects Clinica" className="mb-4 h-24 w-auto max-w-full object-contain" />
         <h1 className="font-display text-[24px] font-semibold text-ink-900">Aspects Clinica</h1>
         <p className="mt-1 text-[12.5px] text-ink-500">Sign in to the CRM</p>
 

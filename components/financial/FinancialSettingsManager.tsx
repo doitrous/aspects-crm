@@ -87,6 +87,11 @@ function ServiceOptions({ services }: { services: FinancialServiceSetting[] }) {
   );
 }
 
+function ClientPager({ page, pages, setPage }: { page: number; pages: number; setPage: (page: number) => void }) {
+  if (pages <= 1) return null;
+  return <div className="my-3 flex items-center justify-end gap-2 border-y border-line-soft bg-toolbar/60 py-2.5 text-[11.5px]"><span className="me-auto font-medium text-ink-500">Page {page} of {pages}</span><button disabled={page === 1} onClick={() => setPage(page - 1)} className="rounded-control border border-primary/30 bg-panel px-3 py-2 font-bold text-primary shadow-sm hover:bg-primary-soft disabled:opacity-40">Previous</button><button disabled={page === pages} onClick={() => setPage(page + 1)} className="rounded-control border border-primary bg-primary px-3 py-2 font-bold text-white shadow-sm hover:bg-primary-hover disabled:opacity-40">Next</button></div>;
+}
+
 function ServicePriceForm({ service }: { service: FinancialServiceSetting }) {
   const [state, action, pending] = useActionState(upsertServicePriceAction, IDLE);
   return (
@@ -136,10 +141,11 @@ function Discounts({ data }: { data: FinancialSettingsData }) {
         <label className="flex items-center gap-1.5 pb-2 text-[12px] text-ink-700"><input type="checkbox" name="active" defaultChecked /> Active</label>
         <div className="flex items-center gap-2"><Save pending={pending}>Add rule</Save><Feedback state={state} /></div>
       </form>
+      <ClientPager page={page} pages={pages} setPage={setPage} />
       <div className="overflow-x-auto">
         <table className="w-full min-w-[860px] text-[12px]"><thead><tr className="border-b border-line-soft text-left text-[10px] uppercase text-ink-400"><th className="py-1.5">Scope</th><th>Moderator</th><th>Service</th><th>Max</th><th>Window</th><th>State</th><th>Actions</th></tr></thead><tbody>{data.discountRules.slice((page - 1) * 30, page * 30).map((r) => <DiscountRuleRow key={r.id} rule={r} />)}</tbody></table>
       </div>
-      {pages > 1 && <div className="mt-3 flex items-center justify-between text-[11.5px]"><button disabled={page === 1} onClick={() => setPage((p) => p - 1)} className="font-semibold text-primary disabled:text-ink-300">Previous</button><span>Page {page} of {pages}</span><button disabled={page === pages} onClick={() => setPage((p) => p + 1)} className="font-semibold text-primary disabled:text-ink-300">Next</button></div>}
+      <ClientPager page={page} pages={pages} setPage={setPage} />
     </Card>
   );
 }
@@ -183,13 +189,14 @@ function Consumables({ data }: { data: FinancialSettingsData }) {
       </form>
       <div className="mb-4"><h4 className="mb-1 text-[12px] font-bold text-ink-800">Components</h4>{data.consumableComponents.map((c) => <div key={c.id} className="flex justify-between border-b border-line-faint py-1 text-[12px]"><span>{c.name}</span><span>{money(c.unitCost)} EGP {c.active ? "" : "(off)"}</span></div>)}</div>
       <h4 className="mb-2 text-[12px] font-bold text-ink-800">All canonical services</h4>
+      <ClientPager page={page} pages={Math.ceil(data.services.length / 30)} setPage={setPage} />
       <div className="grid gap-2 md:grid-cols-2">
         {data.services.slice((page - 1) * 30, page * 30).map((service) => {
           const defaults = data.serviceConsumableDefaults.filter((item) => item.serviceId ? item.serviceId === service.serviceId : item.serviceName === service.serviceName);
           return <div key={serviceRef(service)} className="border-b border-line-faint py-2"><div className="text-[12px] font-bold text-ink-800">{service.serviceName}</div>{defaults.length ? defaults.map((item) => <div key={item.id} className="text-[11.5px] text-ink-600">{item.description}: {money(item.totalCost)} EGP {item.active ? "" : "(inactive)"}</div>) : <div className="text-[11.5px] font-medium text-amber-700">No consumables configured</div>}</div>;
         })}
       </div>
-      {data.services.length > 30 && <div className="mt-3 flex items-center justify-between text-[11.5px]"><button disabled={page === 1} onClick={() => setPage((value) => value - 1)} className="font-semibold text-primary disabled:text-ink-300">Previous</button><span>Page {page} of {Math.ceil(data.services.length / 30)}</span><button disabled={page >= Math.ceil(data.services.length / 30)} onClick={() => setPage((value) => value + 1)} className="font-semibold text-primary disabled:text-ink-300">Next</button></div>}
+      <ClientPager page={page} pages={Math.ceil(data.services.length / 30)} setPage={setPage} />
       <div className="mt-5 border-t border-line-soft pt-4"><ExternalDefaults data={data} /></div>
     </Card>
   );

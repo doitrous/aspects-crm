@@ -5,6 +5,7 @@ import { LeadsTable } from "@/components/leads/LeadsTable";
 import { getLeadsPage, dashboardMetrics, leadSourcesList, NOW, type LeadFilters } from "@/lib/data";
 import { financialDoctorCatalog } from "@/lib/booking/service";
 import type { PipelineStage } from "@/lib/types";
+import { PaginationNav } from "@/components/ui/PaginationNav";
 
 type SP = Record<string, string | string[] | undefined>;
 
@@ -80,11 +81,9 @@ export async function StageLeadsPage({
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
           {`Showing ${leadPage.leads.length} of ${leadPage.total} leads · page ${leadPage.page} / ${pageCount}`}
         </div>
+        <PaginationNav page={leadPage.page} pageCount={pageCount} hrefForPage={pageHref} />
         <LeadsTable leads={leadPage.leads} now={NOW.toISOString()} />
-        <div className="flex items-center justify-end gap-2 px-[18px] py-3 text-[12px]">
-          <a href={pageHref(Math.max(1, leadPage.page - 1))} aria-disabled={leadPage.page <= 1} className={`rounded-control border border-line px-3 py-1.5 ${leadPage.page <= 1 ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Previous</a>
-          <a href={pageHref(Math.min(pageCount, leadPage.page + 1))} aria-disabled={leadPage.page >= pageCount} className={`rounded-control border border-line px-3 py-1.5 ${leadPage.page >= pageCount ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Next</a>
-        </div>
+        <PaginationNav page={leadPage.page} pageCount={pageCount} hrefForPage={pageHref} />
       </div>
     </>
   );

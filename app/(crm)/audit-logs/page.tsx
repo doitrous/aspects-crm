@@ -6,6 +6,7 @@ import { can } from "@/lib/auth/permissions";
 import { requireSession } from "@/lib/data/session";
 import { listActivity, type ActivityRow } from "@/lib/audit/log";
 import { formatDateTime } from "@/lib/format";
+import { PaginationNav } from "@/components/ui/PaginationNav";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,8 @@ export default async function AuditLogsPage({ searchParams }: { searchParams: Pr
           </a>
         </form>
 
+        <PaginationNav page={page} pageCount={pageCount} hrefForPage={pageHref} summary={`Page ${page} of ${pageCount} · maximum 30 entries per page`} />
+
         {rows.length === 0 ? (
           <EmptyState title="No audit activity found" hint="Lead, booking, financial, settings, user, import, and system actions appear here when recorded." />
         ) : (
@@ -151,13 +154,7 @@ export default async function AuditLogsPage({ searchParams }: { searchParams: Pr
             </table>
           </Card>
         )}
-        <div className="mt-3 flex items-center justify-between text-[11.5px] text-ink-500">
-          <span>Page {page} of {pageCount} · maximum 30 entries per page</span>
-          <div className="flex gap-2">
-            {page > 1 ? <a href={pageHref(page - 1)} className="rounded-control border border-line px-3 py-1.5 font-semibold text-ink-700">Previous</a> : <span className="rounded-control border border-line px-3 py-1.5 opacity-40">Previous</span>}
-            {page < pageCount ? <a href={pageHref(page + 1)} className="rounded-control border border-line px-3 py-1.5 font-semibold text-ink-700">Next</a> : <span className="rounded-control border border-line px-3 py-1.5 opacity-40">Next</span>}
-          </div>
-        </div>
+        <PaginationNav page={page} pageCount={pageCount} hrefForPage={pageHref} summary={`Page ${page} of ${pageCount} · maximum 30 entries per page`} />
       </div>
     </>
   );

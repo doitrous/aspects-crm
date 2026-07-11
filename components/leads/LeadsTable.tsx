@@ -119,10 +119,10 @@ export function LeadsTable({ leads, now }: { leads: Lead[]; now: string }) {
                 </td>
                 <td className="px-3 py-3 text-ink-600">
                   <div className="text-ink-700">
-                    {lead.serviceName ?? specialtyName(lead.specialtyId)}
+                    {lead.serviceNames?.join(", ") ?? lead.serviceName ?? specialtyName(lead.specialtyId)}
                   </div>
                   <div className="text-[11px] text-ink-400">
-                    {lead.doctorName ?? doctorName(lead.doctorId)}
+                    {lead.doctorNames?.join(", ") ?? lead.doctorName ?? doctorName(lead.doctorId)}
                   </div>
                 </td>
                 <td className="px-3 py-3">

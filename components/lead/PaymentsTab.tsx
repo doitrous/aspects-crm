@@ -135,11 +135,15 @@ function useNotifyChanged(state: FinancialActionState, onChanged?: () => void) {
 }
 
 /** Collapsible "Add …" form, so the tab opens as a summary rather than a wall of inputs. */
-function AddPanel({ label, children }: { label: string; children: React.ReactNode }) {
+function AddPanel({ label, children, tone = "default" }: { label: string; children: React.ReactNode; tone?: "default" | "transaction" | "consumable" }) {
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
-      <button type="button" className={btnGhost} onClick={() => setOpen(true)}>
+      <button type="button" className={cn(
+        btnGhost,
+        tone === "transaction" && "border-primary/40 bg-primary-soft font-bold text-primary shadow-sm hover:border-primary hover:bg-primary/10",
+        tone === "consumable" && "border-success/40 bg-success/10 font-bold text-success shadow-sm hover:border-success hover:bg-success/15",
+      )} onClick={() => setOpen(true)}>
         + {label}
       </button>
     );
@@ -479,7 +483,7 @@ function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: (
 
       {fin.canEdit && (
         <div className="mt-3">
-          <AddPanel label="Add transaction">
+          <AddPanel label="Add transaction" tone="transaction">
             <form action={add} className="grid gap-2 sm:grid-cols-2">
               <input type="hidden" name="leadId" value={fin.leadId} />
 
@@ -714,7 +718,7 @@ function Consumables({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
 
       {fin.canEditRules && (
         <div className="mt-2">
-          <AddPanel label="Add consumable">
+          <AddPanel label="Add consumable" tone="consumable">
             <form action={add} className="grid gap-2 sm:grid-cols-2">
               <input type="hidden" name="leadId" value={fin.leadId} />
               <label className="text-[11px] text-ink-500 sm:col-span-2">

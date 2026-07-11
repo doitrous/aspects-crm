@@ -3,6 +3,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { LeadCell } from "@/components/queues/LeadCell";
 import { followUpQueue } from "@/lib/data";
 import { formatDate } from "@/lib/format";
+import { PaginationNav } from "@/components/ui/PaginationNav";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function FollowUpPage({ searchParams }: { searchParams: Pro
 
   const overdueCount = items.filter((i) => i.overdue).length;
   const pageCount = Math.max(1, Math.ceil(result.total / result.pageSize));
+  const pageHref = (page: number) => `/follow-up?page=${page}`;
 
   return (
     <>
@@ -37,6 +39,7 @@ export default async function FollowUpPage({ searchParams }: { searchParams: Pro
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
           Showing {items.length} of {result.total} in follow-up · {overdueCount} overdue on this page
         </div>
+        <PaginationNav page={result.page} pageCount={pageCount} hrefForPage={pageHref} />
 
         {items.length === 0 ? (
           <EmptyState
@@ -100,15 +103,7 @@ export default async function FollowUpPage({ searchParams }: { searchParams: Pro
             </table>
           </div>
         )}
-        {result.total > result.pageSize && (
-          <div className="flex items-center justify-between border-t border-line px-[18px] py-3 text-[12px] text-ink-500">
-            <span>Page {result.page} of {pageCount}</span>
-            <div className="flex gap-2">
-              <a href={`/follow-up?page=${Math.max(1, result.page - 1)}`} aria-disabled={result.page <= 1} className={`rounded-control border border-line px-3 py-1.5 ${result.page <= 1 ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Previous</a>
-              <a href={`/follow-up?page=${Math.min(pageCount, result.page + 1)}`} aria-disabled={result.page >= pageCount} className={`rounded-control border border-line px-3 py-1.5 ${result.page >= pageCount ? "pointer-events-none opacity-40" : "hover:border-primary hover:text-primary"}`}>Next</a>
-            </div>
-          </div>
-        )}
+        <PaginationNav page={result.page} pageCount={pageCount} hrefForPage={pageHref} />
       </div>
     </>
   );

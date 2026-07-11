@@ -6,6 +6,10 @@ import { getPreferences } from "@/lib/i18n/server";
 export const metadata: Metadata = {
   title: "Aspects Clinica CRM",
   description: "Lead management, conversations, booking sync & auditing for Aspects Clinica.",
+  icons: {
+    icon: [{ url: "/aspects-clinica-logo.png", type: "image/png" }],
+    apple: [{ url: "/aspects-clinica-logo.png", type: "image/png" }],
+  },
 };
 
 export default async function RootLayout({
