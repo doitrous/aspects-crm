@@ -65,7 +65,6 @@ export default async function LeadsPage({
     <>
       <Topbar
         title="New Leads"
-        search="Search name, phone, MRN…"
         overdue={m.overdue}
         unread={m.unread}
         action={<NewLeadButton sources={sources} />}
@@ -75,7 +74,7 @@ export default async function LeadsPage({
       </Suspense>
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
-          Showing {leads.length} of {total} lead{total === 1 ? "" : "s"} · page {page} / {pageCount}
+          {`Showing ${leads.length} of ${total} leads · page ${page} / ${pageCount}`}
         </div>
         <LeadsTable leads={leads} now={NOW.toISOString()} />
         <div className="flex items-center justify-end gap-2 px-[18px] py-3 text-[12px]">

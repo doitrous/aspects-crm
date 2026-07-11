@@ -8,6 +8,7 @@ import { requireSession } from "@/lib/data/session";
 import { listEmailLog } from "@/lib/data/emailData";
 import { emailConfigured } from "@/lib/email/resend";
 import { formatDateTime } from "@/lib/format";
+import { ManualEmailForm } from "@/components/email/ManualEmailForm";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,7 @@ export default async function EmailsPage() {
     <>
       <Topbar title="Emails" />
       <div className="flex-1 overflow-auto px-[18px] py-4">
+        <ManualEmailForm />
         {!configured && (
           <div className="mb-3 rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800">
             Resend is not configured (<span className="font-mono">RESEND_API_KEY</span> is unset). Rule dispatches are

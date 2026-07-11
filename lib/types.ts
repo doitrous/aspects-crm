@@ -324,6 +324,7 @@ export interface Lead {
   stageHistory: StageHistoryEntry[];
   assignedModerator?: string;
   tags: string[];
+  tagColors?: Record<string, string>;
 
   // derived / operational
   unread: boolean;
@@ -343,6 +344,18 @@ export interface Lead {
 
   note: LeadNote;
   followUp: FollowUp;
+}
+
+export interface TreatingDoctorAssignment {
+  id: string;
+  doctorId: string;
+  doctorName: string;
+  specialtyId?: string;
+  specialtyName?: string;
+  serviceId?: string;
+  serviceName?: string;
+  bundleId?: string;
+  primary: boolean;
 }
 
 /** Group of leads flagged as possible duplicates. */

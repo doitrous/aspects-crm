@@ -214,3 +214,20 @@ Not fully verified due authenticated browser/session limitations in this run:
 | Lead Booking tab | One `leads.booking_appointment_id` followed by one appointment row | One bounded CRM booking-link query followed by one booking-source `IN (...)` query returning all appointments for that lead | No live two-booking timing captured | Appointment history is intentionally complete; pagination may be needed for unusually large per-patient histories. |
 | Lead list tags | Batched tag lookup already loaded names but UI discarded them | No additional query; existing batched page lookup is rendered | Query count unchanged | Color values are not selected in this pass. |
 | Merged leads in lists/counts | Merged rows could remain visible because list/count queries ignored `merged_into_lead_id` | Existing lead queries add `merged_into_lead_id IS NULL`; query count unchanged | No live timing captured | Index `leads_merged_into_idx` from migration `0009` must exist in production. |
+
+## 2026-07-12 Messenger Consistency Follow-Up
+
+| Screen/action | Previous behavior | Fix | Measurement | Remaining concern |
+|---|---|---|---|---|
+| Overview/Messenger/WhatsApp lazy responses | Every tab wrote to one `messages` array; a one-message Overview or empty WhatsApp response could erase a loaded Messenger thread | Payloads merge by message row ID and update fresher metadata without removing unrelated rows | Pure regression test; no production UI timing captured | No live subscription while a drawer remains continuously open. |
+| Cached Messenger reopen | Module cache could remain stale indefinitely because a cache hit skipped the network request | Cache is stale-while-revalidate: immediate render followed by a real tab request | Query count on cached open changes from 0 to 1 intentional freshness query | Monitor request volume; only opened tabs revalidate. |
+| L0019 forensic trace | Incoming row existed but `platform_message_id`, sender and recipient were null even though `raw_payload.message.mid` existed | Normalizer recovers native IDs; migration `0018` backfills deterministic historical identifiers | Read-only production query: 1 content row and 0 receipt/reaction events for L0019 | The reported outgoing message was never persisted, so n8n must forward Meta echo events after deployment. |
+
+## 2026-07-12 Drawer / Settings Follow-Up
+
+| Screen/action | Query/data change | Measurement | Remaining concern |
+|---|---|---|---|
+| Overview editable catalogs | Overview lazy request now fetches booking catalog and treating-doctor assignments in parallel with attribution/latest message; drawer shell remains unchanged | Production build first-load drawer route: 133 kB; no live request timing captured | Cross-project booking catalog adds one lazy Overview dependency; cache/timeout should be monitored. |
+| Lead tag colors | Existing batched 30-lead tag query selects `color` with `name`; no additional query | Query count unchanged | Tags without a color use a deterministic fallback. |
+| Consumables service catalog | Settings renders canonical services client-side in pages of 30 | Browser receives the full service settings payload on the authorized Settings page only | If the service catalog grows into thousands, server pagination should replace this bounded clinical catalog approach. |
+| Audit Logs | UI is capped to 30 rows per page; filters are preserved | Browser row volume reduced to 30 | Role/lead metadata filtering still scans a maximum 500 rows server-side and should become a database RPC/generated-column filter at larger audit volume. |

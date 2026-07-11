@@ -12,6 +12,7 @@ import {
   type RevenueBreakdownRow,
 } from "@/lib/data/financialDashboard";
 import { formatDate } from "@/lib/format";
+import { financialSettingsData } from "@/lib/data/financialSettings";
 
 export const dynamic = "force-dynamic";
 
@@ -47,8 +48,15 @@ function Kpi({
   flag?: boolean;
   href?: string;
 }) {
+  const semantic = /refund|reversal|chargeback|outstanding|discount|cost/i.test(label)
+    ? "border-rose-200 bg-rose-50"
+    : /collected|revenue|margin|profit/i.test(label)
+      ? "border-emerald-200 bg-emerald-50"
+      : /doctor|service value|quoted/i.test(label)
+        ? "border-blue-200 bg-blue-50"
+        : "border-line-soft bg-panel";
   const body = (
-    <div className={"rounded-control border p-3 " + (flag ? "border-red-300 bg-red-50" : "border-line-soft bg-panel")}>
+    <div className={"rounded-control border p-3 " + (flag ? "border-red-300 bg-red-50" : semantic)}>
       <div className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">{label}</div>
       <div className="mt-0.5 text-[17px] font-bold text-ink-900">{value}</div>
       {sub && <div className="text-[10.5px] text-ink-500">{sub}</div>}
@@ -169,12 +177,20 @@ export default async function FinancialPage({
 }
 
 async function OverviewTab({ range }: { range: { from: string; to: string } }) {
-  const d = await financialDashboard(range);
+  const [d, settings] = await Promise.all([financialDashboard(range), financialSettingsData()]);
   const p = d.profitability;
   const c = d.cashFlow;
+  const unpriced = settings.services.filter((service) => !service.id || !service.active || service.basePrice <= 0);
+  const warningDate = new Date();
+  warningDate.setDate(warningDate.getDate() + 14);
+  const expiring = settings.bundles.filter((bundle) => bundle.active && bundle.expiresOn && new Date(`${bundle.expiresOn}T23:59:59`) <= warningDate);
 
   return (
     <div className="flex flex-col gap-4">
+      {(unpriced.length > 0 || expiring.length > 0) && <section className="grid gap-2 md:grid-cols-2">
+        {unpriced.length > 0 && <Link href="/settings" className="border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-900"><strong className="block">{unpriced.length} unpriced or inactive services</strong><span>Open Settings → Financial Settings → Service Pricing.</span></Link>}
+        {expiring.length > 0 && <Link href="/settings" className="border border-rose-300 bg-rose-50 p-3 text-[12px] text-rose-900"><strong className="block">{expiring.length} bundles expire within 14 days</strong><span>{expiring.slice(0, 3).map((bundle) => bundle.name).join(", ")}</span></Link>}
+      </section>}
       <section>
         <h2 className="mb-2 text-[12px] font-bold uppercase tracking-wide text-ink-500">
           Cash flow — based on actual transaction date

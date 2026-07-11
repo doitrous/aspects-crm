@@ -16,6 +16,7 @@ import {
   setFinancialSettingActive,
   upsertAddonRule,
   upsertBundle,
+  addBundleComponent,
   upsertPaymentMethod,
   upsertStaffCommission,
 } from "@/lib/data/financialSettingsMutations";
@@ -215,6 +216,14 @@ export async function upsertBundleAction(_prev: FinancialSettingsActionState, fd
     });
   } catch (err) { return fail(err); }
   return done("Bundle saved.");
+}
+
+export async function addBundleComponentAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  const service = serviceRef(fd);
+  try {
+    await addBundleComponent({ bundleId: str(fd, "bundleId"), serviceId: service.serviceId, serviceName: service.serviceName, quantity: num(fd, "quantity") || 1, doctorId: str(fd, "doctorId"), doctorName: str(fd, "doctorName"), compensationKind: str(fd, "compensationKind") as "percentage" | "fixed", compensationValue: num(fd, "compensationValue"), compensationBasis: str(fd, "compensationBasis") as "quoted_price" | "net_after_consumables" });
+  } catch (err) { return fail(err); }
+  return done("Bundle service and doctor compensation saved.");
 }
 
 export async function upsertAddonRuleAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {

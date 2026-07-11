@@ -12,28 +12,27 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
+  { label: "Calendar", i18nKey: "nav.calendar", href: "/calendar", icon: "📅" },
   { label: "Dashboard", i18nKey: "nav.dashboard", href: "/dashboard", icon: "◱" },
   { label: "New Leads", i18nKey: "nav.newLeads", href: "/leads", icon: "✦", countKey: "newLeads" },
+  { label: "Website Reservations", i18nKey: "nav.reservations", href: "/reservations", icon: "🧾", countKey: "reservations" },
   { label: "Qualified Leads", i18nKey: "nav.qualified", href: "/qualified", icon: "✓", countKey: "qualified" },
-  { label: "Booked", i18nKey: "nav.booked", href: "/booked", icon: "▣", countKey: "booked" },
-  { label: "Follow-Up Leads", i18nKey: "nav.followUp", href: "/follow-up", icon: "↻", countKey: "followUp" },
-  { label: "Post-Op Follow-Up", i18nKey: "nav.postOp", href: "/post-op", icon: "◌" },
-  { label: "Lost", i18nKey: "nav.lost", href: "/lost", icon: "×", countKey: "lost" },
+  { label: "Booked Leads", i18nKey: "nav.booked", href: "/booked", icon: "▣", countKey: "booked" },
+  { label: "Lost Leads", i18nKey: "nav.lost", href: "/lost", icon: "×", countKey: "lost" },
+  { label: "Follow-Up", i18nKey: "nav.followUp", href: "/follow-up", icon: "↻", countKey: "followUp" },
+  { label: "Post-Op F/U", i18nKey: "nav.postOp", href: "/post-op", icon: "◌" },
   { label: "Database", i18nKey: "nav.database", href: "/database", icon: "▤" },
   { label: "Duplicates", i18nKey: "nav.duplicates", href: "/duplicates", icon: "⧉", countKey: "duplicates" },
   { label: "Escalations", i18nKey: "nav.escalations", href: "/escalations", icon: "⚑", countKey: "escalations" },
-  { label: "Website Reservations", i18nKey: "nav.reservations", href: "/reservations", icon: "🧾", countKey: "reservations" },
-  { label: "Calendar", i18nKey: "nav.calendar", href: "/calendar", icon: "📅" },
   { label: "Financial", i18nKey: "nav.financial", href: "/financial", icon: "₤", roles: ["auditor", "admin"] },
-  { label: "Financial Settings", i18nKey: "nav.financialSettings", href: "/financial/settings", icon: "⚙", roles: ["auditor", "admin"] },
   { label: "Bulk Import", i18nKey: "nav.bulkImport", href: "/bulk-import", icon: "⇪", roles: ["auditor", "admin"] },
-  { label: "Auditor", i18nKey: "nav.auditor", href: "/auditor", icon: "✓", roles: ["auditor", "admin"] },
+  { label: "Auditor Dashboard", i18nKey: "nav.auditor", href: "/auditor", icon: "✓", roles: ["auditor", "admin"] },
   { label: "Reports", i18nKey: "nav.reports", href: "/reports", icon: "▦", roles: ["auditor", "admin"] },
   { label: "Emails", i18nKey: "nav.emails", href: "/emails", icon: "✉", roles: ["admin", "auditor"] },
   { label: "Audit Logs", i18nKey: "nav.auditLogs", href: "/audit-logs", icon: "≣", roles: ["admin", "auditor"] },
   // Mirrors the `users.view` capability: auditors may read the roster + history,
   // only admins may mutate access — enforced server-side, not by this list.
-  { label: "Users & Roles", i18nKey: "nav.users", href: "/settings/users", icon: "👥", roles: ["admin", "auditor"] },
+  { label: "User & Roles", i18nKey: "nav.users", href: "/settings/users", icon: "👥", roles: ["admin", "auditor"] },
   // Auditors own operational configuration (§C); admins additionally manage users.
   { label: "Settings", i18nKey: "nav.settings", href: "/settings", icon: "⚙", roles: ["admin", "auditor"] },
 ];

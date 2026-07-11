@@ -4,16 +4,9 @@ import { EmptyState } from "@/components/ui/EmptyState";
 
 const CHANNEL_LABEL: Record<Message["channel"], string> = {
   facebook: "Messenger",
-  instagram: "Instagram",
+  instagram: "Instagram DM",
   whatsapp: "WhatsApp",
   comment: "Comment",
-};
-
-/** sent → delivered → seen. Incoming messages have no status at all. */
-const STATUS_LABEL: Record<NonNullable<Message["deliveryStatus"]>, string> = {
-  sent: "Sent",
-  delivered: "Delivered",
-  seen: "Seen",
 };
 
 const ATTACHMENT_ICON: Record<string, string> = {
@@ -112,14 +105,10 @@ function Reactions({ message }: { message: Message }) {
   const rx = message.reactions ?? [];
   if (rx.length === 0) return null;
   return (
-    <div className="-mt-1.5 flex gap-1">
+    <div className="mt-1 flex flex-col gap-0.5 px-1 text-[10.5px] text-ink-400">
       {rx.map((r) => (
-        <span
-          key={r.id}
-          title={`${r.type ?? "reaction"} · ${formatDateTime(r.reactedAt)}`}
-          className="rounded-pill border border-line bg-panel px-1.5 py-0.5 text-[11px] shadow-sm"
-        >
-          {r.emoji ?? "👍"}
+        <span key={r.id} title={formatDateTime(r.reactedAt)}>
+          Reacted {r.emoji ?? r.type ?? "👍"} at {formatTime(r.reactedAt)}
         </span>
       ))}
     </div>
@@ -149,7 +138,8 @@ export function MessageThread({
           return (
             <div key={m.id} id={`msg-${m.id}`} className={"flex flex-col " + (out ? "items-end" : "items-start")}>
               <div className="mb-1 flex items-center gap-1.5 px-1 text-[10.5px] font-medium text-ink-400">
-                <span>{CHANNEL_LABEL[m.channel]}</span>
+                <span className={"rounded-pill border px-2 py-0.5 font-semibold " + (m.channel === "instagram" ? "border-pink-200 bg-pink-50 text-pink-700" : m.channel === "facebook" ? "border-blue-200 bg-blue-50 text-blue-700" : "border-emerald-200 bg-emerald-50 text-emerald-700")}>{CHANNEL_LABEL[m.channel]}</span>
+                <span>{out ? "Outgoing" : "Incoming"}</span>
                 {unanswered && (
                   <span className="rounded-pill bg-[#fffaeb] px-1.5 py-px text-[9.5px] font-semibold text-warn">
                     Waiting
@@ -214,8 +204,11 @@ export function MessageThread({
                         : undefined
                   }
                 >
-                  · {STATUS_LABEL[m.deliveryStatus]}
-                  {m.deliveryStatus === "seen" && m.seenAt ? ` ${formatTime(m.seenAt)}` : ""}
+                  · {m.deliveryStatus === "seen"
+                    ? `Read${m.seenAt ? ` at ${formatTime(m.seenAt)}` : ""}`
+                    : m.deliveryStatus === "delivered"
+                      ? `Delivered${m.deliveredAt ? ` at ${formatTime(m.deliveredAt)}` : ""}`
+                      : `Sent at ${formatTime(m.createdAt)}`}
                 </span>
               )}
               </div>

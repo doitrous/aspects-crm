@@ -59,13 +59,13 @@ export default async function Page({
 
   return (
     <>
-      <Topbar title="Database" search="All CRM leads" />
+      <Topbar title="Database" />
       <Suspense fallback={null}>
         <LeadsToolbar sources={sources} doctors={catalog.doctors.map((d) => ({ id: d.id, name: d.nameEn }))} specialties={catalog.specialties.map((s) => ({ id: s.id, name: s.nameEn }))} basePath="/database" />
       </Suspense>
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
-          Showing {leads.length} of {total} lead{total === 1 ? "" : "s"} · page {page} / {pageCount}
+          {`Showing ${leads.length} of ${total} leads · page ${page} / ${pageCount}`}
         </div>
         <LeadsTable leads={leads} now={NOW.toISOString()} />
         <div className="flex items-center justify-end gap-2 px-[18px] py-3 text-[12px]">

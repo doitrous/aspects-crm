@@ -220,21 +220,21 @@ async function loadDuplicateSet(): Promise<Set<string>> {
   return set;
 }
 
-async function loadTagsForLeadIds(leadUids: string[]): Promise<Map<string, string[]>> {
-  const map = new Map<string, string[]>();
+async function loadTagsForLeadIds(leadUids: string[]): Promise<Map<string, Array<{ name: string; color?: string }>>> {
+  const map = new Map<string, Array<{ name: string; color?: string }>>();
   if (leadUids.length === 0) return map;
   const { data, error } = await supabaseAdmin()
     .from("lead_tag_assignments")
-    .select("lead_id,lead_tags(name)")
+    .select("lead_id,lead_tags(name,color)")
     .in("lead_id", leadUids);
   if (error) throw new Error(`loadTagsForLeadIds: ${error.message}`);
   for (const row of (data ?? []) as unknown as Row[]) {
     const leadId = row.lead_id as string;
-    const rel = row.lead_tags as { name?: string | null } | { name?: string | null }[] | null;
+    const rel = row.lead_tags as { name?: string | null; color?: string | null } | { name?: string | null; color?: string | null }[] | null;
     const tag = Array.isArray(rel) ? rel[0] : rel;
     if (!tag?.name) continue;
     const tags = map.get(leadId) ?? [];
-    tags.push(tag.name);
+    tags.push({ name: tag.name, color: tag.color ?? undefined });
     map.set(leadId, tags);
   }
   return map;
@@ -369,7 +369,7 @@ function applyLeadFilters(query: any, filters: LeadFilters) {
   return q;
 }
 
-function mapLead(row: LeadRow, lk: Lookups, tags: string[] = [], followUp?: FollowUp): Lead {
+function mapLead(row: LeadRow, lk: Lookups, tagRows: Array<{ name: string; color?: string }> = [], followUp?: FollowUp): Lead {
   const gender = row.gender === "male" || row.gender === "female" ? row.gender : undefined;
   const lastMessageAt =
     row.last_incoming_at ?? row.last_outgoing_at ?? row.last_contact_at ?? row.updated_at;
@@ -397,7 +397,8 @@ function mapLead(row: LeadRow, lk: Lookups, tags: string[] = [], followUp?: Foll
     assignedModerator: row.coordinator_user_id
       ? lk.usersById.get(row.coordinator_user_id)
       : undefined,
-    tags,
+    tags: tagRows.map((tag) => tag.name),
+    tagColors: Object.fromEntries(tagRows.filter((tag) => tag.color).map((tag) => [tag.name, tag.color!])),
     unread: row.has_unread,
     attentionMessage: typeof metadata.moderator_notice === "string" ? metadata.moderator_notice : undefined,
     attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab as Lead["attentionTab"] : undefined,

@@ -66,7 +66,7 @@ export async function StageLeadsPage({
 
   return (
     <>
-      <Topbar title={title} search={`Search ${title.toLowerCase()}`} overdue={metrics.overdue} unread={metrics.unread} />
+      <Topbar title={title} overdue={metrics.overdue} unread={metrics.unread} />
       <Suspense fallback={null}>
         <LeadsToolbar
           sources={sources}
@@ -78,7 +78,7 @@ export async function StageLeadsPage({
       </Suspense>
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
-          Showing {leadPage.leads.length} of {leadPage.total} leads · page {leadPage.page} / {pageCount}
+          {`Showing ${leadPage.leads.length} of ${leadPage.total} leads · page ${leadPage.page} / ${pageCount}`}
         </div>
         <LeadsTable leads={leadPage.leads} now={NOW.toISOString()} />
         <div className="flex items-center justify-end gap-2 px-[18px] py-3 text-[12px]">

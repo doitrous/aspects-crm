@@ -930,7 +930,7 @@ export class SupabaseMetaStore implements MetaStore {
   }
 
   async log(entry: IngestLogInsert): Promise<void> {
-    await this.db.from("crm_ingest_logs").insert({
+    const { error } = await this.db.from("crm_ingest_logs").insert({
       source: entry.source,
       platform: entry.platform,
       record_type: entry.recordType,
@@ -952,8 +952,9 @@ export class SupabaseMetaStore implements MetaStore {
       skipped: entry.skipped,
       skip_reason: entry.skipReason,
       match_reason: entry.matchReason,
-      errors: entry.errors,
+      errors: entry.errors ?? [],
       raw_payload: entry.rawPayload ?? {},
     });
+    if (error) throw new Error(`ingestLog: ${error.message}`);
   }
 }

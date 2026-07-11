@@ -88,7 +88,7 @@ export function NotesTab({
             value={values[s.key]}
             onChange={(e) => setValues((v) => ({ ...v, [s.key]: e.target.value }))}
             placeholder={`Add ${s.title.toLowerCase()}…`}
-            className="min-h-[150px] w-full resize-y rounded-lg border border-line bg-panel p-2.5 text-[12.5px] text-ink-800 placeholder:text-ink-400"
+            className="min-h-[420px] w-full resize-y rounded-lg border border-line bg-panel p-3 text-[12.5px] text-ink-800 placeholder:text-ink-400"
           />
         </div>
       ))}

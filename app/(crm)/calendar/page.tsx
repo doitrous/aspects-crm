@@ -7,6 +7,8 @@ import { syncReservationsToLeads } from "@/lib/booking/sync";
 import { RESERVATION_STATUS_META } from "@/lib/reservationStatus";
 import { formatClock } from "@/lib/format";
 import type { Reservation } from "@/lib/types";
+import { pipelineCounts } from "@/lib/data";
+import { PipelineSummary } from "@/components/dashboard/PipelineSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -58,11 +60,13 @@ export default async function CalendarPage({
 }: {
   searchParams: Promise<{ month?: string }>;
 }) {
+  const pipeline = await pipelineCounts();
   if (!bookingConfigured()) {
     return (
       <>
         <Topbar title="Calendar" />
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto p-[18px]">
+          <PipelineSummary counts={pipeline} className="mb-6" />
           <EmptyState
             title="Booking integration not connected"
             hint="Set BOOKING_SUPABASE_URL and BOOKING_SUPABASE_SERVICE_ROLE_KEY in .env.local to sync the live booking calendar."
@@ -121,6 +125,7 @@ export default async function CalendarPage({
     <>
       <Topbar title="Calendar" />
       <div className="flex-1 overflow-auto p-[18px]">
+        <PipelineSummary counts={pipeline} className="mb-6" />
         {/* Month header + navigation */}
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>

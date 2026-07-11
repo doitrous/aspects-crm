@@ -291,6 +291,16 @@ export async function upsertBundle(input: {
   }
 }
 
+export async function addBundleComponent(input: { bundleId: string; serviceId: string | null; serviceName: string; quantity: number; doctorId: string; doctorName: string; compensationKind: "percentage" | "fixed"; compensationValue: number; compensationBasis: "quoted_price" | "net_after_consumables" }): Promise<void> {
+  const a = await actor();
+  if (!input.bundleId || !input.serviceName || !input.doctorId || !input.doctorName) throw new FinancialSettingsError("Choose a bundle, service, and treating doctor.");
+  if (input.compensationValue < 0 || (input.compensationKind === "percentage" && input.compensationValue > 100)) throw new FinancialSettingsError("Compensation value is outside the allowed range.");
+  const row = { bundle_id: input.bundleId, service_id: input.serviceId, service_name: input.serviceName, quantity: Math.max(0.01, input.quantity), doctor_id: input.doctorId, doctor_name: input.doctorName, compensation_kind: input.compensationKind, compensation_value: money(input.compensationValue), compensation_basis: input.compensationBasis };
+  const { data, error } = await supabaseAdmin().from("crm_financial_bundle_components").insert(row).select("id").single();
+  if (error || !data) throw new FinancialSettingsError(error?.message ?? "Could not add bundle service.");
+  await auditSetting({ actorId: a.id, action: "financial.bundle_component_created", entityType: "financial_bundle_component", entityId: data.id as string, newValues: row });
+}
+
 export async function upsertAddonRule(input: {
   triggerServiceId?: string | null;
   triggerServiceName: string;

@@ -15,7 +15,7 @@ import { listEscalationReasons } from "@/lib/data/settingsData";
 import { bookingCatalog } from "@/lib/booking/service";
 import { loadFollowUpPlan } from "@/lib/data/followupPlans";
 import { whatsappConfigured } from "@/lib/whatsapp/config";
-import type { Lead, PipelineStage, Platform } from "@/lib/types";
+import type { Lead, PipelineStage, Platform, TreatingDoctorAssignment } from "@/lib/types";
 
 const DB_TO_UI_STAGE: Record<string, PipelineStage> = {
   new_lead: "new",
@@ -99,7 +99,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
   const [tagsRes, userRes, lostReasonRes] = await Promise.all([
     supabaseAdmin()
       .from("lead_tag_assignments")
-      .select("lead_tags(name)")
+      .select("lead_tags(name,color)")
       .eq("lead_id", row.id),
     row.coordinator_user_id
       ? supabaseAdmin().from("crm_users").select("full_name,email").eq("id", row.coordinator_user_id).maybeSingle()
@@ -110,9 +110,10 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
   ]);
   if (tagsRes.error) throw new Error(`loadLeadShell(tags): ${tagsRes.error.message}`);
 
-  const tags = ((tagsRes.data ?? []) as { lead_tags?: { name?: string | null } | { name?: string | null }[] | null }[])
-    .map((r) => Array.isArray(r.lead_tags) ? r.lead_tags[0]?.name : r.lead_tags?.name)
-    .filter((name): name is string => Boolean(name));
+  const tagRows = ((tagsRes.data ?? []) as { lead_tags?: { name?: string | null; color?: string | null } | { name?: string | null; color?: string | null }[] | null }[])
+    .map((r) => Array.isArray(r.lead_tags) ? r.lead_tags[0] : r.lead_tags)
+    .filter((tag): tag is { name: string; color?: string | null } => Boolean(tag?.name));
+  const tags = tagRows.map((tag) => tag.name);
   const user = userRes.data as { full_name?: string | null; email?: string | null } | null;
   const lost = lostReasonRes.data as { label?: string | null } | null;
   const lastMessageAt = row.last_incoming_at ?? row.last_outgoing_at ?? row.last_contact_at ?? row.updated_at;
@@ -129,6 +130,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     platformId: row.platform_id ?? undefined,
     chatLink: row.chat_link ?? undefined,
     sourceId: row.source_id ?? undefined,
+    specialtyId: typeof metadata.specialty_id === "string" ? metadata.specialty_id : undefined,
     campaignId: row.campaign ?? undefined,
     serviceName: row.service_name ?? undefined,
     doctorId: row.doctor_id ?? undefined,
@@ -137,6 +139,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     stageHistory: [],
     assignedModerator: user ? (user.full_name?.trim() || user.email || undefined) : undefined,
     tags,
+    tagColors: Object.fromEntries(tagRows.filter((tag) => tag.color).map((tag) => [tag.name, tag.color!])),
     unread: row.has_unread,
     attentionMessage: typeof metadata.moderator_notice === "string" ? metadata.moderator_notice : undefined,
     attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab as Lead["attentionTab"] : undefined,
@@ -158,6 +161,27 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     },
     followUp: { status: "none" },
   };
+}
+
+async function treatingDoctorsFor(leadUid: string): Promise<TreatingDoctorAssignment[]> {
+  const { data, error } = await supabaseAdmin().from("crm_lead_treating_doctors")
+    .select("id,doctor_id,doctor_name,specialty_id,specialty_name,service_id,service_name,bundle_id,is_primary")
+    .eq("lead_id", leadUid).eq("active", true).order("is_primary", { ascending: false });
+  if (error) {
+    if (/does not exist|schema cache/i.test(error.message)) return [];
+    throw new Error(`treatingDoctorsFor: ${error.message}`);
+  }
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    doctorId: row.doctor_id as string,
+    doctorName: row.doctor_name as string,
+    specialtyId: (row.specialty_id as string | null) ?? undefined,
+    specialtyName: (row.specialty_name as string | null) ?? undefined,
+    serviceId: (row.service_id as string | null) ?? undefined,
+    serviceName: (row.service_name as string | null) ?? undefined,
+    bundleId: (row.bundle_id as string | null) ?? undefined,
+    primary: Boolean(row.is_primary),
+  }));
 }
 
 /**
@@ -212,6 +236,7 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
     availableTags,
     lostReasons,
     escalationReasons,
+    treatingDoctors: [],
     bookingCatalog: {
       configured: false,
       specialties: [],
@@ -255,7 +280,7 @@ async function duplicateGroupsWithMembers(id: string): Promise<LeadDetailData["d
 
 export async function loadLeadTab(
   id: string,
-  tab: "Overview" | "Messenger" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments" | "Payments / Financials" | "Log",
+  tab: "Overview" | "Messenger" | "Messenger / IG DM" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments" | "Payments / Financials" | "Log" | "Timeline",
 ): Promise<Partial<LeadDetailData> | null> {
   const { data: lead, error } = await supabaseAdmin()
     .from("leads")
@@ -266,14 +291,16 @@ export async function loadLeadTab(
   if (!lead) return null;
 
   if (tab === "Overview") {
-    const [attribution, messages] = await Promise.all([
+    const [attribution, messages, catalog, treatingDoctors] = await Promise.all([
       attributionFor(id),
       messagesFor(id),
+      bookingCatalog(),
+      treatingDoctorsFor(lead.id as string),
     ]);
-    return { attribution, messages: messages.slice(-1) };
+    return { attribution, messages: messages.slice(-1), bookingCatalog: catalog, treatingDoctors };
   }
 
-  if (tab === "Messenger") return { messages: await messagesFor(id, ["facebook", "instagram"]) };
+  if (tab === "Messenger" || tab === "Messenger / IG DM") return { messages: await messagesFor(id, ["facebook", "instagram"]) };
   if (tab === "WhatsApp") return { messages: await messagesFor(id, ["whatsapp"]), whatsappConfigured: whatsappConfigured() };
   if (tab === "Comments") return { comments: await commentsFor(id) };
   if (tab === "Follow-Up") return { followUpPlan: await loadFollowUpPlan(id) };
@@ -285,7 +312,7 @@ export async function loadLeadTab(
     const result = await loadFinancials(id);
     return { financials: result.financials, financialsError: result.error };
   }
-  if (tab === "Log") {
+  if (tab === "Log" || tab === "Timeline") {
     const [timeline, escalations, duplicateGroups] = await Promise.all([
       leadTimeline(id),
       escalationsFor(id),
@@ -342,5 +369,6 @@ export async function loadFullLeadDetail(id: string): Promise<LeadDetailData | n
     lostReasons: shell.lostReasons,
     escalationReasons: shell.escalationReasons,
     bookingCatalog: catalog,
+    treatingDoctors: await treatingDoctorsFor(shell.lead.uid!),
   };
 }

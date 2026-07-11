@@ -12,6 +12,7 @@ import {
   setLeadTagAssignments,
   snoozeFollowUp,
   updateLeadStage,
+  updateLeadProfile,
   LeadMutationError,
 } from "@/lib/data/leadMutations";
 import type { PipelineStage } from "@/lib/types";
@@ -57,6 +58,24 @@ export async function markLeadReadAction(leadId: string): Promise<LeadActionStat
   }
   refreshLeadLists();
   return { ok: "Marked as read.", error: null };
+}
+
+export async function updateLeadProfileAction(leadId: string, formData: FormData): Promise<LeadActionState> {
+  try {
+    await updateLeadProfile({
+      leadId,
+      name: String(formData.get("name") ?? ""),
+      phone: String(formData.get("phone") ?? ""),
+      gender: ["male", "female"].includes(String(formData.get("gender"))) ? String(formData.get("gender")) as "male" | "female" : null,
+      specialtyId: String(formData.get("specialtyId") ?? "") || null,
+      serviceId: String(formData.get("serviceId") ?? "") || null,
+      doctorIds: formData.getAll("doctorIds").map(String),
+    });
+  } catch (err) {
+    return toState(err);
+  }
+  refreshLeadLists();
+  return { ok: "Patient information saved.", error: null };
 }
 
 export async function updateLeadStageAction(

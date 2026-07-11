@@ -1,12 +1,10 @@
 export function Topbar({
   title,
-  search,
   overdue,
   unread,
   action,
 }: {
   title: string;
-  search?: string;
   overdue?: number;
   unread?: number;
   action?: React.ReactNode;
@@ -14,13 +12,6 @@ export function Topbar({
   return (
     <div className="flex h-[58px] flex-none items-center gap-3 border-b border-line-soft px-[18px]">
       <div className="text-[16px] font-bold text-ink-900">{title}</div>
-
-      {search !== undefined && (
-        <div className="flex h-[34px] max-w-[300px] flex-1 items-center gap-2 rounded-control border border-line px-[11px] text-[12.5px] text-ink-400">
-          <span>⌕</span>
-          {search}
-        </div>
-      )}
 
       <div className="flex-1" />
 

@@ -1031,8 +1031,8 @@ export function PaymentsTab({
   const cur = fin.currency;
 
   return (
-    <div className="flex flex-col gap-5 p-5">
-      <section>
+    <div className="flex flex-col gap-5 bg-toolbar/30 p-5 [&>section]:border [&>section]:border-line-soft [&>section]:bg-panel [&>section]:p-4 [&>section]:shadow-sm">
+      <section className="border-l-4 border-l-blue-500">
         <SectionLabel>Summary</SectionLabel>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Stat label="Quoted price" value={s.hasQuote ? formatMoney(s.quotedPrice, cur) : "—"} />
@@ -1053,6 +1053,15 @@ export function PaymentsTab({
       </section>
 
       <QuoteEditor fin={fin} onChanged={onChanged} />
+
+      <section className="border-l-4 border-l-amber-500">
+        <SectionLabel>Partial payment protocol</SectionLabel>
+        <ol className="grid gap-2 text-[12px] text-ink-700 md:grid-cols-3">
+          <li className="bg-amber-50 p-3"><strong className="block text-amber-800">1. Confirm the quote</strong>Save the full agreed service price first. Do not reduce the quote to the amount being paid today.</li>
+          <li className="bg-blue-50 p-3"><strong className="block text-blue-800">2. Record today&apos;s payment</strong>Add only the amount actually received, with its real method, date, and receipt reference.</li>
+          <li className="bg-emerald-50 p-3"><strong className="block text-emerald-800">3. Verify the balance</strong>The remaining amount stays in Outstanding Balance. Record each later installment as a new transaction.</li>
+        </ol>
+      </section>
 
       {fin.bundleItems.length > 0 && (
         <section>

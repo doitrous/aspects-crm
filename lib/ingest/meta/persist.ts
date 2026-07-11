@@ -204,10 +204,11 @@ async function handleContentMessage(
   const sem = classify(event);
   const { lead, created: leadCreated } = await resolveLead(store, event, sem.mayCreateLead);
   const conversation = await resolveConversation(store, event, lead?.id ?? null);
+  const effectiveLeadId = lead?.id ?? conversation?.leadId ?? null;
 
   const outgoing = event.direction === "outgoing";
   const { message, created } = await store.insertMessage({
-    leadId: lead?.id ?? null,
+    leadId: effectiveLeadId,
     conversationId: conversation?.id ?? null,
     eventKey: key,
     platform: event.platform,
@@ -299,14 +300,14 @@ async function handleContentMessage(
     });
   }
 
-  if (lead) {
-    if (sem.affectsUnread) await store.markLeadIncoming(lead.id, event.timestamp, message.id);
-    else if (outgoing) await store.markLeadOutgoing(lead.id, event.timestamp);
+  if (effectiveLeadId) {
+    if (sem.affectsUnread) await store.markLeadIncoming(effectiveLeadId, event.timestamp, message.id);
+    else if (outgoing) await store.markLeadOutgoing(effectiveLeadId, event.timestamp);
   }
 
   return outcome(event, key, {
     created: true,
-    leadId: lead?.id ?? null,
+    leadId: effectiveLeadId,
     messageId: message.id,
     skipReason: leadCreated ? "lead_created" : null,
   });

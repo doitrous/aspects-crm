@@ -128,8 +128,15 @@ function Metric({
   const auto = detail.autoMetrics[metricKey] ?? 0;
   const override = detail.overrides[metricKey];
   const isBase = editable && metricKey in FMT && !metricKey.includes("percent") && !["cpl", "cost_per_booking", "cost_per_qualified_lead"].includes(metricKey);
+  const semantic = /dropped|missed|overdue|red.flag|unanswered|waiting/i.test(metricKey)
+    ? "border-rose-200 bg-rose-50"
+    : /booked|completed|qualified/i.test(metricKey)
+      ? "border-emerald-200 bg-emerald-50"
+      : /payment|cost|cpl|spend/i.test(metricKey)
+        ? "border-blue-200 bg-blue-50"
+        : "border-line-soft bg-panel";
   return (
-    <div className={"rounded-control border p-3 " + (flagged ? "border-red-300 bg-red-50" : "border-line-soft bg-white")}>
+    <div className={"rounded-control border p-3 " + (flagged ? "border-red-300 bg-red-50" : semantic)}>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">{label}</div>
       <button
         onClick={onClick}

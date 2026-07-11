@@ -270,7 +270,34 @@ function isCommentRecord(o: Rec): boolean {
 
 /* ── the two normalizers ────────────────────────────────────────────────── */
 
-function normalizeMessage(o: Rec, now: () => Date): MetaMessageEvent {
+function normalizeMessage(input: Rec, now: () => Date): MetaMessageEvent {
+  // n8n normalizers sometimes preserve the complete Meta event under
+  // `raw_payload` while omitting critical top-level fields such as `mid`,
+  // sender and recipient. Recover those fields before canonicalizing so a
+  // message can always be targeted by echoes, reads, deliveries and reactions.
+  const raw = isRec(input["raw_payload"]) ? (input["raw_payload"] as Rec) : null;
+  const rawLooksNative = raw && (
+    isRec(raw["sender"]) || isRec(raw["recipient"]) || isRec(raw["message"]) ||
+    isRec(raw["delivery"]) || isRec(raw["read"]) || isRec(raw["reaction"])
+  );
+  const recovered = rawLooksNative
+    ? messagingToFlat(
+        raw,
+        { id: str(input, "page_id", "instagram_account_id") },
+        str(input, "webhook_object") ?? (toPlatform(input) === "instagram" ? "instagram" : "page"),
+      )
+    : {};
+  const o: Rec = { ...input };
+  for (const [field, value] of Object.entries(recovered)) {
+    if (o[field] === null || o[field] === undefined || o[field] === "") o[field] = value;
+  }
+  // Echo direction is platform truth; a normalizer must not turn a clinic reply
+  // into a second incoming patient message.
+  if (recovered["is_echo"] === true) {
+    o["is_echo"] = true;
+    o["direction"] = "outgoing";
+    o["platform_user_id"] = recovered["platform_user_id"];
+  }
   const platform = toPlatform(o);
   const isEcho = bool(o, "is_echo");
   const attachments = toAttachments(o);

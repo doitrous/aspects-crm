@@ -4,6 +4,7 @@ import { writeActor } from "@/lib/data/actor";
 import { ensureFollowUpPlanForLead } from "@/lib/data/followupPlans";
 import { assertCan } from "@/lib/auth/permissions";
 import type { PipelineStage, ReferenceOption } from "@/lib/types";
+import { bookingCatalog } from "@/lib/booking/service";
 
 type NoteKey = "clientNotes" | "medicalHistory" | "generalNotes";
 
@@ -97,6 +98,67 @@ export async function markLeadRead(leadId: string): Promise<void> {
     newValues: { has_unread: false },
     metadata: { lead_id: leadId, actor_name: actor.name },
   });
+}
+
+export async function updateLeadProfile(input: {
+  leadId: string;
+  name: string;
+  phone: string;
+  gender: "male" | "female" | null;
+  specialtyId: string | null;
+  serviceId: string | null;
+  doctorIds: string[];
+}): Promise<void> {
+  const actor = await writeLeadActor();
+  const [lead, catalog] = await Promise.all([resolveLead(input.leadId), bookingCatalog()]);
+  const name = input.name.trim();
+  const phone = input.phone.trim();
+  if (!name) throw new LeadMutationError("Patient name is required.");
+  if (!phone) throw new LeadMutationError("Phone number is required.");
+  const specialty = catalog.specialties.find((row) => row.id === input.specialtyId);
+  const service = catalog.services.find((row) => row.id === input.serviceId);
+  const selectedDoctors = [...new Set(input.doctorIds)].map((id) => catalog.doctors.find((row) => row.id === id)).filter((row): row is NonNullable<typeof row> => Boolean(row));
+  if (input.doctorIds.length && selectedDoctors.length !== new Set(input.doctorIds).size) throw new LeadMutationError("One or more selected doctors are not in the Admin doctor catalog.");
+  const digits = phone.replace(/\D/g, "");
+  const ccMatch = phone.match(/^\s*(\+\d{1,4})[\s-]+(.+)$/);
+  const db = supabaseAdmin();
+  const { error: assignmentSchemaError } = await db.from("crm_lead_treating_doctors").select("id").limit(1);
+  if (assignmentSchemaError) throw new LeadMutationError("Treating-doctor storage is not available until migration 0019 is applied.");
+  const { data: before, error: beforeError } = await db.from("leads").select("name,phone_country_code,phone_number,gender,service_name,doctor_id,metadata").eq("id", lead.id).single();
+  if (beforeError) throw new Error(`updateLeadProfile(read): ${beforeError.message}`);
+  const patch = {
+    name,
+    phone_country_code: ccMatch?.[1] ?? null,
+    phone_number: (ccMatch?.[2] ?? phone).replace(/\s+/g, " "),
+    normalized_phone: digits || null,
+    gender: input.gender,
+    service_name: service?.nameEn ?? null,
+    doctor_id: selectedDoctors[0]?.id ?? null,
+    metadata: { ...((before.metadata as Record<string, unknown> | null) ?? {}), specialty_id: specialty?.id ?? null },
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await db.from("leads").update(patch).eq("id", lead.id);
+  if (error) throw new Error(`updateLeadProfile: ${error.message}`);
+  const { error: deactivateError } = await db.from("crm_lead_treating_doctors").update({ active: false, updated_at: new Date().toISOString() }).eq("lead_id", lead.id);
+  if (deactivateError) throw new Error(`updateLeadProfile(doctors): ${deactivateError.message}`);
+  if (selectedDoctors.length) {
+    const rows = selectedDoctors.map((doctor, index) => ({
+      lead_id: lead.id,
+      doctor_id: doctor.id,
+      doctor_name: doctor.nameEn,
+      specialty_id: doctor.specialtyId || specialty?.id || null,
+      specialty_name: catalog.specialties.find((row) => row.id === (doctor.specialtyId || specialty?.id))?.nameEn ?? null,
+      service_id: service?.id ?? null,
+      service_name: service?.nameEn ?? null,
+      is_primary: index === 0,
+      active: true,
+      created_by: actor.id,
+      updated_at: new Date().toISOString(),
+    }));
+    const { error: assignmentError } = await db.from("crm_lead_treating_doctors").upsert(rows, { onConflict: "lead_id,doctor_id,service_id" });
+    if (assignmentError) throw new Error(`updateLeadProfile(assign doctors): ${assignmentError.message}`);
+  }
+  await audit({ actorId: actor.id, action: "lead.profile_updated", entityType: "lead", entityId: lead.id, oldValues: before as Record<string, unknown>, newValues: { ...patch, treating_doctor_ids: selectedDoctors.map((doctor) => doctor.id) }, metadata: { lead_id: input.leadId, actor_name: actor.name } });
 }
 
 async function audit(params: {

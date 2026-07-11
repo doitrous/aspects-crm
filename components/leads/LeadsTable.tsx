@@ -94,7 +94,11 @@ export function LeadsTable({ leads, now }: { leads: Lead[]; now: string }) {
                   {lead.tags.length > 0 && (
                     <div className="mt-1 flex max-w-[280px] flex-wrap gap-1">
                       {lead.tags.map((tag) => (
-                        <span key={tag} className="rounded-pill border border-primary/20 bg-primary-soft px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                        <span
+                          key={tag}
+                          className="rounded-pill border px-1.5 py-0.5 text-[10px] font-semibold"
+                          style={{ borderColor: `${lead.tagColors?.[tag] ?? "#2f6fed"}55`, backgroundColor: `${lead.tagColors?.[tag] ?? "#2f6fed"}18`, color: lead.tagColors?.[tag] ?? "#2f6fed" }}
+                        >
                           {tag}
                         </span>
                       ))}

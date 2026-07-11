@@ -120,6 +120,7 @@ export type StaffCommissionRule = {
   commissionPct: number;
   active: boolean;
 };
+export type FinancialBundleComponent = { id: string; bundleId: string; serviceId: string | null; serviceName: string; quantity: number; doctorId: string | null; doctorName: string | null; compensationKind: "percentage" | "fixed" | null; compensationValue: number | null; compensationBasis: "quoted_price" | "net_after_consumables" };
 
 export type FinancialSettingsData = {
   services: FinancialServiceSetting[];
@@ -133,6 +134,7 @@ export type FinancialSettingsData = {
   paymentMethods: PaymentMethod[];
   paymentMethodSettings: PaymentMethodSetting[];
   bundles: FinancialBundle[];
+  bundleComponents: FinancialBundleComponent[];
   addonRules: AddonRule[];
   staffCommissionRules: StaffCommissionRule[];
   externalCostCategories: ExternalCostCategory[];
@@ -170,6 +172,7 @@ export async function financialSettingsData(): Promise<FinancialSettingsData> {
     externalDefaults,
     moderatorsRes,
     bundlesRes,
+    bundleComponentsRes,
     addonRulesRes,
     paymentMethodsRes,
     commissionsRes,
@@ -183,6 +186,7 @@ export async function financialSettingsData(): Promise<FinancialSettingsData> {
     db.from("crm_service_external_cost_defaults").select("*").order("service_name"),
     db.from("crm_users").select("id,full_name,email").in("role", ["moderator", "manager", "owner_admin"]).eq("is_active", true).order("full_name"),
     db.from("crm_financial_bundles").select("*").order("created_at", { ascending: false }).limit(30),
+    db.from("crm_financial_bundle_components").select("*").order("display_order").limit(300),
     db.from("crm_service_addon_rules").select("*").order("created_at", { ascending: false }).limit(30),
     db.from("crm_payment_method_settings").select("*").order("display_order").limit(30),
     db.from("crm_staff_commission_rules").select("*").order("created_at", { ascending: false }).limit(30),
@@ -323,6 +327,7 @@ export async function financialSettingsData(): Promise<FinancialSettingsData> {
       startsOn: (r.starts_on as string | null) ?? null,
       expiresOn: (r.expires_on as string | null) ?? null,
     })),
+    bundleComponents: ((bundleComponentsRes.data ?? []) as Record<string, unknown>[]).map((r) => ({ id: r.id as string, bundleId: r.bundle_id as string, serviceId: (r.service_id as string | null) ?? null, serviceName: r.service_name as string, quantity: num(r.quantity), doctorId: (r.doctor_id as string | null) ?? null, doctorName: (r.doctor_name as string | null) ?? null, compensationKind: (r.compensation_kind as "percentage" | "fixed" | null) ?? null, compensationValue: r.compensation_value == null ? null : num(r.compensation_value), compensationBasis: (r.compensation_basis as "quoted_price" | "net_after_consumables") ?? "quoted_price" })),
     addonRules: ((addonRulesRes.data ?? []) as Record<string, unknown>[]).map((r) => ({
       id: r.id as string,
       triggerServiceName: r.trigger_service_name as string,

@@ -27,7 +27,7 @@ export interface SignInState {
 function safeNext(next: FormDataEntryValue | null): string {
   const value = typeof next === "string" ? next : "";
   if (value.startsWith("/") && !value.startsWith("//")) return value;
-  return "/dashboard";
+  return "/calendar";
 }
 
 /**

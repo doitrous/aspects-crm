@@ -55,13 +55,13 @@ export default async function QualifiedLeadsPage({ searchParams }: { searchParam
 
   return (
     <>
-      <Topbar title="Qualified Leads" search="Search qualified patients" overdue={m.overdue} unread={m.unread} />
+      <Topbar title="Qualified Leads" overdue={m.overdue} unread={m.unread} />
       <Suspense fallback={null}>
         <LeadsToolbar sources={sources} doctors={catalog.doctors.map((d) => ({ id: d.id, name: d.nameEn }))} specialties={catalog.specialties.map((s) => ({ id: s.id, name: s.nameEn }))} basePath="/qualified" stageLocked />
       </Suspense>
       <div className="flex-1 overflow-auto">
         <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
-          Showing {leads.length} of {total} lead{total === 1 ? "" : "s"} · page {page} / {pageCount}
+          {`Showing ${leads.length} of ${total} leads · page ${page} / ${pageCount}`}
         </div>
         <LeadsTable leads={leads} now={NOW.toISOString()} />
         <div className="flex items-center justify-end gap-2 px-[18px] py-3 text-[12px]">

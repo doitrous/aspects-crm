@@ -23,7 +23,7 @@ export default async function LoginPage({
 
   // A valid Supabase session AND an active `crm_users` profile means they're in.
   const user = await getSessionUser();
-  if (user) redirect(next?.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
+  if (user) redirect(next?.startsWith("/") && !next.startsWith("//") ? next : "/calendar");
 
   // Authenticated with Supabase, but no active CRM profile: don't show a login
   // form they'd fill in pointlessly — show why, and let them sign out.
@@ -57,7 +57,7 @@ export default async function LoginPage({
               </form>
             </div>
           ) : (
-            <LoginForm next={next ?? "/dashboard"} notice={noticeFor(error, false)} />
+            <LoginForm next={next ?? "/calendar"} notice={noticeFor(error, false)} />
           )}
         </div>
       </div>

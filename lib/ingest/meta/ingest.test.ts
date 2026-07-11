@@ -1096,3 +1096,47 @@ test("status events never inflate Total Messages, Total Leads, unread or SLA", a
   );
   assert.equal(s.reactions.length, 1, "the reaction is stored against its target message");
 });
+
+test("n8n payload recovers Meta message identifiers from raw_payload", async () => {
+  const s = newStore();
+  const raw = {
+    sender: { id: "PSID_RAW" },
+    recipient: { id: "PAGE1" },
+    timestamp: ms(0),
+    message: { mid: "mid.raw.1", text: "Preserve me" },
+  };
+
+  await ingest(s, {
+    record_type: "message",
+    event_type: "message",
+    platform: "facebook",
+    page_id: "PAGE1",
+    platform_user_id: "PSID_RAW",
+    identity_confidence: "strong",
+    conversation_key: "fb:PAGE1:PSID_RAW",
+    direction: "incoming",
+    message_text: "Preserve me",
+    message_timestamp: T0,
+    raw_payload: raw,
+  });
+
+  assert.equal(s.messages.length, 1);
+  assert.equal(s.messages[0].platformMessageId, "mid.raw.1");
+  assert.equal(s.messages[0].senderId, "PSID_RAW");
+  assert.equal(s.messages[0].recipientId, "PAGE1");
+
+  await ingest(s, {
+    record_type: "message",
+    event_type: "message",
+    platform: "facebook",
+    page_id: "PAGE1",
+    platform_user_id: "PSID_RAW",
+    identity_confidence: "strong",
+    conversation_key: "fb:PAGE1:PSID_RAW",
+    direction: "incoming",
+    message_text: "Preserve me",
+    message_timestamp: T0,
+    raw_payload: raw,
+  });
+  assert.equal(s.messages.length, 1, "recovered mid remains the dedupe key on retry");
+});

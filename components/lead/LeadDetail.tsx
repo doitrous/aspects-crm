@@ -16,6 +16,7 @@ import type {
   Platform,
   ReferenceOption,
   TimelineEvent,
+  TreatingDoctorAssignment,
 } from "@/lib/types";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -46,6 +47,7 @@ import {
   snoozeFollowUpAction,
   updateLeadStageAction,
   markLeadReadAction,
+  updateLeadProfileAction,
 } from "@/app/(crm)/leads/actions";
 import {
   resolveEscalationAction,
@@ -53,22 +55,31 @@ import {
 } from "@/app/(crm)/escalations/actions";
 import { resolveDuplicateAction } from "@/app/(crm)/duplicates/actions";
 import { EscalationResolutionControls } from "@/components/queues/EscalationResolutionControls";
+import { mergeMessages } from "@/lib/messages/merge";
 
 const TABS = [
   "Overview",
-  "Messenger",
+  "Messenger / IG DM",
   "WhatsApp",
   "Comments",
   "Notes",
   "Follow-Up",
   "Booking",
-  "Payments / Financials",
-  "Log",
+  "Payments",
+  "Timeline",
 ] as const;
 type Tab = (typeof TABS)[number];
-type LoadableTab = "Overview" | "Messenger" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments / Financials" | "Log";
+type LoadableTab = "Overview" | "Messenger / IG DM" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments" | "Timeline";
 
 const tabCache = new Map<string, Partial<LeadDetailData>>();
+
+function mergeTabPayload(current: LeadDetailData, payload: Partial<LeadDetailData>): LeadDetailData {
+  return {
+    ...current,
+    ...payload,
+    messages: payload.messages ? mergeMessages(current.messages, payload.messages) : current.messages,
+  };
+}
 
 /** Short channel label shown next to the status badge, e.g. "IG DM". */
 const CHANNEL_LABEL: Record<Platform, string> = {
@@ -142,6 +153,7 @@ export interface LeadDetailData {
   availableTags: ReferenceOption[];
   lostReasons: ReferenceOption[];
   escalationReasons: Array<ReferenceOption & { severity?: string }>;
+  treatingDoctors: TreatingDoctorAssignment[];
 }
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -197,15 +209,15 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
   }, [requestedTab]);
 
   useEffect(() => {
-    const loadable: LoadableTab[] = ["Overview", "Messenger", "WhatsApp", "Comments", "Follow-Up", "Booking", "Payments / Financials", "Log"];
+    const loadable: LoadableTab[] = ["Overview", "Messenger / IG DM", "WhatsApp", "Comments", "Follow-Up", "Booking", "Payments", "Timeline"];
     if (!loadable.includes(tab as LoadableTab)) return;
     if (loadedTabs.has(tab)) return;
     const cacheKey = `${lead.id}:${tab}`;
     const cached = tabCache.get(cacheKey);
     if (cached) {
-      setData((current) => ({ ...current, ...cached }));
-      setLoadedTabs((current) => new Set(current).add(tab));
-      return;
+      // Show cached data immediately, then continue to the network request so
+      // newly ingested messages and receipt metadata replace stale copies.
+      setData((current) => mergeTabPayload(current, cached));
     }
 
     let cancelled = false;
@@ -222,7 +234,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
       .then((payload) => {
         if (cancelled) return;
         tabCache.set(cacheKey, payload);
-        setData((current) => ({ ...current, ...payload }));
+        setData((current) => mergeTabPayload(current, payload));
         setLoadedTabs((current) => new Set(current).add(tab));
       })
       .catch((err) => {
@@ -432,12 +444,6 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               Escalate
             </button>
           )}
-          <button
-            onClick={() => setTab("Messenger")}
-            className="rounded-control border border-line px-3.5 py-2 text-[12.5px] font-medium text-ink-700 hover:border-primary hover:text-primary"
-          >
-            Reply
-          </button>
         </div>
         {(actionError || actionOk) && (
           <div
@@ -486,7 +492,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
             {lead.attentionMessage && (
               <button
                 type="button"
-                onClick={() => setTab((lead.attentionTab as Tab | undefined) ?? "Log")}
+                onClick={() => setTab(lead.attentionTab === "Log" ? "Timeline" : lead.attentionTab === "Messenger" ? "Messenger / IG DM" : (lead.attentionTab as Tab | undefined) ?? "Timeline")}
                 className="rounded-control border border-amber-300 bg-amber-50 px-3 py-2 text-left text-[12.5px] font-semibold text-amber-900 hover:border-amber-500"
               >
                 <span className="block text-[11px] uppercase text-amber-700">Escalation resolved</span>
@@ -494,6 +500,33 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 <span className="mt-1 block text-[11px] text-primary">Open admin / auditor message →</span>
               </button>
             )}
+            <section>
+              <div className="mb-2 flex items-center justify-between"><SectionLabel>Patient information</SectionLabel><span className="text-[10.5px] text-ink-400">Select all treating doctors that apply</span></div>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const formData = new FormData(event.currentTarget);
+                  run(() => updateLeadProfileAction(lead.id, formData), () => {
+                    const specialtyId = String(formData.get("specialtyId") ?? "") || undefined;
+                    const serviceId = String(formData.get("serviceId") ?? "");
+                    const doctorIds = formData.getAll("doctorIds").map(String);
+                    const service = data.bookingCatalog.services.find((row) => row.id === serviceId);
+                    const doctors = data.bookingCatalog.doctors.filter((row) => doctorIds.includes(row.id));
+                    setData((current) => ({ ...current, lead: { ...current.lead, patientName: String(formData.get("name")), phone: String(formData.get("phone")), gender: (String(formData.get("gender")) || undefined) as Lead["gender"], specialtyId, serviceName: service?.nameEn, doctorId: doctors[0]?.id, doctorName: doctors[0]?.nameEn }, treatingDoctors: doctors.map((doctor, index) => ({ id: doctor.id, doctorId: doctor.id, doctorName: doctor.nameEn, specialtyId: doctor.specialtyId, serviceId: service?.id, serviceName: service?.nameEn, primary: index === 0 })) }));
+                    invalidateTab("Overview");
+                  });
+                }}
+                className="grid gap-3 border-y border-line-soft py-3 md:grid-cols-2 xl:grid-cols-3"
+              >
+                <label className="text-[11.5px] font-semibold text-ink-500">Name<input data-patient-content name="name" required defaultValue={lead.patientName} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]" /></label>
+                <label className="text-[11.5px] font-semibold text-ink-500">Phone<input data-patient-content name="phone" required defaultValue={lead.phone} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]" /></label>
+                <label className="text-[11.5px] font-semibold text-ink-500">Gender<select name="gender" defaultValue={lead.gender ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Not specified</option><option value="female">Female</option><option value="male">Male</option></select></label>
+                <label className="text-[11.5px] font-semibold text-ink-500">Specialty<select name="specialtyId" defaultValue={lead.specialtyId ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Choose specialty</option>{data.bookingCatalog.specialties.map((row) => <option key={row.id} value={row.id}>{row.nameEn}</option>)}</select></label>
+                <label className="text-[11.5px] font-semibold text-ink-500">Service<select name="serviceId" defaultValue={data.bookingCatalog.services.find((row) => row.nameEn === lead.serviceName)?.id ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Choose service</option>{data.bookingCatalog.services.map((row) => <option key={row.id} value={row.id}>{row.nameEn}</option>)}</select></label>
+                <div className="text-[11.5px] font-semibold text-ink-500"><span>Treating doctors</span><div className="mt-1 max-h-28 overflow-auto rounded-control border border-line bg-panel p-2">{data.bookingCatalog.doctors.map((doctor) => <label key={doctor.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="doctorIds" value={doctor.id} defaultChecked={data.treatingDoctors.some((row) => row.doctorId === doctor.id) || (!data.treatingDoctors.length && lead.doctorId === doctor.id)} />{doctor.nameEn}</label>)}</div></div>
+                <div className="md:col-span-2 xl:col-span-3 flex justify-end"><button disabled={pending || !data.bookingCatalog.configured} className="rounded-control bg-primary px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-50">{pending ? "Saving..." : "Save patient information"}</button></div>
+              </form>
+            </section>
             {/* Lead details */}
             <section>
               <SectionLabel>Lead details</SectionLabel>
@@ -550,10 +583,9 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                     key={tag.id}
                     className={
                       "inline-flex items-center gap-1 rounded-pill border px-2.5 py-1 text-[11.5px] font-medium " +
-                      (selected
-                        ? "border-primary bg-primary-soft text-primary"
-                        : "border-line bg-panel text-ink-500")
+                      (selected ? "" : "border-line bg-panel text-ink-500")
                     }
+                    style={selected ? { borderColor: `${tag.color ?? "#2f6fed"}55`, backgroundColor: `${tag.color ?? "#2f6fed"}18`, color: tag.color ?? "#2f6fed" } : undefined}
                   >
                     <button
                       type="button"
@@ -588,7 +620,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                   </div>
                   <p className="text-[12.5px] leading-relaxed text-ink-700">{latestMessage.body}</p>
                   <button
-                    onClick={() => setTab("Messenger")}
+                    onClick={() => setTab("Messenger / IG DM")}
                     className="mt-2 text-[12px] font-semibold text-primary hover:underline"
                   >
                     Open conversation →
@@ -606,7 +638,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
           </div>
         )}
 
-        {tab === "Messenger" && (
+        {tab === "Messenger / IG DM" && (
           <MessageThread
             messages={data.messages.filter(
               (m) => m.channel === "facebook" || m.channel === "instagram",
@@ -680,19 +712,19 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
           )
         )}
 
-        {tab === "Payments / Financials" && (
-          loadedTabs.has("Payments / Financials") ? (
+        {tab === "Payments" && (
+          loadedTabs.has("Payments") ? (
             <PaymentsTab
               financials={data.financials}
               error={data.financialsError}
-              onChanged={() => invalidateTab("Payments / Financials")}
+              onChanged={() => invalidateTab("Payments")}
             />
           ) : (
             <div className="p-5 text-[12px] text-ink-400">Loading financials...</div>
           )
         )}
 
-        {tab === "Log" && (
+        {tab === "Timeline" && (
           <div className="flex flex-col gap-7 p-5">
             <div>
               <SectionLabel>Timeline</SectionLabel>
@@ -1173,10 +1205,9 @@ function TimelinePanel({ events, embedded }: { events: TimelineEvent[]; embedded
               style={{ backgroundColor: eventDotColor(e) }}
             />
             <div className="text-[13.5px] font-semibold text-ink-900">{eventLabel(e)}</div>
-            {e.body && <div data-patient-content className="mt-1 whitespace-pre-wrap rounded-control bg-line-faint/60 px-2.5 py-2 text-[12px] text-ink-700">{e.body}</div>}
-            <div className="mt-0.5 text-[12px] text-ink-400">
-              {formatDateTime(e.at)}
-              {e.actor ? ` · ${e.actor}` : ""}
+            <div className="mt-1 border border-line-soft bg-panel px-3 py-2 shadow-sm">
+              {e.body && <div data-patient-content className="whitespace-pre-wrap text-[12px] text-ink-700">{e.body}</div>}
+              <div className="mt-1 text-[11px] text-ink-400">{formatDateTime(e.at)}{e.actor ? ` · ${e.actor}` : ""}</div>
             </div>
           </div>
         ))}

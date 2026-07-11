@@ -17,6 +17,7 @@ type SP = {
   lead?: string;
   from?: string;
   to?: string;
+  page?: string;
 };
 
 function ChangeCell({ row }: { row: ActivityRow }) {
@@ -49,7 +50,7 @@ export default async function AuditLogsPage({ searchParams }: { searchParams: Pr
   if (!can(user.role, "audit.view")) notFound();
 
   const sp = await searchParams;
-  const rows = await listActivity({
+  const allRows = await listActivity({
     entityType: sp.entity?.trim() || undefined,
     action: sp.action?.trim() || undefined,
     actorId: sp.user?.trim() || undefined,
@@ -59,6 +60,15 @@ export default async function AuditLogsPage({ searchParams }: { searchParams: Pr
     dateTo: sp.to || undefined,
     limit: 500,
   });
+  const page = Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1);
+  const pageSize = 30;
+  const rows = allRows.slice((page - 1) * pageSize, page * pageSize);
+  const pageCount = Math.max(1, Math.ceil(allRows.length / pageSize));
+  const pageHref = (next: number) => {
+    const params = new URLSearchParams(Object.entries(sp).filter(([key, value]) => key !== "page" && Boolean(value)) as Array<[string, string]>);
+    params.set("page", String(next));
+    return `/audit-logs?${params.toString()}`;
+  };
 
   const fieldCls =
     "h-[32px] rounded-control border border-line px-2.5 text-[12px] text-ink-800 outline-none focus:border-primary bg-panel";
@@ -141,6 +151,13 @@ export default async function AuditLogsPage({ searchParams }: { searchParams: Pr
             </table>
           </Card>
         )}
+        <div className="mt-3 flex items-center justify-between text-[11.5px] text-ink-500">
+          <span>Page {page} of {pageCount} · maximum 30 entries per page</span>
+          <div className="flex gap-2">
+            {page > 1 ? <a href={pageHref(page - 1)} className="rounded-control border border-line px-3 py-1.5 font-semibold text-ink-700">Previous</a> : <span className="rounded-control border border-line px-3 py-1.5 opacity-40">Previous</span>}
+            {page < pageCount ? <a href={pageHref(page + 1)} className="rounded-control border border-line px-3 py-1.5 font-semibold text-ink-700">Next</a> : <span className="rounded-control border border-line px-3 py-1.5 opacity-40">Next</span>}
+          </div>
+        </div>
       </div>
     </>
   );

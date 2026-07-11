@@ -42,8 +42,8 @@ export function PreferencesMenu({ locale, theme }: { locale: Locale; theme: Them
   }
 
   const segBtn = (active: boolean) =>
-    "flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors " +
-    (active ? "bg-primary text-white" : "text-ink-500 hover:bg-line-faint");
+    "flex-1 rounded-control px-2 py-1.5 text-[11px] font-semibold transition-all " +
+    (active ? "bg-panel text-primary shadow-sm ring-1 ring-line" : "text-ink-500 hover:text-ink-800");
 
   return (
     <div className={"mt-auto flex flex-col gap-2 border-t border-line-soft pt-3 " + (pending ? "opacity-70" : "")}>
@@ -51,16 +51,16 @@ export function PreferencesMenu({ locale, theme }: { locale: Locale; theme: Them
         <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-400">
           {t("pref.language")}
         </div>
-        <div className="flex gap-1 rounded-lg bg-line-faint/60 p-0.5">
-          <button onClick={() => applyLocale("en")} className={segBtn(locale === "en")}>English</button>
-          <button onClick={() => applyLocale("ar")} className={segBtn(locale === "ar")}>العربية</button>
+        <div className="flex gap-1 rounded-control border border-line-soft bg-toolbar p-1">
+          <button onClick={() => applyLocale("en")} className={segBtn(locale === "en")}><span className="me-1 font-mono">EN</span> English</button>
+          <button onClick={() => applyLocale("ar")} className={segBtn(locale === "ar")}><span className="me-1 font-mono">AR</span> العربية</button>
         </div>
       </div>
       <div>
         <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-400">
           {t("pref.theme")}
         </div>
-        <div className="flex gap-1 rounded-lg bg-line-faint/60 p-0.5">
+        <div className="flex gap-1 rounded-control border border-line-soft bg-toolbar p-1">
           <button onClick={() => applyTheme("light")} className={segBtn(theme === "light")}>☀ {t("pref.light")}</button>
           <button onClick={() => applyTheme("dark")} className={segBtn(theme === "dark")}>☾ {t("pref.dark")}</button>
         </div>
