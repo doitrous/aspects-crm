@@ -8,6 +8,7 @@ import { syncReservationsToLeads } from "@/lib/booking/sync";
 import { RESERVATION_STATUS_META, isNewReservation } from "@/lib/reservationStatus";
 import { formatDate, formatClock } from "@/lib/format";
 import type { Reservation } from "@/lib/types";
+import { Card } from "@/components/ui/Card";
 
 export const dynamic = "force-dynamic";
 
@@ -47,11 +48,16 @@ export default async function ReservationsPage() {
   return (
     <>
       <Topbar title="Website Reservations" unread={newCount} />
-      <div className="flex-1 overflow-auto">
-        <div className="px-[18px] py-2 text-[11.5px] text-ink-400">
-          {reservations.length} reservation{reservations.length === 1 ? "" : "s"} · {newCount} new ·
-          live from the booking website
+      <div className="flex-1 overflow-auto bg-canvas px-[18px] py-4">
+        <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {[
+            ["All reservations", reservations.length, "border-blue-200 bg-blue-50 text-blue-800"],
+            ["New", newCount, "border-violet-200 bg-violet-50 text-violet-800"],
+            ["Confirmed", reservations.filter((r) => r.status === "confirmed").length, "border-emerald-200 bg-emerald-50 text-emerald-800"],
+            ["Needs review", reservations.filter((r) => r.status === "reserved").length, "border-amber-200 bg-amber-50 text-amber-800"],
+          ].map(([label, value, cls]) => <div key={String(label)} className={`rounded-xl border p-3 ${cls}`}><div className="text-[10.5px] font-bold uppercase tracking-wide opacity-70">{label}</div><div className="mt-1 text-[22px] font-black">{value}</div></div>)}
         </div>
+        <div className="mb-3 flex items-center justify-between"><div><h2 className="text-[15px] font-black text-ink-900">Website booking queue</h2><p className="text-[11.5px] text-ink-500">Live from the booking website · same patient workflow as the lead queues</p></div><span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10.5px] font-bold text-emerald-700">● Live sync</span></div>
 
         {reservations.length === 0 ? (
           <EmptyState
@@ -59,7 +65,7 @@ export default async function ReservationsPage() {
             hint="New patient bookings from the website will appear here in real time."
           />
         ) : (
-          <div className="overflow-x-auto">
+          <Card className="overflow-x-auto">
             <table className="w-full min-w-[980px] border-collapse text-[12.5px]">
               <thead>
                 <tr className="border-b border-line-soft text-left text-[11px] font-semibold uppercase tracking-wide text-ink-400">
@@ -134,7 +140,7 @@ export default async function ReservationsPage() {
                 })}
               </tbody>
             </table>
-          </div>
+          </Card>
         )}
       </div>
     </>

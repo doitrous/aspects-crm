@@ -11,6 +11,7 @@ import {
 import { Card } from "@/components/ui/Card";
 import type { AuditReportDetail, DroppedLead, AuditorFilterOptions } from "@/lib/data/auditor";
 import type { AuditorMetrics } from "@/lib/auditor/kpi";
+import { QuickCopy } from "@/components/reports/QuickCopy";
 
 type Fmt = "int" | "pct" | "egp";
 
@@ -221,6 +222,7 @@ export function AuditorReport({
   const editable = canGenerate && detail !== null && !finalized(detail.status);
   const selectCls =
     "rounded-control border border-line-soft bg-panel px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary";
+  const shareText = detail ? [`Auditor report — ${date}`, ...Object.entries(detail.metrics).map(([key,value]) => `${key}: ${value}${detail.overrides[key] ? ` [OVERRIDDEN — ${detail.overrides[key].reason}]` : ""}`)].join("\n") : "";
 
   return (
     <div className="flex flex-col gap-4">
@@ -256,6 +258,7 @@ export function AuditorReport({
         </form>
         {detail && <StatusBadge status={detail.status} />}
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {detail && <QuickCopy text={shareText} />}
           {canGenerate && (
             <ActionForm action={generateReportAction} date={date} variant={detail ? "ghost" : "primary"}>
               {detail ? "Regenerate" : "Generate report"}

@@ -150,6 +150,7 @@ export function BulkImport() {
   const [fileName, setFileName] = useState("");
   const [parseError, setParseError] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function setParsedSheet(sheet: ParsedSheet) {
@@ -157,6 +158,7 @@ export function BulkImport() {
     setMapping(sheet.headers.length ? autoMap(sheet.headers) : {});
     setResult(null);
     setConfirmed(false);
+    setPreviewOpen(false);
     setParseError("");
   }
 
@@ -336,10 +338,14 @@ export function BulkImport() {
               );
             })}
           </div>
+          <button type="button" onClick={() => { setPreviewOpen(true); setConfirmed(false); }} className="mt-4 h-9 rounded-control bg-primary px-4 text-[12.5px] font-bold text-white shadow-sm hover:bg-primary-hover">
+            Preview mapping
+          </button>
+          <span className="ml-2 text-[11px] text-ink-400">Required before merge/import</span>
         </Card>
       )}
 
-      {parsed && (
+      {parsed && previewOpen && (
         <Card className="p-4">
           <h3 className={`mb-2 ${stepTitle}`}>Step 4 - Preview</h3>
           <p className="mb-2 text-[11.5px] text-ink-500">These are the transformed CRM rows. Nothing has been written yet.</p>

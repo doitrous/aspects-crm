@@ -21,7 +21,8 @@ function fail(err: unknown): AuditorActionState {
   if (err instanceof AuditorError || err instanceof ActorError) return { ok: false, error: err.message };
   if (err instanceof PermissionError)
     return { ok: false, error: "You are not authorized to run auditor reports." };
-  throw err;
+  console.error("auditor report action failed", err);
+  return { ok: false, error: "The report could not be saved. Please retry; if it continues, check that the latest reporting migration is applied." };
 }
 
 function refresh(date: string) {

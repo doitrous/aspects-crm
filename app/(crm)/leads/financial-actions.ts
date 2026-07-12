@@ -8,11 +8,16 @@ import {
   addDoctorFundedPayment,
   addExternalCost,
   addTransaction,
+  clearQuote,
+  deleteTransaction,
+  deleteFinancialLine,
   decideDiscountApproval,
   FinancialError,
   requestDiscountApproval,
   saveQuote,
   setTransactionStatus,
+  updateTransaction,
+  updateFinancialLine,
   type ExternalCostCategory,
   type PaymentMethod,
 } from "@/lib/data/financials";
@@ -21,6 +26,36 @@ import type { TransactionKind, TransactionStatus } from "@/lib/financial/engine"
 export interface FinancialActionState {
   error: string | null;
   ok: string | null;
+}
+
+export async function clearQuoteAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
+  try { await clearQuote(str(formData, "leadId")); } catch (err) { return toState(err); }
+  return { error: null, ok: "Quoted price deleted." };
+}
+
+export async function updateTransactionAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
+  const method = str(formData, "method") as PaymentMethod;
+  if (method && !METHODS.includes(method)) return { error: "Invalid payment method.", ok: null };
+  try { await updateTransaction({ transactionId: str(formData,"transactionId"), amount: money(formData,"amount"), method: method || null, occurredOn: str(formData,"occurredOn"), note: str(formData,"note") || null }); } catch (err) { return toState(err); }
+  return { error: null, ok: "Transaction updated." };
+}
+
+export async function deleteTransactionAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
+  try { await deleteTransaction(str(formData,"transactionId")); } catch (err) { return toState(err); }
+  return { error: null, ok: "Transaction deleted." };
+}
+
+export async function updateFinancialLineAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
+  const type = str(formData,"lineType") as "consumable"|"doctor_payment"|"external_cost";
+  if (!(["consumable","doctor_payment","external_cost"] as const).includes(type)) return { error:"Invalid line type.",ok:null };
+  try { await updateFinancialLine({ type, id:str(formData,"lineId"), amount:money(formData,"amount"), description:str(formData,"description"), quantity:Number(str(formData,"quantity")||"1"), occurredOn:str(formData,"occurredOn") }); } catch(err){ return toState(err); }
+  return { error:null,ok:"Financial line updated." };
+}
+export async function deleteFinancialLineAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
+  const type = str(formData,"lineType") as "consumable"|"doctor_payment"|"external_cost";
+  if (!(["consumable","doctor_payment","external_cost"] as const).includes(type)) return { error:"Invalid line type.",ok:null };
+  try { await deleteFinancialLine(type,str(formData,"lineId")); } catch(err){ return toState(err); }
+  return { error:null,ok:"Financial line deleted." };
 }
 
 /**

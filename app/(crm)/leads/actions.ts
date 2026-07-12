@@ -68,6 +68,7 @@ export async function updateLeadProfileAction(leadId: string, formData: FormData
       phone: String(formData.get("phone") ?? ""),
       gender: ["male", "female"].includes(String(formData.get("gender"))) ? String(formData.get("gender")) as "male" | "female" : null,
       specialtyId: String(formData.get("specialtyId") ?? "") || null,
+      specialtyIds: formData.getAll("specialtyIds").map(String),
       serviceIds: formData.getAll("serviceIds").map(String),
       doctorIds: formData.getAll("doctorIds").map(String),
     });

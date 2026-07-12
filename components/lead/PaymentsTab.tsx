@@ -6,10 +6,15 @@ import {
   addDoctorFundedAction,
   addExternalCostAction,
   addTransactionAction,
+  clearQuoteAction,
+  deleteTransactionAction,
+  deleteFinancialLineAction,
   decideApprovalAction,
   requestApprovalAction,
   saveQuoteAction,
   setTransactionStatusAction,
+  updateTransactionAction,
+  updateFinancialLineAction,
   type FinancialActionState,
 } from "@/app/(crm)/leads/financial-actions";
 import { Badge } from "@/components/ui/Badge";
@@ -126,6 +131,11 @@ function Feedback({ state }: { state: { error: string | null; ok: string | null 
   return null;
 }
 
+function LineControls({ type, id, amount, description, quantity, occurredOn, onChanged }: { type:"consumable"|"doctor_payment"|"external_cost";id:string;amount:number;description?:string;quantity?:number;occurredOn?:string;onChanged?:()=>void }) {
+  const [editState,edit,editing]=useActionState(updateFinancialLineAction,IDLE); const [deleteState,remove,deleting]=useActionState(deleteFinancialLineAction,IDLE); useNotifyChanged(editState,onChanged); useNotifyChanged(deleteState,onChanged);
+  return <div className="ml-2 flex items-center gap-1"><details><summary className="cursor-pointer list-none text-[10.5px] font-bold text-primary">Modify</summary><form action={edit} className="absolute right-8 z-20 mt-1 grid w-56 gap-1 rounded-lg border border-line-soft bg-white p-3 shadow-xl"><input type="hidden" name="lineType" value={type}/><input type="hidden" name="lineId" value={id}/>{description!==undefined&&<input name="description" defaultValue={description} className={inputCls}/>}<input name="amount" type="number" min="0" step="0.01" defaultValue={amount} className={inputCls}/>{quantity!==undefined&&<input name="quantity" type="number" min="0.01" step="0.01" defaultValue={quantity} className={inputCls}/>} {occurredOn!==undefined&&<input name="occurredOn" type="date" defaultValue={occurredOn} className={inputCls}/>}<button disabled={editing} className={btnCls}>Save</button>{editState.error&&<span className="text-[10px] text-danger">{editState.error}</span>}</form></details><form action={remove}><input type="hidden" name="lineType" value={type}/><input type="hidden" name="lineId" value={id}/><button disabled={deleting} className="text-[10.5px] font-bold text-danger">Delete</button></form>{deleteState.error&&<span className="text-[10px] text-danger">{deleteState.error}</span>}</div>;
+}
+
 function useNotifyChanged(state: FinancialActionState, onChanged?: () => void) {
   const callback = useRef(onChanged);
   callback.current = onChanged;
@@ -174,8 +184,10 @@ function AddPanel({ label, children, tone = "default" }: { label: string; childr
 function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [saveState, save, saving] = useActionState(saveQuoteAction, IDLE);
   const [escState, escalate, escalating] = useActionState(requestApprovalAction, IDLE);
+  const [clearState, clear, clearing] = useActionState(clearQuoteAction, IDLE);
   useNotifyChanged(saveState, onChanged);
   useNotifyChanged(escState, onChanged);
+  useNotifyChanged(clearState, onChanged);
 
   const [raw, setRaw] = useState(fin.summary.hasQuote ? String(fin.summary.quotedPrice) : "");
   const [confirming, setConfirming] = useState(false);
@@ -300,6 +312,7 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
                 </button>
               </form>
             )}
+            {fin.summary.hasQuote && <form action={clear}><input type="hidden" name="leadId" value={fin.leadId}/><button type="submit" disabled={clearing} className="rounded-md border border-danger/30 bg-danger-bg px-3 py-1.5 text-[12px] font-semibold text-danger">{clearing ? "Deleting…" : "Delete quoted price"}</button></form>}
 
             {below && verdict.canForce && !confirming && (
               <button type="button" className={btnCls} onClick={() => setConfirming(true)}>
@@ -377,6 +390,7 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
         )}
 
         <Feedback state={saveState} />
+        <Feedback state={clearState} />
 
         {fin.isExceptional && (
           <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line-soft pt-3">
@@ -396,6 +410,9 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
 /* ── ledger ───────────────────────────────────────────────────── */
 
 function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
+  const [editState, edit, editing] = useActionState(updateTransactionAction, IDLE);
+  const [deleteState, remove, deleting] = useActionState(deleteTransactionAction, IDLE);
+  useNotifyChanged(editState, onChanged); useNotifyChanged(deleteState, onChanged);
   const [addState, add, adding] = useActionState(addTransactionAction, IDLE);
   const [statusState, setStatus, settingStatus] = useActionState(setTransactionStatusAction, IDLE);
   const [kind, setKind] = useState("payment");
@@ -457,9 +474,12 @@ function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: (
                   <td className="px-3 py-2 text-ink-500">{p.enteredByName}</td>
                   <td className="px-3 py-2 text-right">
                     {/* Only a pending line may change; settled money is reversed, never edited. */}
-                    {fin.canEdit && p.status === "pending" && (
-                      <div className="flex justify-end gap-1">
-                        {(["completed", "failed", "cancelled"] as const).map((s) => (
+                    {fin.canEdit && (
+                      <div className="flex flex-wrap justify-end gap-1">
+                        <details className="text-left"><summary className={`${btnGhost} cursor-pointer list-none`}>Modify</summary><form action={edit} className="absolute right-8 z-20 mt-1 grid w-64 gap-1 rounded-lg border border-line-soft bg-white p-3 shadow-xl"><input type="hidden" name="transactionId" value={p.id}/><input name="amount" type="number" min="0.01" step="0.01" defaultValue={p.amount} className={inputCls}/><select name="method" defaultValue={p.method ?? "cash"} className={inputCls}>{Object.entries(METHOD_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select><input name="occurredOn" type="date" defaultValue={p.occurredOn} className={inputCls}/><input name="note" defaultValue={p.note ?? ""} placeholder="Note" className={inputCls}/><button disabled={editing} className={btnCls}>Save changes</button></form></details>
+                        <form action={remove}><input type="hidden" name="transactionId" value={p.id}/><button type="submit" disabled={deleting} className="rounded-md border border-danger/30 bg-danger-bg px-2.5 py-1 text-[12px] font-medium text-danger">Delete</button></form>
+                        {p.status === "pending" &&
+                        (["completed", "failed", "cancelled"] as const).map((s) => (
                           <form key={s} action={setStatus}>
                             <input type="hidden" name="leadId" value={fin.leadId} />
                             <input type="hidden" name="transactionId" value={p.id} />
@@ -480,6 +500,8 @@ function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: (
       )}
 
       <Feedback state={statusState} />
+      <Feedback state={editState} />
+      <Feedback state={deleteState} />
 
       {fin.canEdit && (
         <div className="mt-3">
@@ -708,8 +730,9 @@ function Consumables({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
                   </Badge>
                 )}
               </span>
-              <span className="font-semibold tabular-nums text-ink-900">
+              <span className="flex items-center font-semibold tabular-nums text-ink-900">
                 {formatMoney(c.totalCost, fin.currency)}
+                {fin.canEditRules && <LineControls type="consumable" id={c.id} amount={c.unitCost} description={c.description} quantity={c.quantity} onChanged={onChanged}/>}
               </span>
             </li>
           ))}
@@ -784,8 +807,9 @@ function ExternalCosts({ fin, onChanged }: { fin: LeadFinancials; onChanged?: ()
                 {e.description}
                 {e.vendor && <span className="text-ink-400"> — {e.vendor}</span>}
               </span>
-              <span className="font-semibold tabular-nums text-ink-900">
+              <span className="flex items-center font-semibold tabular-nums text-ink-900">
                 {formatMoney(e.amount, fin.currency)}
+                {fin.canEditRules && <LineControls type="external_cost" id={e.id} amount={e.amount} description={e.description} occurredOn={e.occurredOn} onChanged={onChanged}/>}
               </span>
             </li>
           ))}
@@ -897,8 +921,9 @@ function Doctors({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => vo
                     <Badge className="ml-2 bg-line-faint text-ink-500">Does not reduce balance</Badge>
                   )}
                 </span>
-                <span className="font-semibold tabular-nums text-ink-900">
+                <span className="flex items-center font-semibold tabular-nums text-ink-900">
                   {formatMoney(d.amount, fin.currency)}
+                  {fin.canEditRules && <LineControls type="doctor_payment" id={d.id} amount={d.amount} occurredOn={d.occurredOn} onChanged={onChanged}/>}
                 </span>
               </li>
             ))}

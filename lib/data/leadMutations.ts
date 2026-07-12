@@ -106,6 +106,7 @@ export async function updateLeadProfile(input: {
   phone: string;
   gender: "male" | "female" | null;
   specialtyId: string | null;
+  specialtyIds: string[];
   serviceIds: string[];
   doctorIds: string[];
 }): Promise<void> {
@@ -116,6 +117,8 @@ export async function updateLeadProfile(input: {
   if (!name) throw new LeadMutationError("Patient name is required.");
   if (!phone) throw new LeadMutationError("Phone number is required.");
   const specialty = catalog.specialties.find((row) => row.id === input.specialtyId);
+  const specialtyIds = [...new Set([...(specialty ? [specialty.id] : []), ...input.specialtyIds])]
+    .filter((id) => catalog.specialties.some((row) => row.id === id));
   const uniqueServiceIds = [...new Set(input.serviceIds)];
   const selectedServices = uniqueServiceIds.map((id) => catalog.services.find((row) => row.id === id)).filter((row): row is NonNullable<typeof row> => Boolean(row));
   if (input.serviceIds.length && selectedServices.length !== uniqueServiceIds.length) throw new LeadMutationError("One or more selected services are not in the Admin service catalog.");
@@ -139,6 +142,8 @@ export async function updateLeadProfile(input: {
     metadata: {
       ...((before.metadata as Record<string, unknown> | null) ?? {}),
       specialty_id: specialty?.id ?? null,
+      specialty_ids: specialtyIds,
+      specialty_names: specialtyIds.map((id) => catalog.specialties.find((row) => row.id === id)?.nameEn).filter(Boolean),
       service_ids: selectedServices.map((service) => service.id),
       service_names: selectedServices.map((service) => service.nameEn),
       treating_doctor_names: selectedDoctors.map((doctor) => doctor.nameEn),

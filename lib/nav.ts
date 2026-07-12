@@ -27,12 +27,9 @@ export const NAV: NavItem[] = [
   { label: "Financial", i18nKey: "nav.financial", href: "/financial", icon: "₤", roles: ["auditor", "admin"] },
   { label: "Bulk Import", i18nKey: "nav.bulkImport", href: "/bulk-import", icon: "⇪", roles: ["auditor", "admin"] },
   { label: "Auditor Dashboard", i18nKey: "nav.auditor", href: "/auditor", icon: "✓", roles: ["auditor", "admin"] },
-  { label: "Reports", i18nKey: "nav.reports", href: "/reports", icon: "▦", roles: ["auditor", "admin"] },
+  { label: "Reports", i18nKey: "nav.reports", href: "/reports", icon: "▦", roles: ["moderator", "auditor", "admin"] },
   { label: "Emails", i18nKey: "nav.emails", href: "/emails", icon: "✉", roles: ["admin", "auditor"] },
   { label: "Audit Logs", i18nKey: "nav.auditLogs", href: "/audit-logs", icon: "≣", roles: ["admin", "auditor"] },
-  // Mirrors the `users.view` capability: auditors may read the roster + history,
-  // only admins may mutate access — enforced server-side, not by this list.
-  { label: "User & Roles", i18nKey: "nav.users", href: "/settings/users", icon: "👥", roles: ["admin", "auditor"] },
   // Auditors own operational configuration (§C); admins additionally manage users.
   { label: "Settings", i18nKey: "nav.settings", href: "/settings", icon: "⚙", roles: ["admin", "auditor"] },
 ];

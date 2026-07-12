@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { SchedulingSettings } from "@/components/settings/SchedulingSettings";
 import { FinancialSettingsManager } from "@/components/financial/FinancialSettingsManager";
@@ -62,6 +63,12 @@ export default async function SettingsPage() {
     <>
       <Topbar title="CRM Settings" />
       <div className="flex-1 overflow-auto px-[18px] py-4">
+        {can(user.role, "users.view") && (
+          <Link href="/settings/users" className="mb-4 flex items-center justify-between rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 px-4 py-3 text-[13px] font-bold text-violet-800 shadow-sm hover:border-violet-300">
+            <span><span className="mr-2">👥</span>Users &amp; Roles</span>
+            <span className="text-[11px] font-semibold text-violet-600">Manage access →</span>
+          </Link>
+        )}
         <SettingsManager
           canManage={canManage}
           tags={tags}

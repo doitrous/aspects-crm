@@ -38,6 +38,7 @@ export type Capability =
   // ── auditor reporting (§A/§B) ───────────────────────────────
   | "reports.view" // open Auditor Dashboard + Reports
   | "reports.generate" // generate / override / finalize a daily audit report
+  | "reports.createOwn" // moderators create their own daily and follow-up reports
   // ── email automation (§D/§E) ────────────────────────────────
   | "email.view" // open the Emails log
   | "email.manage" // create / edit email rules
@@ -72,6 +73,7 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "settings.manage",
     "reports.view",
     "reports.generate",
+    "reports.createOwn",
     "email.view",
     "email.manage",
     "audit.view",
@@ -93,6 +95,7 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "settings.manage",
     "reports.view",
     "reports.generate",
+    "reports.createOwn",
     "email.view",
     "email.manage",
     "audit.view",
@@ -104,6 +107,8 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     // rules or approve exceptions.
     "financial.view",
     "financial.editLeadRecord",
+    "reports.view",
+    "reports.createOwn",
     "leads.edit",
   ]),
   viewer: new Set<Capability>([

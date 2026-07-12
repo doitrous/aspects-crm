@@ -343,21 +343,22 @@ export async function finalizeAuditReport(date: string): Promise<void> {
   // Publish a persistent narrative into the Reports list so finalized work does
   // not disappear after refresh (§B).
   const m = detail.metrics;
+  const line = (key: string, label: string, value: string | number) =>
+    `${label}: ${value}${detail.overrides[key] ? ` [OVERRIDDEN — ${detail.overrides[key].reason}]` : ""}`;
   const text = [
     `Auditor daily report — ${date}`,
     ``,
-    `Total leads: ${m.total_leads ?? 0}`,
-    `Qualified: ${m.qualified_leads ?? 0} (${m.qualification_percent ?? 0}%)`,
-    `Booked: ${m.booked_leads ?? 0} (${m.booking_percent ?? 0}%)`,
-    `Dropped/Lost: ${m.dropped_leads ?? 0} (${m.drop_off_percent ?? 0}%)`,
-    `Escalations: ${m.escalations_sent ?? 0}`,
-    `Total payments (EGP): ${m.total_payment_egp ?? 0}`,
-    `CPL: ${m.cpl ?? 0} (target ${m.target_cpl ?? 0})`,
-    `Cost per booking: ${m.cost_per_booking ?? 0}`,
+    line("total_leads", "Total leads", m.total_leads ?? 0),
+    line("qualified_leads", "Qualified", `${m.qualified_leads ?? 0} (${m.qualification_percent ?? 0}%)`),
+    line("booked_leads", "Booked", `${m.booked_leads ?? 0} (${m.booking_percent ?? 0}%)`),
+    line("dropped_leads", "Dropped/Lost", `${m.dropped_leads ?? 0} (${m.drop_off_percent ?? 0}%)`),
+    line("escalations_sent", "Escalations", m.escalations_sent ?? 0),
+    line("total_payment_egp", "Total payments (EGP)", m.total_payment_egp ?? 0),
+    line("cpl", "CPL", `${m.cpl ?? 0} (target ${m.target_cpl ?? 0})`),
+    line("cost_per_booking", "Cost per booking", m.cost_per_booking ?? 0),
   ].join("\n");
 
-  await db.from("operational_summary_reports").upsert(
-    {
+  const published = {
       daily_report_id: report.id as string,
       report_type: "auditor_clinic_daily_ar",
       report_date: date,
@@ -365,9 +366,22 @@ export async function finalizeAuditReport(date: string): Promise<void> {
       generated_by: actor.id,
       status: "final",
       updated_at: nowIso,
-    },
-    { onConflict: "daily_report_id" },
-  );
+    };
+  // `daily_report_id` was not unique in early production versions of the
+  // reporting schema. Avoid Postgres' "no unique constraint" upsert failure so
+  // Finalize works before and after the corrective migration is applied.
+  const { data: existingSummary } = await db
+    .from("operational_summary_reports")
+    .select("id")
+    .eq("daily_report_id", report.id as string)
+    .eq("report_type", "auditor_clinic_daily_ar")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const publishResult = existingSummary
+    ? await db.from("operational_summary_reports").update(published).eq("id", existingSummary.id as string)
+    : await db.from("operational_summary_reports").insert(published);
+  if (publishResult.error) throw new AuditorError(publishResult.error.message);
 
   await logActivity({
     actorId: actor.id,

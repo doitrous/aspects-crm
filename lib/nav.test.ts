@@ -45,16 +45,17 @@ test("exactly one item is ever active for any nav path", () => {
 
 /* ── role gating ──────────────────────────────────────────────── */
 
-test("a moderator never sees the auditor, reports, users or settings nav", () => {
+test("a moderator sees reports but not auditor, users or settings nav", () => {
   const hrefs = visibleNav("moderator").map((n) => n.href);
-  for (const gated of ["/auditor", "/reports", "/settings", "/settings/users"]) {
+  assert.equal(hrefs.includes("/reports"), true);
+  for (const gated of ["/auditor", "/settings", "/settings/users"]) {
     assert.equal(hrefs.includes(gated), false, `moderator must not see ${gated}`);
   }
 });
 
-test("an auditor sees Users & Roles, Settings and Emails (owns operational config, §C)", () => {
+test("an auditor reaches Users & Roles through Settings and sees Emails", () => {
   const hrefs = visibleNav("auditor").map((n) => n.href);
-  assert.equal(hrefs.includes("/settings/users"), true);
+  assert.equal(hrefs.includes("/settings/users"), false);
   assert.equal(hrefs.includes("/settings"), true);
   assert.equal(hrefs.includes("/emails"), true);
 });

@@ -935,6 +935,56 @@ export async function saveQuote(input: SaveQuoteInput): Promise<void> {
   });
 }
 
+/** Remove a manual quote while retaining a complete financial audit entry. */
+export async function clearQuote(leadId: string): Promise<void> {
+  const actor = await writeActor();
+  assertCan(actor.role, "financial.editLeadRecord");
+  const lead = await leadRow(leadId);
+  const record = await ensureRecord(actor, lead);
+  const { error } = await supabaseAdmin().from("crm_lead_financials").update({ quoted_price: null, is_exceptional: false, exceptional_reason: null, exceptional_by: null, exceptional_at: null, updated_at: new Date().toISOString() }).eq("id", record.id);
+  if (error) throw new FinancialError(error.message);
+  await audit(actor, { entityType: "lead_financials", entityId: record.id, action: "delete", field: "quoted_price", oldValue: record.quoted_price, newValue: null });
+}
+
+export async function updateTransaction(input: { transactionId: string; amount: number; method: PaymentMethod | null; occurredOn: string; note: string | null }): Promise<void> {
+  const actor = await writeActor(); assertCan(actor.role, "financial.editLeadRecord");
+  const db = supabaseAdmin();
+  const { data: before, error: readError } = await db.from("crm_financial_transactions").select("*").eq("id", input.transactionId).single();
+  if (readError || !before) throw new FinancialError("Transaction not found.");
+  if (actor.role === "moderator" && before.created_by !== actor.id) throw new FinancialError("Moderators can only modify transactions they added.");
+  const amount = roundMoney(input.amount); if (!Number.isFinite(amount) || amount <= 0) throw new FinancialError("Enter an amount greater than zero.");
+  const patch = { amount, method: input.method, occurred_on: input.occurredOn || before.occurred_on, note: input.note?.trim() || null };
+  const { error } = await db.from("crm_financial_transactions").update(patch).eq("id", input.transactionId); if (error) throw new FinancialError(error.message);
+  await audit(actor, { entityType: "financial_transaction", entityId: input.transactionId, action: "update", oldValue: before, newValue: patch });
+}
+
+export async function deleteTransaction(transactionId: string): Promise<void> {
+  const actor = await writeActor(); assertCan(actor.role, "financial.editLeadRecord");
+  const db = supabaseAdmin();
+  const { data: before, error: readError } = await db.from("crm_financial_transactions").select("*").eq("id", transactionId).single();
+  if (readError || !before) throw new FinancialError("Transaction not found.");
+  if (actor.role === "moderator" && before.created_by !== actor.id) throw new FinancialError("Moderators can only delete transactions they added.");
+  const { error } = await db.from("crm_financial_transactions").delete().eq("id", transactionId); if (error) throw new FinancialError("This transaction cannot be deleted because another financial entry depends on it. Reverse it instead.");
+  await audit(actor, { entityType: "financial_transaction", entityId: transactionId, action: "delete", oldValue: before, newValue: null });
+}
+
+const LINE_TABLE = { consumable: "crm_lead_consumables", doctor_payment: "crm_doctor_funded_payments", external_cost: "crm_external_costs" } as const;
+export async function updateFinancialLine(input: { type: keyof typeof LINE_TABLE; id: string; amount: number; description?: string; quantity?: number; occurredOn?: string }): Promise<void> {
+  const actor = await writeActor(); assertCan(actor.role, "financial.editRules");
+  const table = LINE_TABLE[input.type]; const db = supabaseAdmin();
+  const { data: before } = await db.from(table).select("*").eq("id", input.id).single(); if (!before) throw new FinancialError("Financial line not found.");
+  const amount = roundMoney(input.amount); if (!Number.isFinite(amount) || amount < 0) throw new FinancialError("Enter a valid amount.");
+  const patch: Record<string, unknown> = input.type === "consumable" ? { unit_cost: amount, quantity: input.quantity ?? 1, description: input.description?.trim() || before.description } : input.type === "external_cost" ? { amount, description: input.description?.trim() || before.description, occurred_on: input.occurredOn || before.occurred_on } : { amount, occurred_on: input.occurredOn || before.occurred_on };
+  const { error } = await db.from(table).update(patch).eq("id", input.id); if (error) throw new FinancialError(error.message);
+  await audit(actor, { entityType: input.type, entityId: input.id, action: "update", oldValue: before, newValue: patch });
+}
+export async function deleteFinancialLine(type: keyof typeof LINE_TABLE, id: string): Promise<void> {
+  const actor = await writeActor(); assertCan(actor.role, "financial.editRules"); const table = LINE_TABLE[type]; const db = supabaseAdmin();
+  const { data: before } = await db.from(table).select("*").eq("id", id).single(); if (!before) throw new FinancialError("Financial line not found.");
+  const { error } = await db.from(table).delete().eq("id", id); if (error) throw new FinancialError(error.message);
+  await audit(actor, { entityType: type, entityId: id, action: "delete", oldValue: before, newValue: null });
+}
+
 export interface AddTransactionInput {
   leadId: string;
   kind: TransactionKind;
