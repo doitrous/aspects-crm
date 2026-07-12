@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useI18n } from "@/lib/i18n/context";
 import { ARABIC_PATTERNS, ARABIC_UI } from "@/lib/i18n/uiArabic";
 
@@ -79,15 +79,18 @@ function restoreEnglish(): void {
 /** Translates shared CRM UI copy while preserving all patient-entered content. */
 export function ArabicPageTranslator() {
   const { locale } = useI18n();
+  const initialized = useRef(false);
 
   useEffect(() => {
+    const firstRun = !initialized.current;
+    initialized.current = true;
     if (locale !== "ar") {
       restoreEnglish();
       return;
     }
     let observer: MutationObserver | null = null;
-    // The CRM uses streamed Server Components. Wait until their hydration has
-    // settled so translating SSR text cannot create a hydration mismatch.
+    // Initial Arabic SSR gets a brief hydration cushion. User-triggered locale
+    // changes translate on the next task and feel immediate.
     const timer = window.setTimeout(() => {
       translateTree(document.body);
       observer = new MutationObserver((records) => {
@@ -97,7 +100,7 @@ export function ArabicPageTranslator() {
         }
       });
       observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-    }, 750);
+    }, firstRun ? 100 : 0);
     return () => {
       window.clearTimeout(timer);
       observer?.disconnect();

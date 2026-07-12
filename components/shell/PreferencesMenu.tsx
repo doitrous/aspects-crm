@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import {
   LOCALE_COOKIE,
   THEME_COOKIE,
@@ -22,12 +22,14 @@ function setCookie(name: string, value: string) {
  * components re-render in the new locale/theme. The SSR `<html>` attributes are
  * the source of truth on the next request.
  */
-export function PreferencesMenu({ locale, theme }: { locale: Locale; theme: Theme }) {
+export function PreferencesMenu({ theme }: { theme: Theme }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const { t } = useI18n();
+  const [, startTransition] = useTransition();
+  const [activeTheme, setActiveTheme] = useState(theme);
+  const { locale, setLocale, t } = useI18n();
 
   function applyLocale(next: Locale) {
+    setLocale(next);
     setCookie(LOCALE_COOKIE, next);
     const root = document.documentElement;
     root.lang = next;
@@ -36,6 +38,7 @@ export function PreferencesMenu({ locale, theme }: { locale: Locale; theme: Them
   }
 
   function applyTheme(next: Theme) {
+    setActiveTheme(next);
     setCookie(THEME_COOKIE, next);
     document.documentElement.dataset.theme = next;
     startTransition(() => router.refresh());
@@ -46,7 +49,7 @@ export function PreferencesMenu({ locale, theme }: { locale: Locale; theme: Them
     (active ? "bg-panel text-primary shadow-sm ring-1 ring-line" : "text-ink-500 hover:text-ink-800");
 
   return (
-    <div className={"mt-auto flex flex-col gap-2 border-t border-line-soft pt-3 " + (pending ? "opacity-70" : "")}>
+    <div className="mt-auto flex flex-col gap-2 border-t border-line-soft pt-3">
       <div>
         <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-400">
           {t("pref.language")}
@@ -61,8 +64,8 @@ export function PreferencesMenu({ locale, theme }: { locale: Locale; theme: Them
           {t("pref.theme")}
         </div>
         <div className="flex gap-1 rounded-control border border-line-soft bg-toolbar p-1">
-          <button onClick={() => applyTheme("light")} className={segBtn(theme === "light")}>☀ {t("pref.light")}</button>
-          <button onClick={() => applyTheme("dark")} className={segBtn(theme === "dark")}>☾ {t("pref.dark")}</button>
+          <button onClick={() => applyTheme("light")} className={segBtn(activeTheme === "light")}>☀ {t("pref.light")}</button>
+          <button onClick={() => applyTheme("dark")} className={segBtn(activeTheme === "dark")}>☾ {t("pref.dark")}</button>
         </div>
       </div>
     </div>

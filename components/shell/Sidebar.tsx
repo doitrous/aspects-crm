@@ -7,7 +7,7 @@ import type { User } from "@/lib/types";
 import { UserSwitcher, type SwitchableUser } from "@/components/shell/UserSwitcher";
 import { PreferencesMenu } from "@/components/shell/PreferencesMenu";
 import { useI18n } from "@/lib/i18n/context";
-import type { Locale, Theme } from "@/lib/i18n/config";
+import type { Theme } from "@/lib/i18n/config";
 import { cn } from "@/lib/cn";
 
 export function Sidebar({
@@ -16,7 +16,6 @@ export function Sidebar({
   accounts,
   canImpersonate,
   impersonating,
-  locale,
   theme,
 }: {
   counts: Record<string, number>;
@@ -24,7 +23,6 @@ export function Sidebar({
   accounts: SwitchableUser[];
   canImpersonate: boolean;
   impersonating: boolean;
-  locale: Locale;
   theme: Theme;
 }) {
   const pathname = usePathname();
@@ -84,7 +82,7 @@ export function Sidebar({
       })}
 
       <div className="mt-auto flex flex-col gap-2">
-        <PreferencesMenu locale={locale} theme={theme} />
+        <PreferencesMenu theme={theme} />
         <UserSwitcher
           current={user}
           accounts={accounts}

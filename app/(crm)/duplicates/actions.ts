@@ -11,6 +11,19 @@ export interface DuplicateActionState {
   error: string | null;
 }
 
+function duplicateError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "The duplicate decision could not be saved. Please retry or review the audit log.";
+  }
+  if (error.message.includes("Both leads have financial records")) {
+    return "Both leads have financial records. Reconcile their payments before merging.";
+  }
+  if (error.message.includes("lead_stage_history")) {
+    return "The duplicate-merge database repair has not been applied yet. Ask an administrator to apply migration 0021.";
+  }
+  return "The duplicate decision could not be saved. Please retry or review the audit log.";
+}
+
 export async function resolveDuplicateAction(
   flagId: string,
   decision: DuplicateDecision,
@@ -25,10 +38,7 @@ export async function resolveDuplicateAction(
     }
   } catch (error) {
     console.error("duplicate resolution failed", error);
-    const detail = error instanceof Error && error.message.includes("Both leads have financial records")
-      ? "Both leads have financial records. Reconcile their payments before merging."
-      : "The duplicate decision could not be saved. Please retry or review the audit log.";
-    return { ok: null, error: detail };
+    return { ok: null, error: duplicateError(error) };
   }
   revalidatePath("/duplicates");
   revalidatePath("/dashboard");

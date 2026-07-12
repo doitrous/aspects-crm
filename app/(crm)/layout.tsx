@@ -62,7 +62,6 @@ export default async function CrmLayout({
           accounts={accounts}
           canImpersonate={canImpersonate}
           impersonating={user.impersonating}
-          locale={prefs.locale}
           theme={prefs.theme}
         />
         <main className="flex min-w-0 flex-1 flex-col">{children}</main>
