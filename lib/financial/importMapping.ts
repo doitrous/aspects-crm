@@ -62,6 +62,11 @@ const ALIASES: Record<string, CanonicalField> = {
   "leadid": "leadId",
   "mrn": "mrn",
   "medical record": "mrn",
+  "medical record number": "mrn",
+  "patient mrn": "mrn",
+  "clinic mrn": "mrn",
+  "رقم الملف": "mrn",
+  "رقم السجل الطبي": "mrn",
   "phone": "phone",
   "phone no": "phone",
   "phone number": "phone",
@@ -252,6 +257,7 @@ export function mapRow(
   const mrn = get("mrn");
   const phone = get("phone");
   if (!leadId && !mrn && !phone && !(get("name") && get("phone"))) errors.push("No match key or new-lead identity (need Lead ID, MRN, phone, or Name + Phone)");
+  if (mrn && !/^\d{4,6}$/.test(mrn)) errors.push("MRN must be exactly 4, 5, or 6 digits");
   if (base == null) errors.push("Missing/invalid service price");
   if (quoted != null && base != null && quoted > base) warnings.push("Quoted exceeds base (surcharge)");
   const consumables = parseMoney(get("consumables"));

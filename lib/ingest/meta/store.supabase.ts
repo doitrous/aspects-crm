@@ -196,7 +196,7 @@ export class SupabaseMetaStore implements MetaStore {
 
     // Hand the new lead to the CRM's existing duplicate detector rather than
     // inventing a second one. A failure here must not fail ingestion.
-    await this.db.rpc("crm_flag_duplicate_for_lead", { p_lead_id: lead.id }).then(
+    await this.db.rpc("crm_flag_duplicate_for_lead", { target_lead_id: lead.id }).then(
       () => undefined,
       () => undefined,
     );

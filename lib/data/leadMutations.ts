@@ -104,6 +104,7 @@ export async function updateLeadProfile(input: {
   leadId: string;
   name: string;
   phone: string;
+  mrn: string | null;
   gender: "male" | "female" | null;
   specialtyId: string | null;
   specialtyIds: string[];
@@ -116,6 +117,8 @@ export async function updateLeadProfile(input: {
   const phone = input.phone.trim();
   if (!name) throw new LeadMutationError("Patient name is required.");
   if (!phone) throw new LeadMutationError("Phone number is required.");
+  const mrn = input.mrn?.trim() || null;
+  if (mrn && !/^\d{4,6}$/.test(mrn)) throw new LeadMutationError("MRN must contain exactly 4, 5, or 6 digits.");
   const specialty = catalog.specialties.find((row) => row.id === input.specialtyId);
   const specialtyIds = [...new Set([...(specialty ? [specialty.id] : []), ...input.specialtyIds])]
     .filter((id) => catalog.specialties.some((row) => row.id === id));
@@ -129,10 +132,16 @@ export async function updateLeadProfile(input: {
   const db = supabaseAdmin();
   const { error: assignmentSchemaError } = await db.from("crm_lead_treating_doctors").select("id").limit(1);
   if (assignmentSchemaError) throw new LeadMutationError("Treating-doctor storage is not available until migration 0019 is applied.");
-  const { data: before, error: beforeError } = await db.from("leads").select("name,phone_country_code,phone_number,gender,service_name,doctor_id,metadata").eq("id", lead.id).single();
+  if (mrn) {
+    const { data: duplicateMrn, error: duplicateError } = await db.from("leads").select("lead_id").eq("mrn", mrn).neq("id", lead.id).limit(1).maybeSingle();
+    if (duplicateError) throw new Error(`updateLeadProfile(MRN check): ${duplicateError.message}`);
+    if (duplicateMrn) throw new LeadMutationError(`MRN ${mrn} is already assigned to lead ${duplicateMrn.lead_id}.`);
+  }
+  const { data: before, error: beforeError } = await db.from("leads").select("name,mrn,phone_country_code,phone_number,gender,service_name,doctor_id,metadata").eq("id", lead.id).single();
   if (beforeError) throw new Error(`updateLeadProfile(read): ${beforeError.message}`);
   const patch = {
     name,
+    mrn,
     phone_country_code: ccMatch?.[1] ?? null,
     phone_number: (ccMatch?.[2] ?? phone).replace(/\s+/g, " "),
     normalized_phone: digits || null,

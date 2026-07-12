@@ -107,11 +107,12 @@ async function resolveSourceId(source: string | undefined): Promise<string | und
 async function applyLeadImportHints(leadId: string, row: ImportRowInput): Promise<void> {
   const { data } = await supabaseAdmin()
     .from("leads")
-    .select("id,service_name,initial_price")
+    .select("id,mrn,service_name,initial_price")
     .eq("lead_id", leadId)
     .maybeSingle();
   if (!data) return;
   const patch: Record<string, unknown> = {};
+  if (row.mrn?.trim() && !data.mrn) patch.mrn = row.mrn.trim();
   const importedService = row.serviceName?.trim() || row.serviceCode?.trim();
   if (importedService && !data.service_name) patch.service_name = importedService;
   if (row.basePrice != null && data.initial_price == null) patch.initial_price = row.basePrice;

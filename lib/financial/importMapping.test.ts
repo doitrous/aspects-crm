@@ -69,3 +69,12 @@ test("mapRow flags missing match key and missing price as errors", () => {
   assert.ok(r.errors.some((e) => /match key/i.test(e)));
   assert.ok(r.errors.some((e) => /service price/i.test(e)));
 });
+
+test("MRN accepts only the clinic's 4 to 6 digit format", () => {
+  const headers = ["MRN", "Service Price"];
+  const mapping = autoMap(headers);
+  assert.equal(mapRow(["0123", "1000"], headers, mapping, 0).errors.length, 0);
+  assert.equal(mapRow(["123456", "1000"], headers, mapping, 0).errors.length, 0);
+  assert.equal(mapRow(["123", "1000"], headers, mapping, 0).errors.some((e) => e.includes("MRN")), true);
+  assert.equal(mapRow(["12A45", "1000"], headers, mapping, 0).errors.some((e) => e.includes("MRN")), true);
+});

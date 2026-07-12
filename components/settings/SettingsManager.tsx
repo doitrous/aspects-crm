@@ -661,7 +661,7 @@ export function SettingsManager({
               rows={[
                 { label: "Phone", value: "Normalized phone tail", hint: "Search/import matching use normalized phone digits." },
                 { label: "Platform ID", value: "Exact channel-scoped ID", hint: "Facebook, Instagram, and WhatsApp identifiers are not merged across channels." },
-                { label: "Name similarity", value: "Review signal", hint: "No fake confidence slider is exposed; merge decisions stay explicit." },
+                { label: "Name similarity", value: "3+ name parts only", hint: "Both patient names must contain at least three meaningful parts. Two-part names are never matched by name alone." },
               ]}
             />
           </Card>
