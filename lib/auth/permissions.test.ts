@@ -44,6 +44,13 @@ test("lead mutations are server-authorized for operational roles only", () => {
   assert.equal(can("viewer", "leads.edit"), false);
 });
 
+test("only admin and auditor may permanently delete leads", () => {
+  assert.equal(can("admin", "leads.delete"), true);
+  assert.equal(can("auditor", "leads.delete"), true);
+  assert.equal(can("moderator", "leads.delete"), false);
+  assert.equal(can("viewer", "leads.delete"), false);
+});
+
 test("both admin and auditor may force exceptional price and approve discounts", () => {
   for (const role of ["admin", "auditor"] as const) {
     assert.equal(can(role, "financial.forceExceptionalPrice"), true);

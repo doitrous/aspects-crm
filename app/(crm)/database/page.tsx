@@ -6,6 +6,9 @@ import { getLeadsPage, leadSourcesList, NOW, type LeadFilters } from "@/lib/data
 import type { PipelineStage } from "@/lib/types";
 import { financialDoctorCatalog } from "@/lib/booking/service";
 import { PaginationNav } from "@/components/ui/PaginationNav";
+import { DeleteAllLeadsButton } from "@/components/leads/LeadDeletionControls";
+import { requireSession } from "@/lib/data/session";
+import { can } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +29,8 @@ export default async function Page({
   searchParams: Promise<SP>;
 }) {
   const sp = await searchParams;
+  const { effective: user } = await requireSession();
+  const canDelete = can(user.role, "leads.delete");
   const channel = str(sp.channel);
   const filters: LeadFilters = {
     q: str(sp.q),
@@ -60,7 +65,7 @@ export default async function Page({
 
   return (
     <>
-      <Topbar title="Database" />
+      <Topbar title="Database" action={canDelete?<DeleteAllLeadsButton total={total}/>:undefined} />
       <Suspense fallback={null}>
         <LeadsToolbar sources={sources} doctors={catalog.doctors.map((d) => ({ id: d.id, name: d.nameEn }))} specialties={catalog.specialties.map((s) => ({ id: s.id, name: s.nameEn }))} basePath="/database" />
       </Suspense>
@@ -69,7 +74,7 @@ export default async function Page({
           {`Showing ${leads.length} of ${total} leads · page ${page} / ${pageCount}`}
         </div>
         <PaginationNav page={page} pageCount={pageCount} hrefForPage={pageHref} />
-        <LeadsTable leads={leads} now={NOW.toISOString()} />
+        <LeadsTable leads={leads} now={NOW.toISOString()} canDelete={canDelete} />
         <PaginationNav page={page} pageCount={pageCount} hrefForPage={pageHref} />
       </div>
     </>

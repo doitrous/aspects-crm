@@ -7,6 +7,7 @@ import { doctorName, specialtyName } from "@/lib/data/reference";
 import { formatAge, formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { DeleteLeadButton } from "@/components/leads/LeadDeletionControls";
 
 function Indicators({ lead }: { lead: Lead }) {
   return (
@@ -24,7 +25,7 @@ function Indicators({ lead }: { lead: Lead }) {
  * `now` is passed from the server page as an ISO string so this client
  * component never imports the server-only data layer just to compute SLA age.
  */
-export function LeadsTable({ leads, now }: { leads: Lead[]; now: string }) {
+export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; now: string; canDelete?: boolean }) {
   const router = useRouter();
   const nowDate = new Date(now);
 
@@ -50,6 +51,7 @@ export function LeadsTable({ leads, now }: { leads: Lead[]; now: string }) {
             <th className="px-3 py-2.5 font-semibold">Booking</th>
             <th className="px-3 py-2.5 font-semibold">Coordinator</th>
             <th className="px-3 py-2.5 pr-[18px] text-right font-semibold">SLA</th>
+            {canDelete&&<th className="px-3 py-2.5 pr-[18px] text-right font-semibold">Admin actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -145,6 +147,7 @@ export function LeadsTable({ leads, now }: { leads: Lead[]; now: string }) {
                     {lead.lastMessageAt ? formatAge(lead.lastMessageAt, nowDate) : "—"}
                   </span>
                 </td>
+                {canDelete&&<td className="px-3 py-3 pr-[18px] text-right"><DeleteLeadButton leadId={lead.id} patientName={lead.patientName}/></td>}
               </tr>
             );
           })}
