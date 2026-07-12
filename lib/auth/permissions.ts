@@ -45,7 +45,9 @@ export type Capability =
   // ── audit ───────────────────────────────────────────────────
   | "audit.view" // read financial + role-change audit logs
   | "leads.edit" // mutate lead stage, tags, notes, follow-ups and escalations
-  | "leads.delete"; // permanently delete individual/all leads (admin + auditor only)
+  | "leads.bulkImport" // import patient spreadsheets as ordinary leads
+  | "leads.delete" // permanently delete individual/all leads (admin + auditor only)
+  | "reservations.manage"; // dismiss or permanently delete website reservations
 
 /**
  * Capability grants per role. Absent = denied. This is the whole authorization
@@ -79,7 +81,9 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "email.manage",
     "audit.view",
     "leads.edit",
+    "leads.bulkImport",
     "leads.delete",
+    "reservations.manage",
   ]),
   auditor: new Set<Capability>([
     "financial.view",
@@ -102,7 +106,9 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "email.manage",
     "audit.view",
     "leads.edit",
+    "leads.bulkImport",
     "leads.delete",
+    "reservations.manage",
   ]),
   moderator: new Set<Capability>([
     // Operational only: may record a lead's agreed price / payments, and may

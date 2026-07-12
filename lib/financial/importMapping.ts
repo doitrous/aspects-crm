@@ -257,7 +257,7 @@ export function mapRow(
   const mrn = get("mrn");
   const phone = get("phone");
   if (!leadId && !mrn && !phone && !(get("name") && get("phone"))) errors.push("No match key or new-lead identity (need Lead ID, MRN, phone, or Name + Phone)");
-  if (mrn && !/^\d{4,6}$/.test(mrn)) errors.push("MRN must be exactly 4, 5, or 6 digits");
+  if (mrn && !/^\d{1,9}$/.test(mrn)) errors.push("MRN must contain 1 to 9 digits");
   if (base == null) errors.push("Missing/invalid service price");
   if (quoted != null && base != null && quoted > base) warnings.push("Quoted exceeds base (surcharge)");
   const consumables = parseMoney(get("consumables"));

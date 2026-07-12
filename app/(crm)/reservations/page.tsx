@@ -9,6 +9,10 @@ import { RESERVATION_STATUS_META, isNewReservation } from "@/lib/reservationStat
 import { formatDate, formatClock } from "@/lib/format";
 import type { Reservation } from "@/lib/types";
 import { Card } from "@/components/ui/Card";
+import { ReservationManagementControls } from "@/components/booking/ReservationManagementControls";
+import { dismissedWebsiteReservationIds } from "@/lib/booking/reservationDismissals";
+import { requireSession } from "@/lib/data/session";
+import { can } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +30,8 @@ function StatusBadge({ status }: { status: Reservation["status"] }) {
 }
 
 export default async function ReservationsPage() {
+  const { effective: user } = await requireSession();
+  const canManageReservations = can(user.role, "reservations.manage");
   if (!bookingConfigured()) {
     return (
       <>
@@ -41,8 +47,10 @@ export default async function ReservationsPage() {
   }
 
   const now = Date.now();
-  const reservations = await getReservations();
-  const leadByAppointment = await syncReservationsToLeads(reservations);
+  const allReservations = await getReservations();
+  const leadByAppointment = await syncReservationsToLeads(allReservations);
+  const dismissedIds = await dismissedWebsiteReservationIds();
+  const reservations = allReservations.filter((reservation) => !dismissedIds.has(reservation.id));
   const newCount = reservations.filter((r) => isNewReservation(r.status, r.createdAt, now)).length;
 
   return (
@@ -66,7 +74,7 @@ export default async function ReservationsPage() {
           />
         ) : (
           <Card className="overflow-x-auto">
-            <table className="w-full min-w-[980px] border-collapse text-[12.5px]">
+            <table className="w-full min-w-[1080px] border-collapse text-[12.5px]">
               <thead>
                 <tr className="border-b border-line-soft text-left text-[11px] font-semibold uppercase tracking-wide text-ink-400">
                   <th className="px-[18px] py-2.5">Lead · Patient</th>
@@ -77,6 +85,7 @@ export default async function ReservationsPage() {
                   <th className="px-3 py-2.5">Status</th>
                   <th className="px-3 py-2.5">Update</th>
                   <th className="px-3 py-2.5 pr-[18px]">Booked</th>
+                  {canManageReservations && <th className="px-3 py-2.5 pr-[18px]">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -135,6 +144,7 @@ export default async function ReservationsPage() {
                         <ReservationStatusSelect appointmentId={r.id} leadId={leadId} status={r.status} />
                       </td>
                       <td className="px-3 py-3 pr-[18px] text-ink-500">{formatDate(r.createdAt)}</td>
+                      {canManageReservations && <td className="px-3 py-3 pr-[18px]"><ReservationManagementControls appointmentId={r.id} patientName={r.patientName} /></td>}
                     </tr>
                   );
                 })}

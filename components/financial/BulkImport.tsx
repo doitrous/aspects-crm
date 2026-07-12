@@ -14,133 +14,10 @@ import {
   type ImportRowInput,
 } from "@/app/(crm)/financial/import/actions";
 import { Card } from "@/components/ui/Card";
+import { parseSpreadsheetFile, type ParsedSheet } from "@/lib/import/spreadsheetFile";
 
 const field = "rounded-control border border-line-soft bg-panel px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary";
 const stepTitle = "text-[13px] font-bold text-ink-900";
-
-interface ParsedSheet {
-  headers: string[];
-  rows: string[][];
-}
-
-type ZipEntry = { method: number; compressed: Uint8Array };
-
-function u16(view: DataView, offset: number): number {
-  return view.getUint16(offset, true);
-}
-
-function u32(view: DataView, offset: number): number {
-  return view.getUint32(offset, true);
-}
-
-function findEocd(view: DataView): number {
-  const min = Math.max(0, view.byteLength - 66_000);
-  for (let i = view.byteLength - 22; i >= min; i--) {
-    if (u32(view, i) === 0x06054b50) return i;
-  }
-  return -1;
-}
-
-async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
-  type DecompressionCtor = new (format: string) => {
-    writable: WritableStream<Uint8Array>;
-    readable: ReadableStream<Uint8Array>;
-  };
-  const Ctor = (globalThis as typeof globalThis & { DecompressionStream?: DecompressionCtor }).DecompressionStream;
-  if (!Ctor) throw new Error("This browser cannot decompress .xlsx files. Save as CSV and upload that file.");
-  const stream = new Ctor("deflate-raw");
-  const writer = stream.writable.getWriter();
-  await writer.write(data);
-  await writer.close();
-  return new Uint8Array(await new Response(stream.readable).arrayBuffer());
-}
-
-async function readZipXml(buffer: ArrayBuffer): Promise<Map<string, string>> {
-  const view = new DataView(buffer);
-  const eocd = findEocd(view);
-  if (eocd < 0) throw new Error("Invalid .xlsx file.");
-  const entries = u16(view, eocd + 10);
-  let offset = u32(view, eocd + 16);
-  const decoder = new TextDecoder();
-  const files = new Map<string, ZipEntry>();
-
-  for (let i = 0; i < entries; i++) {
-    if (u32(view, offset) !== 0x02014b50) break;
-    const method = u16(view, offset + 10);
-    const compressedSize = u32(view, offset + 20);
-    const nameLen = u16(view, offset + 28);
-    const extraLen = u16(view, offset + 30);
-    const commentLen = u16(view, offset + 32);
-    const localOffset = u32(view, offset + 42);
-    const name = decoder.decode(new Uint8Array(buffer, offset + 46, nameLen));
-    const localNameLen = u16(view, localOffset + 26);
-    const localExtraLen = u16(view, localOffset + 28);
-    const dataStart = localOffset + 30 + localNameLen + localExtraLen;
-    files.set(name, {
-      method,
-      compressed: new Uint8Array(buffer, dataStart, compressedSize),
-    });
-    offset += 46 + nameLen + extraLen + commentLen;
-  }
-
-  const xml = new Map<string, string>();
-  for (const [name, entry] of files.entries()) {
-    if (!name.endsWith(".xml") && !name.endsWith(".rels")) continue;
-    const bytes = entry.method === 0 ? entry.compressed : entry.method === 8 ? await inflateRaw(entry.compressed) : null;
-    if (!bytes) continue;
-    xml.set(name, decoder.decode(bytes));
-  }
-  return xml;
-}
-
-function parseXml(text: string): Document {
-  return new DOMParser().parseFromString(text, "application/xml");
-}
-
-function firstWorksheetPath(files: Map<string, string>): string {
-  const workbook = files.get("xl/workbook.xml");
-  const rels = files.get("xl/_rels/workbook.xml.rels");
-  if (!workbook || !rels) return "xl/worksheets/sheet1.xml";
-  const doc = parseXml(workbook);
-  const sheet = doc.getElementsByTagName("sheet")[0];
-  const rid = sheet?.getAttribute("r:id");
-  if (!rid) return "xl/worksheets/sheet1.xml";
-  const relDoc = parseXml(rels);
-  const rel = Array.from(relDoc.getElementsByTagName("Relationship")).find((r) => r.getAttribute("Id") === rid);
-  const target = rel?.getAttribute("Target") ?? "worksheets/sheet1.xml";
-  if (target.startsWith("/")) return target.slice(1);
-  if (target.startsWith("xl/")) return target;
-  return `xl/${target}`;
-}
-
-function cellIndex(ref: string | null): number {
-  const letters = (ref ?? "").match(/[A-Z]+/i)?.[0]?.toUpperCase() ?? "A";
-  let n = 0;
-  for (const c of letters) n = n * 26 + (c.charCodeAt(0) - 64);
-  return Math.max(0, n - 1);
-}
-
-async function parseXlsx(buffer: ArrayBuffer): Promise<ParsedSheet> {
-  const files = await readZipXml(buffer);
-  const shared = parseXml(files.get("xl/sharedStrings.xml") ?? "<sst />");
-  const sharedStrings = Array.from(shared.getElementsByTagName("si")).map((si) => si.textContent ?? "");
-  const path = firstWorksheetPath(files);
-  const sheetXml = files.get(path) ?? files.get("xl/worksheets/sheet1.xml");
-  if (!sheetXml) throw new Error("No worksheet found in the .xlsx file.");
-  const sheet = parseXml(sheetXml);
-  const output: string[][] = [];
-  for (const row of Array.from(sheet.getElementsByTagName("row"))) {
-    const values: string[] = [];
-    for (const c of Array.from(row.getElementsByTagName("c"))) {
-      const idx = cellIndex(c.getAttribute("r"));
-      const t = c.getAttribute("t");
-      const raw = c.getElementsByTagName("v")[0]?.textContent ?? "";
-      values[idx] = t === "s" ? sharedStrings[Number(raw)] ?? "" : c.textContent?.trim() ?? raw;
-    }
-    if (values.some((v) => (v ?? "").trim() !== "")) output.push(values.map((v) => v ?? ""));
-  }
-  return { headers: (output.shift() ?? []).map((h) => h.trim()), rows: output };
-}
 
 export function BulkImport() {
   const [text, setText] = useState("");
@@ -160,35 +37,29 @@ export function BulkImport() {
     setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
-  function setParsedSheet(sheet: ParsedSheet) {
+  function setParsedSheet(sheet: ParsedSheet, openPreviewAfterParse = false) {
     setParsed(sheet.headers.length ? sheet : null);
     setMapping(sheet.headers.length ? autoMap(sheet.headers) : {});
     setResult(null);
     setConfirmed(false);
-    setPreviewOpen(false);
+    setPreviewOpen(openPreviewAfterParse);
     setParseError("");
+    if (openPreviewAfterParse) setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
   function doParse(raw: string) {
     const p = parseDelimited(raw);
-    setParsedSheet(p);
+    setParsedSheet({ name: "Pasted data", ...p });
   }
 
   async function parseFile(file: File) {
     if (!file) return;
     setFileName(file.name);
     setParseError("");
-    const lower = file.name.toLowerCase();
     try {
-      if (lower.endsWith(".xlsx")) {
-        const p = await parseXlsx(await file.arrayBuffer());
-        setText("");
-        setParsedSheet(p);
-        return;
-      }
-      const raw = await file.text();
-      setText(raw);
-      doParse(raw);
+      const parsedWorkbook = await parseSpreadsheetFile(file);
+      setText("");
+      setParsedSheet(parsedWorkbook.sheets[0], true);
     } catch (err) {
       setParsed(null);
       setMapping({});

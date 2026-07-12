@@ -51,6 +51,20 @@ test("only admin and auditor may permanently delete leads", () => {
   assert.equal(can("viewer", "leads.delete"), false);
 });
 
+test("only admin and auditor may dismiss or delete website reservations", () => {
+  assert.equal(can("admin", "reservations.manage"), true);
+  assert.equal(can("auditor", "reservations.manage"), true);
+  assert.equal(can("moderator", "reservations.manage"), false);
+  assert.equal(can("viewer", "reservations.manage"), false);
+});
+
+test("only admin and auditor may bulk import patient leads", () => {
+  assert.equal(can("admin", "leads.bulkImport"), true);
+  assert.equal(can("auditor", "leads.bulkImport"), true);
+  assert.equal(can("moderator", "leads.bulkImport"), false);
+  assert.equal(can("viewer", "leads.bulkImport"), false);
+});
+
 test("both admin and auditor may force exceptional price and approve discounts", () => {
   for (const role of ["admin", "auditor"] as const) {
     assert.equal(can(role, "financial.forceExceptionalPrice"), true);

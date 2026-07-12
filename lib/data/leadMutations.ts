@@ -118,7 +118,7 @@ export async function updateLeadProfile(input: {
   if (!name) throw new LeadMutationError("Patient name is required.");
   if (!phone) throw new LeadMutationError("Phone number is required.");
   const mrn = input.mrn?.trim() || null;
-  if (mrn && !/^\d{4,6}$/.test(mrn)) throw new LeadMutationError("MRN must contain exactly 4, 5, or 6 digits.");
+  if (mrn && !/^\d{1,9}$/.test(mrn)) throw new LeadMutationError("MRN must contain 1 to 9 digits.");
   const specialty = catalog.specialties.find((row) => row.id === input.specialtyId);
   const specialtyIds = [...new Set([...(specialty ? [specialty.id] : []), ...input.specialtyIds])]
     .filter((id) => catalog.specialties.some((row) => row.id === id));
@@ -778,27 +778,44 @@ export async function createManualLead(params: {
   platform: string;
   sourceId?: string;
   serviceName?: string;
+  mrn?: string;
+  gender?: "male" | "female";
+  notes?: string;
+  metadata?: Record<string, unknown>;
 }): Promise<string> {
   const actor = await writeLeadActor();
   const name = params.name.trim();
   const phone = params.phone.trim();
   if (!name) throw new LeadMutationError("Patient name is required.");
   if (!phone) throw new LeadMutationError("Phone is required.");
+  const mrn = params.mrn?.trim() || null;
+  if (mrn && !/^\d{1,9}$/.test(mrn)) throw new LeadMutationError("MRN must contain 1 to 9 digits.");
 
-  const { data: generatedLeadId, error: idError } = await supabaseAdmin().rpc("crm_generate_lead_id");
+  const db = supabaseAdmin();
+  if (mrn) {
+    const { data: duplicateMrn, error: duplicateError } = await db.from("leads").select("lead_id").eq("mrn", mrn).limit(1).maybeSingle();
+    if (duplicateError) throw new Error(`createManualLead(MRN check): ${duplicateError.message}`);
+    if (duplicateMrn) throw new LeadMutationError(`MRN ${mrn} is already assigned to lead ${duplicateMrn.lead_id}.`);
+  }
+
+  const { data: generatedLeadId, error: idError } = await db.rpc("crm_generate_lead_id");
   if (idError) throw new Error(`crm_generate_lead_id: ${idError.message}`);
   const leadId = String(generatedLeadId);
 
-  const { data, error } = await supabaseAdmin()
+  const { data, error } = await db
     .from("leads")
     .insert({
       lead_id: leadId,
       name,
+      mrn,
       phone_country_code: "+20",
       phone_number: phone,
       platform: params.platform || "manual",
       source_id: params.sourceId || null,
       service_name: params.serviceName?.trim() || null,
+      gender: params.gender ?? null,
+      notes: params.notes?.trim() || null,
+      metadata: params.metadata ?? {},
       status: "new_lead",
       has_unread: false,
       escalation_status: "none",
@@ -813,7 +830,7 @@ export async function createManualLead(params: {
     action: "lead.created_manual",
     entityType: "lead",
     entityId: data.id as string,
-    newValues: { lead_id: data.lead_id, name, phone, platform: params.platform },
+    newValues: { lead_id: data.lead_id, name, phone, mrn, platform: params.platform },
     metadata: { actor_name: actor.name },
   });
   await timeline({

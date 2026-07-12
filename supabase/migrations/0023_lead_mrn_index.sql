@@ -1,4 +1,4 @@
--- Local clinic MRN: a 4–6 digit patient record number stored on the lead and
+-- Local clinic MRN: a 1–9 digit patient record number stored on the lead and
 -- used as a fast, unique bulk-import match key.
 set search_path = public, extensions;
 
