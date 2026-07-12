@@ -66,7 +66,7 @@ export default async function CalendarPage({
       <>
         <Topbar title="Calendar" />
         <div className="flex-1 overflow-auto p-[18px]">
-          <PipelineSummary counts={pipeline} className="mb-6" />
+          <PipelineSummary counts={pipeline} websiteBookings={0} unconfirmedAppointments={0} className="mb-6" />
           <EmptyState
             title="Booking integration not connected"
             hint="Set BOOKING_SUPABASE_URL and BOOKING_SUPABASE_SERVICE_ROLE_KEY in .env.local to sync the live booking calendar."
@@ -100,6 +100,7 @@ export default async function CalendarPage({
   for (const list of byDate.values()) list.sort((a, b) => a.startTime.localeCompare(b.startTime));
 
   const inMonthCount = reservations.filter((r) => r.date.startsWith(monthPrefix)).length;
+  const unconfirmedCount = reservations.filter((r) => r.date.startsWith(monthPrefix) && r.status === "reserved").length;
 
   const leadByAppointment = syncedLeadByAppointment;
 
@@ -125,7 +126,7 @@ export default async function CalendarPage({
     <>
       <Topbar title="Calendar" />
       <div className="flex-1 overflow-auto p-[18px]">
-        <PipelineSummary counts={pipeline} className="mb-6" />
+        <PipelineSummary counts={pipeline} websiteBookings={inMonthCount} unconfirmedAppointments={unconfirmedCount} className="mb-6" />
         {/* Month header + navigation */}
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>

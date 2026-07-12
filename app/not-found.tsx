@@ -10,7 +10,7 @@ export default function NotFound() {
         We couldn&apos;t find that page or lead.
       </p>
       <Link
-        href="/dashboard"
+        href="/calendar"
         className="rounded-control bg-primary px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-primary-hover"
       >
         ← Back to dashboard

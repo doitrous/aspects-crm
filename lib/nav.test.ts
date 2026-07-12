@@ -3,14 +3,14 @@ import { test } from "node:test";
 import { activeHref, visibleNav, type NavItem } from "./nav";
 
 const ITEMS: NavItem[] = [
-  { label: "Dashboard", i18nKey: "nav.dashboard", href: "/dashboard", icon: "" },
-  { label: "Leads", i18nKey: "nav.newLeads", href: "/leads", icon: "" },
-  { label: "Users & Roles", i18nKey: "nav.users", href: "/settings/users", icon: "" },
-  { label: "Settings", i18nKey: "nav.settings", href: "/settings", icon: "" },
+  { label: "Calendar", i18nKey: "nav.calendar", href: "/calendar", icon: "", section: "workspace" },
+  { label: "Leads", i18nKey: "nav.newLeads", href: "/leads", icon: "", section: "intake" },
+  { label: "Users & Roles", i18nKey: "nav.users", href: "/settings/users", icon: "", section: "administration" },
+  { label: "Settings", i18nKey: "nav.settings", href: "/settings", icon: "", section: "administration" },
 ];
 
 test("an exact path activates its own item", () => {
-  assert.equal(activeHref("/dashboard", ITEMS), "/dashboard");
+  assert.equal(activeHref("/calendar", ITEMS), "/calendar");
 });
 
 test("a nested path activates the most specific item, not its ancestor", () => {

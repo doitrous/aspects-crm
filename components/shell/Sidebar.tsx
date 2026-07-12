@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { activeHref, visibleNav } from "@/lib/nav";
+import { activeHref, NAV_SECTION_LABELS, visibleNav } from "@/lib/nav";
 import type { User } from "@/lib/types";
 import { UserSwitcher, type SwitchableUser } from "@/components/shell/UserSwitcher";
 import { PreferencesMenu } from "@/components/shell/PreferencesMenu";
@@ -17,6 +17,8 @@ export function Sidebar({
   canImpersonate,
   impersonating,
   theme,
+  mobileOpen = false,
+  onMobileClose,
 }: {
   counts: Record<string, number>;
   user: User;
@@ -24,6 +26,8 @@ export function Sidebar({
   canImpersonate: boolean;
   impersonating: boolean;
   theme: Theme;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }) {
   const pathname = usePathname();
   const nav = visibleNav(user.role);
@@ -31,21 +35,25 @@ export function Sidebar({
   const { t } = useI18n();
 
   return (
-    <aside className="flex w-[210px] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4">
+    <aside className={cn("fixed inset-y-0 left-0 z-50 flex w-[min(86vw,280px)] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4 shadow-2xl transition-transform duration-200 md:static md:z-auto md:w-[210px] md:translate-x-0 md:shadow-none", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
       <div className="flex items-center justify-center px-2 pb-5 pt-1">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/aspects-clinica-logo.png" alt="Aspects Clinica" className="h-20 w-full object-contain" />
+        <button type="button" onClick={onMobileClose} aria-label="Close menu" className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border border-line-soft bg-panel text-lg text-ink-600 md:hidden">×</button>
       </div>
 
-      {nav.map((n) => {
+      <nav className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+      {nav.map((n, index) => {
         const active = current === n.href;
         const booked = n.href === "/booked";
         const lost = n.href === "/lost";
         const count = n.countKey ? counts[n.countKey] : undefined;
-        return (
+        const startsSection = index === 0 || nav[index - 1].section !== n.section;
+        return (<div key={n.href} className={startsSection && index > 0 ? "mt-2 border-t border-line-faint pt-2" : ""}>
+          {startsSection && <div className="mb-1 px-2.5 text-[9px] font-bold uppercase tracking-[0.14em] text-ink-300">{NAV_SECTION_LABELS[n.section]}</div>}
           <Link
-            key={n.href}
             href={n.href}
+            onClick={onMobileClose}
             className={cn(
               "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] transition-colors",
               active && booked
@@ -74,10 +82,11 @@ export function Sidebar({
               </span>
             ) : null}
           </Link>
-        );
+        </div>);
       })}
+      </nav>
 
-      <div className="mt-auto flex flex-col gap-2">
+      <div className="mt-2 flex flex-col gap-2 border-t border-line-faint pt-2">
         <PreferencesMenu theme={theme} />
         <UserSwitcher
           current={user}

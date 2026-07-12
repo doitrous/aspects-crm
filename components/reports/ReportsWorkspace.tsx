@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { createOperationalReportAction, REPORT_IDLE, saveModeratorScoreAction } from "@/app/(crm)/reports/actions";
+import { calculateReportAction, createOperationalReportAction, saveModeratorScoreAction, type ReportActionState } from "@/app/(crm)/reports/actions";
 import { Card } from "@/components/ui/Card";
 import type { ReportAutoData, ModeratorScorecard, ReportType } from "@/lib/data/reporting";
 import type { SummaryReport, Role } from "@/lib/types";
@@ -15,6 +15,7 @@ const META: Record<string, { label: string; color: string; soft: string; icon: s
   marketing_daily: { label: "Marketing report", color: "#c11574", soft: "#fdf2fa", icon: "◉" },
 };
 const input = "w-full rounded-lg border border-line-soft bg-white px-3 py-2 text-[12.5px] outline-none focus:border-primary";
+const REPORT_IDLE: ReportActionState = { ok: false };
 
 async function copyImage(node: HTMLElement) {
   const clone = node.cloneNode(true) as HTMLElement;
@@ -56,18 +57,48 @@ function MarketingCharts({ auto }: { auto: ReportAutoData }) {
   return <div className="space-y-3"><div className="grid gap-3 md:grid-cols-2"><div className="rounded-xl border border-pink-100 bg-pink-50 p-3"><b className="text-[11px] text-pink-800">Incoming leads by platform</b><div className="mt-3 space-y-2">{rows.map((row)=><div key={row.key}><div className="flex justify-between text-[9.5px] font-bold"><span>{row.label}</span><span>{row.leads}</span></div><div className="mt-0.5 h-2 rounded-full bg-white"><div className="h-2 rounded-full bg-pink-500" style={{width:`${row.leads/maxLeads*100}%`}}/></div></div>)}</div></div><div className="rounded-xl border border-cyan-100 bg-cyan-50 p-3"><b className="text-[11px] text-cyan-800">Revenue by platform</b><div className="mt-3 space-y-2">{rows.map((row)=><div key={row.key}><div className="flex justify-between text-[9.5px] font-bold"><span>{row.label}</span><span>{row.revenue.toLocaleString()} EGP</span></div><div className="mt-0.5 h-2 rounded-full bg-white"><div className="h-2 rounded-full bg-cyan-500" style={{width:`${Math.max(0,row.revenue)/maxRevenue*100}%`}}/></div></div>)}</div></div></div><div className="overflow-x-auto rounded-xl border border-line-soft"><table className="w-full min-w-[680px] text-[10.5px]"><thead className="bg-canvas text-left uppercase text-ink-400"><tr>{["Platform","Leads","Booked","Attended","Procedures","Revenue","Booking rate","Attendance rate"].map((h)=><th key={h} className="px-2 py-2">{h}</th>)}</tr></thead><tbody>{rows.map((row)=><tr key={row.key} className="border-t border-line-faint"><td className="px-2 py-2 font-bold">{row.label}</td><td className="px-2">{row.leads}</td><td className="px-2">{row.booked}</td><td className="px-2">{row.attended}</td><td className="px-2">{row.procedureReservations}</td><td className="px-2 font-bold">{row.revenue.toLocaleString()} EGP</td><td className="px-2">{row.bookingRate}%</td><td className="px-2">{row.attendanceRate}%</td></tr>)}</tbody></table></div></div>;
 }
 
+function CalculationPanel({ initialDate }: { initialDate: string }) {
+  const [date, setDate] = useState(initialDate);
+  const [data, setData] = useState<ReportAutoData | null>(null);
+  const [error, setError] = useState("");
+  const [calculating, startCalculation] = useTransition();
+  const metrics = data ? [
+    ["New leads", data.totalLeads], ["Contacted", data.contacted], ["Qualified", data.qualified],
+    ["Booked", data.booked], ["Follow-ups due", data.followupsDue], ["Follow-ups done", data.followupsDone],
+    ["Post-op due", data.postOpDue], ["Payments", `${data.payments.toLocaleString()} EGP`],
+  ] : [];
+  return <Card className="mb-4 border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end"><div className="flex-1"><h3 className="text-lg font-black text-ink-900">Automatic report calculator</h3><p className="text-xs text-ink-500">Press Calculate to fetch fresh CRM totals before you finalize a report.</p></div><label className="text-[11px] font-bold text-ink-500">Calculation date<input type="date" value={date} onChange={(event)=>setDate(event.target.value)} className={`${input} mt-1 sm:w-44`}/></label><button type="button" disabled={calculating} onClick={()=>startCalculation(async()=>{setError("");const result=await calculateReportAction(date);if(result.error){setError(result.error);setData(null);}else setData(result.data ?? null);})} className="min-h-11 rounded-xl bg-blue-600 px-6 text-sm font-black text-white shadow-sm disabled:opacity-50">{calculating?"Calculating…":"Calculate"}</button></div>
+    {error&&<div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</div>}
+    {data&&<div className="mt-4"><div className="mb-2 text-[10px] font-black uppercase tracking-[.15em] text-blue-700">Calculated from live CRM data · {data.date}</div><div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">{metrics.map(([label,value])=><div key={String(label)} className="rounded-xl border border-blue-100 bg-white p-3 shadow-sm"><div className="text-[10px] font-bold uppercase text-ink-400">{label}</div><div className="mt-1 break-words text-xl font-black text-blue-800 sm:text-2xl">{value}</div></div>)}</div></div>}
+  </Card>;
+}
+
+function FormattedReport({ text }: { text: string }) {
+  const lines = text.split("\n");
+  return <div dir="auto" className="space-y-1 text-[14px] leading-relaxed text-ink-800 sm:text-[15px]">{lines.map((line,index)=>{
+    const trimmed=line.trim();
+    if(!trimmed) return <div key={index} className="h-3"/>;
+    const isTitle=index===0 || (/^[A-Z][A-Z &/–-]+$/.test(trimmed) && !/\d/.test(trimmed)) || (/[:：]$/.test(trimmed) && !/\d/.test(trimmed));
+    if(isTitle) return <h3 key={index} className={index===0?"pb-2 text-xl font-black text-ink-900 sm:text-2xl":"pt-4 text-lg font-black text-ink-900 sm:text-xl"}>{trimmed}</h3>;
+    const parts=trimmed.split(/(-?[\d,.]+(?:\.\d+)?%?(?:\s*EGP)?)/g);
+    const hasNumber=parts.some((part)=>/\d/.test(part));
+    return <div key={index} className={hasNumber?"my-1 rounded-xl border border-line-faint bg-canvas/60 px-3 py-2 font-semibold":"py-0.5"}>{parts.map((part,partIndex)=>/\d/.test(part)?<strong key={partIndex} className="mx-1 inline-block text-xl font-black text-primary sm:text-2xl">{part}</strong>:<span key={partIndex}>{part}</span>)}</div>;
+  })}</div>;
+}
+
 function Creator({ date, role }: { date: string; role: Role }) {
   const [state, action, pending] = useActionState(createOperationalReportAction, REPORT_IDLE);
   const all = role === "admin" || role === "auditor";
   const types: ReportType[] = all ? ["moderator_daily_ar","follow_up_daily_ar","auditor_clinic_daily_ar","financial_daily","marketing_daily"] : ["moderator_daily_ar","follow_up_daily_ar"];
   const [type, setType] = useState<ReportType>(types[0]);
-  return <Card className="overflow-hidden border-violet-200">
+  return <><CalculationPanel initialDate={date}/><Card className="overflow-hidden border-violet-200">
     <div className="bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-4 text-white"><h2 className="text-[16px] font-black">Create a polished report</h2><p className="mt-1 text-[11.5px] text-violet-100">CRM totals are calculated automatically. Add the context that only your team knows.</p></div>
     <form action={action} className="grid gap-4 p-5 lg:grid-cols-[230px_1fr]">
       <div className="space-y-2"><input type="hidden" name="reportType" value={type}/><label className="text-[11px] font-bold text-ink-500">Report date<input type="date" name="date" defaultValue={date} className={`${input} mt-1`}/></label>{types.map((t) => { const m=META[t]; return <button key={t} type="button" onClick={()=>setType(t)} className="flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-[12px] font-bold" style={{borderColor:type===t?m.color:"#e4e7ec",background:type===t?m.soft:"white",color:type===t?m.color:"#475467"}}><span>{m.icon}</span>{m.label}</button>; })}</div>
       <div className="space-y-3" dir="rtl"><textarea name="importantUpdates" rows={4} className={input} placeholder={type === "financial_daily" ? "ملاحظات مالية" : "تحديثات هامة: اسم العميل، آخر رد، والخطوة القادمة"}/><textarea name="intervention" rows={3} className={input} placeholder="حالات تحتاج لتدخل الإدارة أو الطبيب"/><textarea name="pendingCases" rows={3} className={input} placeholder="حالات معلقة: السبب وتاريخ المتابعة القادم"/>{type === "moderator_daily_ar" && <div className="grid grid-cols-2 gap-2"><input name="pending47" type="number" min="0" className={input} placeholder="معلقين 4-7 أيام"/><input name="pending7" type="number" min="0" className={input} placeholder="معلقين 7+ أيام"/></div>}{type === "follow_up_daily_ar" && <input name="overdueReasons" className={input} placeholder="أسباب المتابعات المتأخرة"/>}{(type==="moderator_daily_ar"||type==="follow_up_daily_ar")&&<details className="rounded-xl border border-amber-200 bg-amber-50 p-3"><summary className="cursor-pointer text-[11.5px] font-black text-amber-800">Override automatically calculated data</summary><p className="my-2 text-[10.5px] text-amber-700">Leave fields blank to keep CRM totals. Every changed value will be tagged OVERRIDDEN in the finalized report.</p><div className="grid grid-cols-2 gap-2" dir="ltr">{(type==="moderator_daily_ar"?[["totalLeads","Total leads"],["contacted","Contacted"],["qualified","Qualified"],["booked","Booked"]]:[["followupsDue","Follow-ups due"],["followupsDone","Completed"],["postOpDue","Post-op due"],["postOpDone","Post-op done"]]).map(([key,label])=><input key={key} name={`override_${key}`} type="number" min="0" className={input} placeholder={label}/>)}</div><input name="overrideReason" className={`${input} mt-2`} placeholder="Reason for override"/></details>}<button disabled={pending} className="rounded-xl bg-ink-900 px-5 py-2.5 text-[12.5px] font-black text-white shadow-sm disabled:opacity-50">{pending?"Finalizing…":"Generate & finalize report"}</button>{state.error && <p className="text-[11.5px] font-bold text-red-600">{state.error}</p>}{state.ok && <p className="text-[11.5px] font-bold text-emerald-700">{state.message}</p>}</div>
     </form>
-  </Card>;
+  </Card></>;
 }
 
 function Scores({ date, rows }: { date: string; rows: ModeratorScorecard[] }) {
@@ -76,12 +107,13 @@ function Scores({ date, rows }: { date: string; rows: ModeratorScorecard[] }) {
 }
 function ScoreRow({date,row}:{date:string;row:ModeratorScorecard}) { const [state,action,pending]=useActionState(saveModeratorScoreAction,REPORT_IDLE); const fields:[[string,string],...Array<[string,string]>]=[["languageTone","Language / Tone"],["accuracy","Accuracy"],["callToAction","CTA / Sales"],["dataCollection","Data Collection"],["processCompliance","Compliance"]]; return <form action={action} className="rounded-xl border border-line-soft bg-canvas/50 p-3"><input type="hidden" name="date" value={date}/><input type="hidden" name="moderatorId" value={row.id}/><div className="mb-2 flex items-center gap-2"><b className="text-[12.5px]">{row.name}</b>{row.average!==null&&<span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-black text-violet-700">{row.average.toFixed(1)} / 5</span>}{row.average!==null&&row.previousAverage!==null&&<span className={`text-[10.5px] font-bold ${row.average>=row.previousAverage?"text-emerald-700":"text-rose-600"}`}>{row.average>=row.previousAverage?"↑":"↓"} {Math.abs(row.average-row.previousAverage).toFixed(1)} vs prior month</span>}</div><div className="grid gap-2 md:grid-cols-5">{fields.map(([key,label])=><label key={key} className="text-[10px] font-bold text-ink-500">{label}<input name={key} type="number" min="0" max="5" step="0.5" required defaultValue={row.scores?.[key as keyof NonNullable<typeof row.scores>] ?? ""} className={`${input} mt-1`}/></label>)}</div><div className="mt-2 flex gap-2"><input name="notes" className={input} placeholder="Auditor notes (optional)"/><button disabled={pending} className="rounded-lg bg-violet-600 px-4 text-[11.5px] font-bold text-white">{pending?"Saving…":"Save score"}</button></div>{(state.error||state.message)&&<p className={`mt-1 text-[10.5px] font-bold ${state.error?"text-red-600":"text-emerald-700"}`}>{state.error||state.message}</p>}</form>; }
 
-export function ReportsWorkspace({reports,selectedId,date,auto,scorecards,role}:{reports:SummaryReport[];selectedId?:string;date:string;auto:ReportAutoData;scorecards:ModeratorScorecard[];role:Role}) {
+export function ReportsWorkspace({reports,selectedId,date,auto,scorecards,role,warning}:{reports:SummaryReport[];selectedId?:string;date:string;auto:ReportAutoData;scorecards:ModeratorScorecard[];role:Role;warning?:string}) {
   const selected=useMemo(()=>reports.find(r=>r.id===selectedId)??reports[0],[reports,selectedId]);
   const reportRef=useRef<HTMLDivElement>(null);
   const m=selected?META[selected.reportType]??{label:selected.reportType,color:"#475467",soft:"#f2f4f7",icon:"▦"}:null;
-  return <div className="min-h-0 flex-1 overflow-auto bg-canvas px-[18px] py-4"><div className="mx-auto flex max-w-[1500px] flex-col gap-4">
+  return <div className="min-h-0 flex-1 overflow-auto bg-canvas px-3 py-3 sm:px-[18px] sm:py-4"><div className="mx-auto flex max-w-[1500px] flex-col gap-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-[20px] font-black text-ink-900">Reports that are ready to share</h1><p className="text-[12px] text-ink-500">Create, review, compare and export operational reports from one place.</p></div><form><input type="date" name="date" defaultValue={date} className={input}/></form></div>
+    {warning&&<div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-800">{warning}</div>}
     <Creator date={date} role={role}/><Scores date={date} rows={scorecards}/>
     {selected && m ? <div className="grid gap-4 lg:grid-cols-[270px_1fr]">
       <aside className="space-y-2">{reports.map(r=>{const rm=META[r.reportType]??m;return <Link key={r.id} href={`/reports?id=${r.id}&date=${r.reportDate}`} className={`block rounded-xl border p-3 ${r.id===selected.id?"shadow-sm":"bg-white"}`} style={r.id===selected.id?{borderColor:rm.color,background:rm.soft}:{}}><span className="text-[10px] font-black" style={{color:rm.color}}>{rm.icon} {rm.label}</span><div className="mt-1 text-[12px] font-bold">{r.reportDate}</div><div className="text-[10px] text-ink-400">{r.generatedBy||"CRM"}</div></Link>})}</aside>
@@ -89,7 +121,7 @@ export function ReportsWorkspace({reports,selectedId,date,auto,scorecards,role}:
         <Card className="overflow-hidden"><div ref={reportRef} className="bg-white"><div className="h-2" style={{background:`linear-gradient(90deg,${m.color},#7c3aed)`}}/><div className="p-6"><div className="mb-5 flex items-start justify-between border-b border-line-soft pb-4"><div><div className="text-[11px] font-black uppercase tracking-[.18em]" style={{color:m.color}}>Aspects Clinica</div><h2 className="mt-1 text-[22px] font-black text-ink-900">{m.label}</h2></div><div className="rounded-xl px-3 py-2 text-right text-[11px] font-bold" style={{background:m.soft,color:m.color}}>{selected.reportDate}<small className="block opacity-70">FINAL REPORT</small></div></div>
           {selected.reportType==="financial_daily"&&<div className="mb-5"><MiniCharts auto={auto}/></div>}
           {selected.reportType==="marketing_daily"&&<div className="mb-5"><MarketingCharts auto={auto}/></div>}
-          <pre dir="auto" className="whitespace-pre-wrap font-sans text-[13px] leading-7 text-ink-800">{selected.text}</pre>
+          <FormattedReport text={selected.text}/>
         </div></div></Card>
       </div>
     </div>:<Card className="p-10 text-center text-[13px] text-ink-500">No reports yet. Create the first report above.</Card>}

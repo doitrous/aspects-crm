@@ -857,7 +857,7 @@ export async function createLeadBooking(input: {
   revalidatePath(`/leads/${input.leadId}`);
   revalidatePath("/calendar");
   revalidatePath("/reservations");
-  revalidatePath("/dashboard");
+  revalidatePath("/calendar");
   revalidatePath("/leads");
   revalidatePath("/qualified");
   revalidatePath("/booked");
@@ -928,7 +928,7 @@ export async function updateReservationStatus(input: {
   }
   revalidatePath("/calendar");
   revalidatePath("/reservations");
-  revalidatePath("/dashboard");
+  revalidatePath("/calendar");
   revalidatePath("/booked");
   revalidatePath("/database");
 }

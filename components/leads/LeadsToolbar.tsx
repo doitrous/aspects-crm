@@ -46,7 +46,7 @@ export function LeadsToolbar({
         onKeyDown={(e) => {
           if (e.key === "Enter") setParam("q", (e.target as HTMLInputElement).value);
         }}
-        className="h-8 w-[280px] rounded-control border border-line bg-panel px-3 text-[12.5px] text-ink-700 placeholder:text-ink-400"
+        className="h-10 w-full rounded-control border border-line bg-panel px-3 text-[12.5px] text-ink-700 placeholder:text-ink-400 sm:h-8 sm:w-[280px]"
       />
       <button
         type="button"

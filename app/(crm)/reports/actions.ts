@@ -6,9 +6,21 @@ import { writeActor } from "@/lib/data/actor";
 import { generateAuditReport } from "@/lib/data/auditor";
 import { REPORT_TYPES, reportAutoData, type ReportType } from "@/lib/data/reporting";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { requireSession } from "@/lib/data/session";
 
 export interface ReportActionState { ok: boolean; message?: string; error?: string; reportId?: string }
-export const REPORT_IDLE: ReportActionState = { ok: false };
+
+export async function calculateReportAction(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "Choose a valid report date." };
+  try {
+    const { effective } = await requireSession();
+    if (!can(effective.role, "reports.view")) return { error: "You are not allowed to calculate reports." };
+    return { data: await reportAutoData(date) };
+  } catch (err) {
+    console.error("report calculation failed", err);
+    return { error: "Automatic calculation failed. The report page is still available; please retry or ask an admin to verify the reporting tables." };
+  }
+}
 
 function allowed(role: "admin" | "auditor" | "moderator" | "viewer", type: ReportType) {
   return can(role, "reports.generate") || (can(role, "reports.createOwn") && (type === "moderator_daily_ar" || type === "follow_up_daily_ar"));

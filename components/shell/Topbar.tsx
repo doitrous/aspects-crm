@@ -1,3 +1,7 @@
+"use client";
+
+import { useMobileMenu } from "@/components/shell/MobileShell";
+
 export function Topbar({
   title,
   overdue,
@@ -9,21 +13,23 @@ export function Topbar({
   unread?: number;
   action?: React.ReactNode;
 }) {
+  const toggleMenu = useMobileMenu();
   return (
-    <div className="flex h-[58px] flex-none items-center gap-3 border-b border-line-soft px-[18px]">
-      <div className="text-[16px] font-bold text-ink-900">{title}</div>
+    <div className="flex min-h-[56px] flex-none items-center gap-2 border-b border-line-soft px-3 sm:h-[58px] sm:gap-3 sm:px-[18px]">
+      <button type="button" onClick={toggleMenu} aria-label="Open navigation" className="flex h-10 w-10 flex-none items-center justify-center rounded-lg border border-line-soft bg-panel text-[19px] font-black tracking-[-2px] text-ink-700 shadow-sm md:hidden">•••</button>
+      <div className="truncate text-[15px] font-bold text-ink-900 sm:text-[16px]">{title}</div>
 
       <div className="flex-1" />
 
       {overdue ? (
-        <div className="flex items-center gap-1.5 rounded-pill bg-danger-bg px-2.5 py-1.5 text-[11px] font-semibold text-danger">
+        <div className="hidden items-center gap-1.5 rounded-pill bg-danger-bg px-2.5 py-1.5 text-[11px] font-semibold text-danger sm:flex">
           <span className="h-[7px] w-[7px] rounded-full bg-danger-dot" />
           {overdue} overdue
         </div>
       ) : null}
 
       {unread ? (
-        <div className="flex items-center gap-1.5 rounded-pill bg-primary-soft px-2.5 py-1.5 text-[11px] font-semibold text-primary">
+        <div className="hidden items-center gap-1.5 rounded-pill bg-primary-soft px-2.5 py-1.5 text-[11px] font-semibold text-primary sm:flex">
           {unread} unread
         </div>
       ) : null}

@@ -42,6 +42,13 @@ export interface MarketingPlatformPerformance {
   revenuePerLead: number;
 }
 
+export function emptyReportAutoData(date: string): ReportAutoData {
+  return { date, totalLeads: 0, contacted: 0, invalid: 0, qualified: 0, booked: 0,
+    escalations: 0, unanswered: 0, lost: [], followupsDue: 0, followupsDone: 0,
+    followupsOverdue: 0, postOpDue: 0, postOpDone: 0, payments: 0, refunds: 0,
+    expenses: 0, marketingPlatforms: [], bookingConnected: bookingConfigured() };
+}
+
 function platformMeta(value: unknown): { key: string; label: string } {
   const raw = String(value ?? "").trim().toLowerCase();
   if (raw === "facebook" || raw === "facebook_messenger" || raw === "messenger") return { key: "facebook", label: "Facebook / Messenger" };

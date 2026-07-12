@@ -62,7 +62,7 @@ export async function createLeadBookingAction(formData: FormData): Promise<Booki
     });
     revalidatePath("/reservations");
     revalidatePath("/calendar");
-    revalidatePath("/dashboard");
+    revalidatePath("/calendar");
     revalidatePath("/leads");
     revalidatePath("/qualified");
     revalidatePath("/booked");

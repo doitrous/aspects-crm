@@ -32,7 +32,7 @@ function toState(err: unknown): LeadActionState {
 }
 
 function refreshLeadLists() {
-  for (const path of ["/leads", "/qualified", "/booked", "/follow-up", "/post-op", "/lost", "/database", "/dashboard"]) {
+  for (const path of ["/leads", "/qualified", "/booked", "/follow-up", "/post-op", "/lost", "/database", "/calendar"]) {
     revalidatePath(path, "page");
   }
 }

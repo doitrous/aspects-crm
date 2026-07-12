@@ -92,3 +92,27 @@ select:focus {
   border-color: rgb(var(--c-primary)) !important;
   box-shadow: theme("boxShadow.focus");
 }
+
+/* Mobile web-app ergonomics: prevent iOS input zoom, keep touch targets large,
+   and make wide operational tables scroll instead of shrinking into illegible text. */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+
+  button,
+  a,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  table {
+    font-size: 12px;
+  }
+
+  .rounded-card {
+    border-radius: 12px;
+  }
+}

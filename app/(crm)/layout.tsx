@@ -1,4 +1,4 @@
-import { Sidebar } from "@/components/shell/Sidebar";
+import { MobileShell } from "@/components/shell/MobileShell";
 import { dashboardMetrics } from "@/lib/data";
 import { getReservations } from "@/lib/booking/reservations";
 import { isNewReservation } from "@/lib/reservationStatus";
@@ -55,18 +55,15 @@ export default async function CrmLayout({
   return (
     <I18nProvider locale={prefs.locale}>
       <ArabicPageTranslator />
-      <div className="flex h-screen overflow-hidden bg-panel">
-        <Sidebar
+      <MobileShell
           counts={counts}
           user={user}
           accounts={accounts}
           canImpersonate={canImpersonate}
           impersonating={user.impersonating}
           theme={prefs.theme}
-        />
-        <main className="flex min-w-0 flex-1 flex-col">{children}</main>
-        {modal}
-      </div>
+          modal={modal}
+        >{children}</MobileShell>
     </I18nProvider>
   );
 }

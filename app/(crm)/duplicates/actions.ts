@@ -41,7 +41,7 @@ export async function resolveDuplicateAction(
     return { ok: null, error: duplicateError(error) };
   }
   revalidatePath("/duplicates");
-  revalidatePath("/dashboard");
+  revalidatePath("/calendar");
   revalidatePath("/leads");
   revalidatePath("/database");
   return { ok: decision === "merged" ? "Leads merged." : "Marked as not a duplicate.", error: null };
