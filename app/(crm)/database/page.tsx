@@ -9,6 +9,9 @@ import { PaginationNav } from "@/components/ui/PaginationNav";
 import { DeleteAllLeadsButton } from "@/components/leads/LeadDeletionControls";
 import { requireSession } from "@/lib/data/session";
 import { can } from "@/lib/auth/permissions";
+import { bookingConfigured } from "@/lib/booking/client";
+import { getReservations } from "@/lib/booking/reservations";
+import { syncReservationsToLeads } from "@/lib/booking/sync";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +26,18 @@ function pageNumber(v: string | string[] | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
+async function syncWebsiteReservationsIntoDatabase(): Promise<void> {
+  if (!bookingConfigured()) return;
+  try {
+    const reservations = await getReservations();
+    await syncReservationsToLeads(reservations);
+  } catch (error) {
+    // The local patient database must remain usable during a booking-platform
+    // outage. The next Database/Calendar/Reservations request will retry.
+    console.error("website reservation database sync failed", error);
+  }
+}
+
 export default async function Page({
   searchParams,
 }: {
@@ -31,6 +46,7 @@ export default async function Page({
   const sp = await searchParams;
   const { effective: user } = await requireSession();
   const canDelete = can(user.role, "leads.delete");
+  await syncWebsiteReservationsIntoDatabase();
   const channel = str(sp.channel);
   const filters: LeadFilters = {
     q: str(sp.q),

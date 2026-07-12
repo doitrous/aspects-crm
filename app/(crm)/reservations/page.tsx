@@ -57,7 +57,7 @@ export default async function ReservationsPage() {
             ["Needs review", reservations.filter((r) => r.status === "reserved").length, "border-amber-200 bg-amber-50 text-amber-800"],
           ].map(([label, value, cls]) => <div key={String(label)} className={`rounded-xl border p-3 ${cls}`}><div className="text-[10.5px] font-bold uppercase tracking-wide opacity-70">{label}</div><div className="mt-1 text-[22px] font-black">{value}</div></div>)}
         </div>
-        <div className="mb-3 flex items-center justify-between"><div><h2 className="text-[15px] font-black text-ink-900">Website booking queue</h2><p className="text-[11.5px] text-ink-500">Live from the booking website · same patient workflow as the lead queues</p></div><span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10.5px] font-bold text-emerald-700">● Live sync</span></div>
+        <div className="mb-3 flex items-center justify-between"><div><h2 className="text-[15px] font-black text-ink-900">Website booking queue</h2><p className="text-[11.5px] text-ink-500">Live from the booking website · every reservation is linked to the patient Database</p></div><span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10.5px] font-bold text-emerald-700">● Live sync</span></div>
 
         {reservations.length === 0 ? (
           <EmptyState
