@@ -32,13 +32,9 @@ export function Sidebar({
 
   return (
     <aside className="flex w-[210px] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4">
-      <div className="flex items-center gap-2.5 px-2 pb-4">
+      <div className="flex items-center justify-center px-2 pb-5 pt-1">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/aspects-clinica-logo.png" alt="Aspects Clinica" className="h-10 w-14 flex-none object-contain" />
-        <div className="text-[14px] font-bold leading-tight text-ink-900">
-          Aspects Clinica
-          <div className="text-[10px] font-medium text-ink-400">{t("shell.crm")}</div>
-        </div>
+        <img src="/aspects-clinica-logo.png" alt="Aspects Clinica" className="h-20 w-full object-contain" />
       </div>
 
       {nav.map((n) => {
