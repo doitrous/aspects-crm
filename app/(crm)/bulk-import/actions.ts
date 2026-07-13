@@ -7,6 +7,7 @@ import { ActorError, writeActor } from "@/lib/data/actor";
 import { createManualLead, LeadMutationError } from "@/lib/data/leadMutations";
 import { logActivity } from "@/lib/audit/log";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { forcedLeadName } from "@/lib/import/leadImportMapping";
 
 export interface LeadImportRowInput {
   rowIndex: number;
@@ -75,16 +76,27 @@ async function existingLead(row: LeadImportRowInput): Promise<ExistingMatch | nu
   return null;
 }
 
-async function sourceId(label: string | undefined): Promise<string | undefined> {
+async function sourceId(
+  label: string | undefined,
+  cache?: Map<string, string | undefined>,
+): Promise<string | undefined> {
   const source = label?.trim();
   if (!source) return undefined;
+  const key = source.toLocaleLowerCase();
+  if (cache?.has(key)) return cache.get(key);
   const db = supabaseAdmin();
   const byKey = await db.from("lead_sources").select("id").ilike("key", source).limit(1).maybeSingle();
   if (byKey.error) throw byKey.error;
-  if (byKey.data?.id) return byKey.data.id as string;
+  if (byKey.data?.id) {
+    const id = byKey.data.id as string;
+    cache?.set(key, id);
+    return id;
+  }
   const byLabel = await db.from("lead_sources").select("id").ilike("label", source).limit(1).maybeSingle();
   if (byLabel.error) throw byLabel.error;
-  return byLabel.data?.id as string | undefined;
+  const id = byLabel.data?.id as string | undefined;
+  cache?.set(key, id);
+  return id;
 }
 
 function emptyResult(error: string): LeadImportResult {
@@ -119,7 +131,12 @@ function importMetadata(row: LeadImportRowInput, errors: string[]) {
   };
 }
 
-async function createForcedLead(row: LeadImportRowInput, actorId: string, errors: string[]): Promise<string> {
+async function createForcedLead(
+  row: LeadImportRowInput,
+  actorId: string,
+  errors: string[],
+  sourceCache: Map<string, string | undefined>,
+): Promise<string> {
   const db = supabaseAdmin();
   const generated = await db.rpc("crm_generate_lead_id");
   if (generated.error || !generated.data) throw generated.error ?? new Error("Could not generate Lead ID.");
@@ -127,12 +144,15 @@ async function createForcedLead(row: LeadImportRowInput, actorId: string, errors
   const validMrn = row.mrn && /^\d{1,9}$/.test(row.mrn.trim()) ? row.mrn.trim() : null;
   const { data, error } = await db.from("leads").insert({
     lead_id: leadId,
-    name: row.name?.trim() || null,
+    // `leads.name` is required by the database. An explicit override must still
+    // import a nameless row, so give it a traceable neutral display name while
+    // preserving the validation error in metadata.
+    name: forcedLeadName(row.name, row.rowIndex),
     mrn: validMrn,
     phone_country_code: row.phone?.trim() ? "+20" : null,
     phone_number: row.phone?.trim() || null,
     platform: "manual",
-    source_id: await sourceId(row.source),
+    source_id: await sourceId(row.source, sourceCache),
     service_name: row.serviceName?.trim() || null,
     gender: row.gender ?? null,
     notes: row.notes?.trim() || null,
@@ -172,7 +192,13 @@ export async function importLeadRows(rows: LeadImportRowInput[], options: LeadIm
     throw error;
   }
 
+  if (!Array.isArray(rows) || rows.length === 0) return emptyResult("No import rows were supplied.");
+  if (rows.length > 5_000) {
+    return emptyResult("A single import may contain at most 5,000 rows. Split larger workbooks into smaller files.");
+  }
+
   const results: LeadImportRowResult[] = [];
+  const sourceCache = new Map<string, string | undefined>();
   for (const row of rows) {
     try {
       const errors = identityErrors(row);
@@ -191,20 +217,26 @@ export async function importLeadRows(rows: LeadImportRowInput[], options: LeadIm
         }
         continue;
       }
-      const leadId = errors.length ? await createForcedLead(row, actor.id, errors) : await createManualLead({
+      const leadId = errors.length ? await createForcedLead(row, actor.id, errors, sourceCache) : await createManualLead({
         name: row.name!,
         phone: row.phone!,
         mrn: row.mrn,
         gender: row.gender,
         platform: "manual",
-        sourceId: await sourceId(row.source),
+        sourceId: await sourceId(row.source, sourceCache),
         serviceName: row.serviceName,
         notes: row.notes,
         metadata: importMetadata(row, errors),
       });
       results.push({ rowIndex: row.rowIndex, status: "imported", leadId, message: `Created regular lead ${leadId}.` });
     } catch (error) {
-      const message = error instanceof LeadMutationError ? error.message : (error as Error).message;
+      console.error("Bulk lead import row failed", {
+        row: row.rowIndex + 1,
+        code: typeof error === "object" && error && "code" in error ? String(error.code) : undefined,
+      });
+      const message = error instanceof LeadMutationError
+        ? error.message
+        : "This row could not be imported. Review its identity fields and try again.";
       results.push({ rowIndex: row.rowIndex, status: "error", message });
     }
   }

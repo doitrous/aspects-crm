@@ -21,6 +21,13 @@ export interface EmailLogRow {
   leadHumanId: string | null;
 }
 
+export class ManualEmailError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ManualEmailError";
+  }
+}
+
 export async function listEmailLog(limit = 200): Promise<EmailLogRow[]> {
   const db = supabaseAdmin();
   const { data, error } = await db
@@ -57,9 +64,9 @@ export async function sendManualEmail(input: { recipients: string[]; subject: st
   const recipients = [...new Set(input.recipients.map((v) => v.trim().toLowerCase()).filter((v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)))];
   const subject = input.subject.trim();
   const body = input.body.trim();
-  if (!recipients.length) throw new Error("Enter at least one valid recipient email.");
-  if (!subject) throw new Error("Subject is required.");
-  if (!body) throw new Error("Message body is required.");
+  if (!recipients.length) throw new ManualEmailError("Enter at least one valid recipient email.");
+  if (!subject) throw new ManualEmailError("Subject is required.");
+  if (!body) throw new ManualEmailError("Message body is required.");
 
   const result = await sendEmail({ to: recipients, subject, text: body });
   const db = supabaseAdmin();
@@ -78,6 +85,6 @@ export async function sendManualEmail(input: { recipients: string[]; subject: st
   }).select("id").single();
   if (error) throw new Error(`Could not record email result: ${error.message}`);
   await logActivity({ actorId: actor.id, action: "email.manual_sent", entityType: "email", entityId: data.id as string, newValues: { recipients, subject, status: result.status } });
-  if (result.status !== "sent") throw new Error(result.error ?? "Email was not sent.");
+  if (result.status !== "sent") throw new ManualEmailError(result.error ?? "Email was not sent.");
   return "Email sent and recorded.";
 }

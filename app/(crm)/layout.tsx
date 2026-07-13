@@ -1,7 +1,6 @@
 import { MobileShell } from "@/components/shell/MobileShell";
 import { dashboardMetrics } from "@/lib/data";
-import { getReservations } from "@/lib/booking/reservations";
-import { isNewReservation } from "@/lib/reservationStatus";
+import { getNewReservationCount } from "@/lib/booking/reservations";
 import { dismissedWebsiteReservationIds } from "@/lib/booking/reservationDismissals";
 import { listAccounts, requireSession } from "@/lib/data/session";
 import { I18nProvider } from "@/lib/i18n/context";
@@ -12,8 +11,8 @@ import { ArabicPageTranslator } from "@/components/i18n/ArabicPageTranslator";
  *  a booking-platform outage must never break CRM navigation. */
 async function newReservationCount(): Promise<number> {
   try {
-    const [res, dismissed] = await Promise.all([getReservations(), dismissedWebsiteReservationIds()]);
-    return res.filter((r) => !dismissed.has(r.id) && isNewReservation(r.status, r.createdAt)).length;
+    const dismissed = await dismissedWebsiteReservationIds();
+    return getNewReservationCount(dismissed);
   } catch {
     return 0;
   }

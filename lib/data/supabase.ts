@@ -220,6 +220,26 @@ async function loadDuplicateSet(): Promise<Set<string>> {
   return set;
 }
 
+/** Duplicate flags touching only the leads currently rendered. */
+async function loadDuplicateSetForLeadIds(leadIds: string[]): Promise<Set<string>> {
+  if (leadIds.length === 0) return new Set();
+  const db = supabaseAdmin();
+  const columns = "lead_id,duplicate_lead_id,status";
+  const [primary, secondary] = await Promise.all([
+    db.from("lead_duplicate_flags").select(columns).in("lead_id", leadIds),
+    db.from("lead_duplicate_flags").select(columns).in("duplicate_lead_id", leadIds),
+  ]);
+  if (primary.error) throw new Error(`loadDuplicateSetForLeadIds(primary): ${primary.error.message}`);
+  if (secondary.error) throw new Error(`loadDuplicateSetForLeadIds(secondary): ${secondary.error.message}`);
+  const set = new Set<string>();
+  for (const flag of [...(primary.data ?? []), ...(secondary.data ?? [])]) {
+    if (flag.status === "merged" || flag.status === "dismissed") continue;
+    if (flag.lead_id) set.add(flag.lead_id as string);
+    if (flag.duplicate_lead_id) set.add(flag.duplicate_lead_id as string);
+  }
+  return set;
+}
+
 async function loadTagsForLeadIds(leadUids: string[]): Promise<Map<string, Array<{ name: string; color?: string }>>> {
   const map = new Map<string, Array<{ name: string; color?: string }>>();
   if (leadUids.length === 0) return map;
@@ -510,10 +530,10 @@ export const supabaseProvider: DataProvider = {
   },
 
   async getLeadsPage(filters: LeadFilters = {}): Promise<LeadListResult> {
-    const [usersById, lostReasonsById, dupSet] = await Promise.all([
+    const [usersById, lostReasonsById, duplicateFilterSet] = await Promise.all([
       loadUserMap(),
       loadLostReasonMap(),
-      loadDuplicateSet(),
+      filters.duplicate ? loadDuplicateSet() : Promise.resolve(new Set<string>()),
     ]);
 
     let query = applyLeadFilters(
@@ -521,7 +541,7 @@ export const supabaseProvider: DataProvider = {
       filters,
     );
     if (filters.duplicate) {
-      const ids = [...dupSet];
+      const ids = [...duplicateFilterSet];
       query = query.in("id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
     }
 
@@ -532,14 +552,15 @@ export const supabaseProvider: DataProvider = {
     if (error) throw new Error(`getLeads: ${error.message}`);
     const rows = (data as unknown as LeadRow[]) ?? [];
     const leadUids = rows.map((r) => r.id);
-    const [tagsByLead, followUpsByLead] = await Promise.all([
+    const [tagsByLead, followUpsByLead, pageDuplicateSet] = await Promise.all([
       loadTagsForLeadIds(leadUids),
       loadOpenFollowUpsForLeadIds(leadUids, usersById),
+      filters.duplicate ? Promise.resolve(duplicateFilterSet) : loadDuplicateSetForLeadIds(leadUids),
     ]);
     const leads = rows.map((r) =>
       mapLead(
         r,
-        { usersById, lostReasonsById, dupSet },
+        { usersById, lostReasonsById, dupSet: pageDuplicateSet },
         tagsByLead.get(r.id) ?? [],
         followUpsByLead.get(r.id),
       ),
@@ -548,10 +569,9 @@ export const supabaseProvider: DataProvider = {
   },
 
   async getLead(id: string): Promise<Lead | undefined> {
-    const [usersById, lostReasonsById, dupSet] = await Promise.all([
+    const [usersById, lostReasonsById] = await Promise.all([
       loadUserMap(),
       loadLostReasonMap(),
-      loadDuplicateSet(),
     ]);
     const { data, error } = await supabaseAdmin()
       .from("leads")
@@ -562,9 +582,10 @@ export const supabaseProvider: DataProvider = {
     if (error) throw new Error(`getLead: ${error.message}`);
     if (!data) return undefined;
     const row = data as unknown as LeadRow;
-    const [tagsByLead, followUpsByLead] = await Promise.all([
+    const [tagsByLead, followUpsByLead, dupSet] = await Promise.all([
       loadTagsForLeadIds([row.id]),
       loadOpenFollowUpsForLeadIds([row.id], usersById),
+      loadDuplicateSetForLeadIds([row.id]),
     ]);
     return mapLead(
       row,
@@ -980,6 +1001,34 @@ export const supabaseProvider: DataProvider = {
 
   async dashboardMetrics(): Promise<DashboardMetrics> {
     const db = supabaseAdmin();
+    const { data: aggregate, error: aggregateError } = await db.rpc("crm_dashboard_metrics");
+    if (!aggregateError && aggregate && typeof aggregate === "object" && !Array.isArray(aggregate)) {
+      const value = aggregate as Record<string, unknown>;
+      const count = (key: string) => {
+        const number = Number(value[key]);
+        return Number.isFinite(number) && number >= 0 ? number : 0;
+      };
+      const unread = count("unread");
+      return {
+        newLeads: count("newLeads"),
+        unread,
+        incomingUnanswered: unread,
+        overdue: count("overdue"),
+        qualified: count("qualified"),
+        booked: count("booked"),
+        followUp: count("followUp"),
+        lost: count("lost"),
+        duplicates: count("duplicates"),
+        escalations: count("escalations"),
+        unconfirmedAppts: count("appointments"),
+      };
+    }
+    // Compatibility during rolling deployments: code can be deployed before
+    // migration 0026 and will retain the previous count behavior temporarily.
+    if (aggregateError && aggregateError.code !== "PGRST202" && aggregateError.code !== "42883") {
+      throw new Error(`dashboardMetrics: ${aggregateError.message}`);
+    }
+
     const leadCount = () => db.from("leads").select("id", { count: "exact", head: true });
     const n = async (p: PromiseLike<{ count: number | null }>) => (await p).count ?? 0;
 

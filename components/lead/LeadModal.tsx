@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { LeadDetail, type LeadDetailData } from "@/components/lead/LeadDetail";
+import { trapTabKey } from "@/lib/accessibility/focusTrap";
 
 /**
  * Slide-over shell for the lead detail, shown over the leads list via the
@@ -11,18 +12,23 @@ import { LeadDetail, type LeadDetailData } from "@/components/lead/LeadDetail";
  */
 export function LeadModal({ data }: { data: LeadDetailData }) {
   const router = useRouter();
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Close on Escape and lock body scroll while the drawer is open.
   useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") router.back();
+      trapTabKey(e, dialogRef.current);
     };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    dialogRef.current?.focus();
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
+      previouslyFocused?.focus();
     };
   }, [router]);
 
@@ -34,7 +40,7 @@ export function LeadModal({ data }: { data: LeadDetailData }) {
         onClick={() => router.back()}
         className="absolute inset-0 animate-fadein cursor-default bg-black/40"
       />
-      <div className="relative z-10 flex h-full w-full animate-drawerin flex-col overflow-hidden bg-canvas shadow-toast sm:w-[88vw] lg:w-[67vw] lg:max-w-[1200px]">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Lead details for ${data.lead.patientName}`} tabIndex={-1} className="relative z-10 flex h-full w-full animate-drawerin flex-col overflow-hidden bg-canvas shadow-toast outline-none sm:w-[88vw] lg:w-[67vw] lg:max-w-[1200px]">
         <LeadDetail data={data} onClose={() => router.back()} />
       </div>
     </div>

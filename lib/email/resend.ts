@@ -46,14 +46,17 @@ export async function sendEmail(input: {
         subject: input.subject,
         text: input.text,
       }),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      return { status: "failed", error: `Resend ${res.status}: ${body.slice(0, 300)}` };
+      return { status: "failed", error: `Email provider rejected the request (${res.status}).` };
     }
     const data = (await res.json().catch(() => ({}))) as { id?: string };
     return { status: "sent", providerMessageId: data.id };
   } catch (err) {
-    return { status: "failed", error: err instanceof Error ? err.message : "send failed" };
+    console.error("Email provider request failed", {
+      name: err instanceof Error ? err.name : "UnknownError",
+    });
+    return { status: "failed", error: "Email provider is unavailable. Please try again." };
   }
 }

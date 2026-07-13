@@ -14,6 +14,98 @@ function splitPhone(phone: string): { cc: string | null; number: string | null }
   return { cc: null, number: digits };
 }
 
+const QUERY_CHUNK_SIZE = 200;
+
+function chunks<T>(values: T[]): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += QUERY_CHUNK_SIZE) {
+    result.push(values.slice(index, index + QUERY_CHUNK_SIZE));
+  }
+  return result;
+}
+
+interface ExistingLeadRow {
+  id: string;
+  lead_id: string;
+  metadata: Record<string, unknown> | null;
+  booking_appointment_id?: string | null;
+  status?: string | null;
+  normalized_phone?: string | null;
+}
+
+async function loadExistingReservations(reservations: Reservation[]): Promise<{
+  linkedLeadIdByAppointment: Map<string, string>;
+  leadsById: Map<string, ExistingLeadRow>;
+  legacyByAppointment: Map<string, ExistingLeadRow>;
+  leadsByPhone: Map<string, ExistingLeadRow>;
+}> {
+  const db = supabaseAdmin();
+  const appointmentIds = [...new Set(reservations.map((reservation) => reservation.id))];
+  const linkedLeadIdByAppointment = new Map<string, string>();
+
+  for (const group of chunks(appointmentIds)) {
+    const { data, error } = await db
+      .from("crm_lead_booking_links")
+      .select("appointment_id,lead_id")
+      .in("appointment_id", group);
+    if (error) throw new Error(`syncReservation(find booking links): ${error.message}`);
+    for (const row of data ?? []) {
+      linkedLeadIdByAppointment.set(String(row.appointment_id), String(row.lead_id));
+    }
+  }
+
+  const leadsById = new Map<string, ExistingLeadRow>();
+  const linkedLeadIds = [...new Set(linkedLeadIdByAppointment.values())];
+  for (const group of chunks(linkedLeadIds)) {
+    const { data, error } = await db.from("leads").select("id,lead_id,metadata").in("id", group);
+    if (error) throw new Error(`syncReservation(find linked leads): ${error.message}`);
+    for (const row of (data ?? []) as ExistingLeadRow[]) leadsById.set(row.id, row);
+  }
+
+  const legacyByAppointment = new Map<string, ExistingLeadRow>();
+  const unlinkedAppointmentIds = appointmentIds.filter((id) => !linkedLeadIdByAppointment.has(id));
+  for (const group of chunks(unlinkedAppointmentIds)) {
+    const { data, error } = await db
+      .from("leads")
+      .select("id,lead_id,metadata,booking_appointment_id")
+      .in("booking_appointment_id", group);
+    if (error) throw new Error(`syncReservation(find legacy appointments): ${error.message}`);
+    for (const row of (data ?? []) as ExistingLeadRow[]) {
+      if (row.booking_appointment_id) legacyByAppointment.set(row.booking_appointment_id, row);
+    }
+  }
+
+  const unresolvedPhones = [
+    ...new Set(
+      reservations
+        .filter(
+          (reservation) =>
+            !linkedLeadIdByAppointment.has(reservation.id) &&
+            !legacyByAppointment.has(reservation.id),
+        )
+        .map((reservation) => normalizePhone(reservation.patientPhone))
+        .filter((phone): phone is string => Boolean(phone)),
+    ),
+  ];
+  const leadsByPhone = new Map<string, ExistingLeadRow>();
+  for (const group of chunks(unresolvedPhones)) {
+    const { data, error } = await db
+      .from("leads")
+      .select("id,lead_id,metadata,booking_appointment_id,status,normalized_phone,created_at")
+      .in("normalized_phone", group)
+      .is("merged_into_lead_id", null)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(`syncReservation(find phones): ${error.message}`);
+    for (const row of (data ?? []) as ExistingLeadRow[]) {
+      if (row.normalized_phone && !leadsByPhone.has(row.normalized_phone)) {
+        leadsByPhone.set(row.normalized_phone, row);
+      }
+    }
+  }
+
+  return { linkedLeadIdByAppointment, leadsById, legacyByAppointment, leadsByPhone };
+}
+
 async function nextLeadCode(db: ReturnType<typeof supabaseAdmin>): Promise<string> {
   const { data: generated, error } = await db.rpc("crm_generate_lead_id");
   if (!error && generated) return String(generated);
@@ -67,6 +159,11 @@ async function linkBooking(leadUid: string, appointmentId: string, source = "web
 export async function syncReservationsToLeads(reservations: Reservation[]): Promise<Map<string, string>> {
   const db = supabaseAdmin();
   const result = new Map<string, string>();
+  if (reservations.length === 0) return result;
+
+  const { linkedLeadIdByAppointment, leadsById, legacyByAppointment, leadsByPhone } =
+    await loadExistingReservations(reservations);
+
   for (const reservation of reservations) {
     const now = new Date().toISOString();
     const normalizedPhone = normalizePhone(reservation.patientPhone);
@@ -93,40 +190,18 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
       ingested_at: now,
     };
 
-    const { data: existingLink, error: existingLinkError } = await db
-      .from("crm_lead_booking_links")
-      .select("lead_id")
-      .eq("appointment_id", reservation.id)
-      .maybeSingle();
-    if (existingLinkError) throw new Error(`syncReservation(find booking link): ${existingLinkError.message}`);
-    let byAppointment = null;
-    let byAppointmentError = null;
-    if (existingLink?.lead_id) {
-      const result = await db.from("leads").select("id,lead_id,metadata").eq("id", existingLink.lead_id).maybeSingle();
-      byAppointment = result.data;
-      byAppointmentError = result.error;
-    } else {
-      const result = await db.from("leads").select("id,lead_id,metadata").eq("booking_appointment_id", reservation.id).maybeSingle();
-      byAppointment = result.data;
-      byAppointmentError = result.error;
-    }
-    if (byAppointmentError) throw new Error(`syncReservation(find appointment): ${byAppointmentError.message}`);
+    const linkedLeadId = linkedLeadIdByAppointment.get(reservation.id);
+    const linkedLead = linkedLeadId ? leadsById.get(linkedLeadId) : undefined;
+    const legacyLead = legacyByAppointment.get(reservation.id);
+    const byAppointment = linkedLead ?? legacyLead;
     if (byAppointment) {
-      await linkBooking(byAppointment.id as string, reservation.id);
-      result.set(reservation.id, byAppointment.lead_id as string);
+      if (!linkedLead) await linkBooking(byAppointment.id, reservation.id);
+      result.set(reservation.id, byAppointment.lead_id);
       continue;
     }
 
     if (normalizedPhone) {
-      const { data: byPhone, error: byPhoneError } = await db
-        .from("leads")
-        .select("id,lead_id,metadata,booking_appointment_id,status")
-        .eq("normalized_phone", normalizedPhone)
-        .is("merged_into_lead_id", null)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (byPhoneError) throw new Error(`syncReservation(find phone): ${byPhoneError.message}`);
+      const byPhone = leadsByPhone.get(normalizedPhone);
       if (byPhone) {
         const oldValues = { booking_appointment_id: byPhone.booking_appointment_id, status: byPhone.status };
         const { error: updateError } = await db
@@ -151,7 +226,7 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
           oldValues,
           newValues: { booking_appointment_id: reservation.id, booking_status: reservation.status },
         });
-        result.set(reservation.id, byPhone.lead_id as string);
+        result.set(reservation.id, byPhone.lead_id);
         continue;
       }
     }
@@ -190,6 +265,16 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
       body: `${reservation.date} ${reservation.startTime}`,
       newValues: { lead_id: created.lead_id, booking_appointment_id: reservation.id, booking_status: reservation.status },
     });
+    if (normalizedPhone) {
+      leadsByPhone.set(normalizedPhone, {
+        id: created.id as string,
+        lead_id: created.lead_id as string,
+        metadata: meta,
+        booking_appointment_id: reservation.id,
+        status: newStatus,
+        normalized_phone: normalizedPhone,
+      });
+    }
     result.set(reservation.id, created.lead_id as string);
   }
   return result;

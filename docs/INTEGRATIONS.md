@@ -43,6 +43,10 @@ delivery-state updates.
 Resend delivery uses the server-only `RESEND_API_KEY` and `EMAIL_FROM`. Missing
 credentials produce a persisted skipped result, never a fabricated delivery.
 The overdue route requires `CRON_SECRET`.
+Schedulers should call `POST /api/cron/overdue-emails` with the secret in the
+`Authorization: Bearer` header. The legacy query-token form remains supported
+for compatibility but should not be used for new configuration because URLs
+are commonly retained in proxy and scheduler logs.
 
 ## Required Deployment Variables
 

@@ -199,9 +199,10 @@ async function loadFinancials(id: string): Promise<{ financials: LeadFinancials 
   try {
     return { financials: await leadFinancials(id), error: null };
   } catch (error) {
+    console.error("Lead financial records failed to load", error);
     return {
       financials: null,
-      error: error instanceof Error ? error.message : "Financial records could not be loaded.",
+      error: "Financial records could not be loaded. Please retry or contact an administrator.",
     };
   }
 }

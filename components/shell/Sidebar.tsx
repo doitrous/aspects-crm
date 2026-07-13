@@ -18,6 +18,7 @@ export function Sidebar({
   impersonating,
   theme,
   mobileOpen = false,
+  navigationActive = true,
   onMobileClose,
 }: {
   counts: Record<string, number>;
@@ -27,6 +28,7 @@ export function Sidebar({
   impersonating: boolean;
   theme: Theme;
   mobileOpen?: boolean;
+  navigationActive?: boolean;
   onMobileClose?: () => void;
 }) {
   const pathname = usePathname();
@@ -35,11 +37,11 @@ export function Sidebar({
   const { t } = useI18n();
 
   return (
-    <aside className={cn("fixed inset-y-0 left-0 z-50 flex w-[min(86vw,280px)] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4 shadow-2xl transition-transform duration-200 md:static md:z-auto md:w-[210px] md:translate-x-0 md:shadow-none", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
+    <aside id="crm-navigation" role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen || undefined} aria-hidden={!navigationActive || undefined} inert={!navigationActive || undefined} aria-label="Main navigation" className={cn("fixed inset-y-0 left-0 z-50 flex w-[min(86vw,280px)] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4 shadow-2xl transition-transform duration-200 md:static md:z-auto md:w-[210px] md:translate-x-0 md:shadow-none", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
       <div className="flex items-center justify-center px-2 pb-5 pt-1">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/aspects-clinica-logo.png" alt="Aspects Clinica" className="h-20 w-full object-contain" />
-        <button type="button" onClick={onMobileClose} aria-label="Close menu" className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border border-line-soft bg-panel text-lg text-ink-600 md:hidden">×</button>
+        <button data-mobile-nav-close type="button" onClick={onMobileClose} aria-label="Close menu" className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full border border-line-soft bg-panel text-lg text-ink-600 md:hidden">×</button>
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto pr-0.5">
@@ -55,7 +57,7 @@ export function Sidebar({
             href={n.href}
             onClick={onMobileClose}
             className={cn(
-              "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] transition-colors",
+              "flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] transition-colors md:min-h-0",
               active && booked
                 ? "bg-success font-semibold text-white shadow-sm ring-1 ring-success/30"
                 : active && lost

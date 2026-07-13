@@ -13,11 +13,11 @@ export function Topbar({
   unread?: number;
   action?: React.ReactNode;
 }) {
-  const toggleMenu = useMobileMenu();
+  const mobileMenu = useMobileMenu();
   return (
     <div className="flex min-h-[56px] flex-none items-center gap-2 border-b border-line-soft px-3 sm:h-[58px] sm:gap-3 sm:px-[18px]">
-      <button type="button" onClick={toggleMenu} aria-label="Open navigation" className="flex h-10 w-10 flex-none items-center justify-center rounded-lg border border-line-soft bg-panel text-[19px] font-black tracking-[-2px] text-ink-700 shadow-sm md:hidden">•••</button>
-      <div className="truncate text-[15px] font-bold text-ink-900 sm:text-[16px]">{title}</div>
+      <button id="mobile-navigation-trigger" type="button" onClick={mobileMenu.toggle} aria-label="Open navigation" aria-expanded={mobileMenu.open} aria-controls="crm-navigation" className="flex h-11 w-11 flex-none items-center justify-center rounded-lg border border-line-soft bg-panel text-[19px] font-black tracking-[-2px] text-ink-700 shadow-sm md:hidden">•••</button>
+      <h1 className="truncate text-[15px] font-bold text-ink-900 sm:text-[16px]">{title}</h1>
 
       <div className="flex-1" />
 

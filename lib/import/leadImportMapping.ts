@@ -69,6 +69,11 @@ export interface MappedLeadImportRow {
   warnings: string[];
 }
 
+/** A database-safe display name for an explicitly overridden invalid row. */
+export function forcedLeadName(name: string | undefined, zeroBasedRowIndex: number): string {
+  return name?.trim() || `Imported patient (row ${zeroBasedRowIndex + 1})`;
+}
+
 function mappedCell(
   row: string[],
   headers: string[],

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { autoMapLeadHeaders, mapLeadImportRow } from "./leadImportMapping";
+import { autoMapLeadHeaders, forcedLeadName, mapLeadImportRow } from "./leadImportMapping";
 
 test("patient headers are mapped without relying on column order", () => {
   const headers = ["الخدمة", "MRN", "Patient Name", "رقم التليفون"];
@@ -38,4 +38,9 @@ test("MRN accepts every digit length from 1 through 9", () => {
     assert.equal(row.errors.length, 0);
   }
   assert.equal(mapLeadImportRow(["Patient", "01012345678", "1234567890", "Egyptian"], headers, mapping, 0).errorFields.includes("mrn"), true);
+});
+
+test("an explicitly overridden nameless row receives a traceable database-safe name", () => {
+  assert.equal(forcedLeadName(undefined, 6), "Imported patient (row 7)");
+  assert.equal(forcedLeadName("  Mona Hassan  ", 6), "Mona Hassan");
 });

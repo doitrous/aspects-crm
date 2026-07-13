@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { sendManualEmail } from "@/lib/data/emailData";
+import { ManualEmailError, sendManualEmail } from "@/lib/data/emailData";
 
 export type ManualEmailState = { ok?: string; error?: string };
 
@@ -16,6 +16,6 @@ export async function sendManualEmailAction(_previous: ManualEmailState, formDat
     return { ok };
   } catch (error) {
     console.error("manual email failed", error);
-    return { error: error instanceof Error ? error.message : "Email could not be sent." };
+    return { error: error instanceof ManualEmailError ? error.message : "Email could not be sent." };
   }
 }

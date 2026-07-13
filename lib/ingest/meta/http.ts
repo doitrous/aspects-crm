@@ -1,8 +1,9 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { NextResponse } from "next/server";
 
+import { secretsEqual } from "@/lib/security/secrets";
 import { toEvents } from "./normalize";
 import { ingestEvents } from "./persist";
 import { SupabaseMetaStore } from "./store.supabase";
@@ -20,19 +21,14 @@ import { isCommentEvent } from "./types";
  *     — n8n, which cannot re-sign a body it rewrote.
  */
 
-/** Constant-time compare that tolerates unequal lengths. */
-export function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual(ab, bb);
-}
+const MAX_BODY_BYTES = 1_000_000;
+const MAX_EVENTS = 500;
 
 function verifySignature(raw: string, header: string | null): boolean {
   const secret = process.env.FACEBOOK_APP_SECRET;
   if (!secret || !header?.startsWith("sha256=")) return false;
   const expected = createHmac("sha256", secret).update(raw, "utf8").digest("hex");
-  return safeEqual(header.slice(7), expected);
+  return secretsEqual(header.slice(7), expected);
 }
 
 function verifyApiKey(req: Request): boolean {
@@ -40,7 +36,7 @@ function verifyApiKey(req: Request): boolean {
   if (!expected) return false;
   const bearer = req.headers.get("authorization");
   const presented = bearer?.startsWith("Bearer ") ? bearer.slice(7) : req.headers.get("x-api-key");
-  return Boolean(presented) && safeEqual(presented as string, expected);
+  return secretsEqual(presented, expected);
 }
 
 /** What the endpoint's URL implies the caller meant to send. */
@@ -62,8 +58,16 @@ export async function handleIngest(req: Request, expect?: ExpectedRecord) {
     return NextResponse.json({ ok: false, error: "ingest_not_configured" }, { status: 503 });
   }
 
+  const declaredLength = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return NextResponse.json({ ok: false, error: "payload_too_large" }, { status: 413 });
+  }
+
   // The raw body is needed byte-for-byte to verify Meta's HMAC.
   const raw = await req.text();
+  if (Buffer.byteLength(raw, "utf8") > MAX_BODY_BYTES) {
+    return NextResponse.json({ ok: false, error: "payload_too_large" }, { status: 413 });
+  }
 
   const authorized = verifySignature(raw, req.headers.get("x-hub-signature-256")) || verifyApiKey(req);
   if (!authorized) {
@@ -81,10 +85,11 @@ export async function handleIngest(req: Request, expect?: ExpectedRecord) {
   try {
     events = toEvents(body);
   } catch (err) {
-    // A payload we cannot even normalize is a bug on our side, not Meta's.
-    // Return 200 so Meta stops retrying, and surface the reason in the body.
+    // Return 200 so Meta stops retrying malformed input. Keep the diagnostic in
+    // server logs; database/stack details must not be reflected to callers.
+    console.error("Meta ingest normalization failed", err);
     return NextResponse.json(
-      { ok: false, error: "normalize_failed", detail: err instanceof Error ? err.message : String(err) },
+      { ok: false, error: "normalize_failed" },
       { status: 200 },
     );
   }
@@ -92,12 +97,21 @@ export async function handleIngest(req: Request, expect?: ExpectedRecord) {
   if (events.length === 0) {
     return NextResponse.json({ ok: true, received: 0, results: [] }, { status: 200 });
   }
+  if (events.length > MAX_EVENTS) {
+    return NextResponse.json({ ok: false, error: "too_many_events", maximum: MAX_EVENTS }, { status: 413 });
+  }
 
   const mismatched = expect
     ? events.filter((e) => (isCommentEvent(e) ? "comment" : "message") !== expect).length
     : 0;
 
   const { outcomes, errors } = await ingestEvents(new SupabaseMetaStore(), events);
+  if (errors.length > 0) {
+    console.error("Meta ingest event failures", {
+      count: errors.length,
+      eventKeys: errors.map((item) => item.eventKey),
+    });
+  }
 
   return NextResponse.json(
     {
@@ -119,7 +133,7 @@ export async function handleIngest(req: Request, expect?: ExpectedRecord) {
         messageId: o.messageId,
         commentId: o.commentId,
       })),
-      errors,
+      errors: errors.map((item) => ({ eventKey: item.eventKey, error: "ingest_failed" })),
     },
     { status: 200 },
   );
@@ -136,7 +150,7 @@ export function handleVerify(req: Request) {
   if (!expected) {
     return NextResponse.json({ ok: false, error: "verify_token_not_configured" }, { status: 503 });
   }
-  if (mode !== "subscribe" || !token || !safeEqual(token, expected)) {
+  if (mode !== "subscribe" || !secretsEqual(token, expected)) {
     return NextResponse.json({ ok: false, error: "verification_failed" }, { status: 403 });
   }
   // Meta requires the bare challenge string, not JSON.

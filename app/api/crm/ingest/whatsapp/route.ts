@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { whatsappIngestSecret } from "@/lib/whatsapp/config";
+import { secretsEqual } from "@/lib/security/secrets";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -36,6 +37,10 @@ type Payload = {
   messageMetadata?: Record<string, unknown>;
 };
 
+const MAX_BODY_BYTES = 1_000_000;
+const MAX_RECORDS = 50;
+const MAX_MEDIA_PER_MESSAGE = 20;
+
 function bearer(req: Request): string | null {
   const auth = req.headers.get("authorization") ?? "";
   if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
@@ -47,12 +52,32 @@ function normalizePhone(value?: string | null): string | null {
   return digits || null;
 }
 
-function records(body: unknown): Payload[] {
-  if (Array.isArray(body)) return body as Payload[];
+function records(body: unknown): Payload[] | null {
+  if (Array.isArray(body)) return body.every(isRecord) ? (body as Payload[]) : null;
   if (body && typeof body === "object" && Array.isArray((body as { records?: unknown }).records)) {
-    return (body as { records: Payload[] }).records;
+    const items = (body as { records: unknown[] }).records;
+    return items.every(isRecord) ? (items as Payload[]) : null;
   }
-  return body ? [body as Payload] : [];
+  return isRecord(body) ? [body as Payload] : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateRecord(input: Payload): string | null {
+  if (typeof input.messageId !== "string" || !input.messageId.trim() || input.messageId.length > 300) {
+    return "Every record requires a valid messageId.";
+  }
+  if (!input.statusOnly && !input.phone && !input.whatsappUserId && !input.conversationId) {
+    return "Every message requires a phone, WhatsApp user ID, or conversation ID.";
+  }
+  if (input.media !== undefined && !Array.isArray(input.media)) return "media must be an array.";
+  if ((input.media?.length ?? 0) > MAX_MEDIA_PER_MESSAGE) {
+    return `A message may contain at most ${MAX_MEDIA_PER_MESSAGE} media items.`;
+  }
+  if (typeof input.text === "string" && input.text.length > 100_000) return "Message text is too long.";
+  return null;
 }
 
 function isoOrNow(value?: string | null): string {
@@ -109,12 +134,30 @@ async function leadFor(input: Payload): Promise<{ id: string; lead_id: string }>
   const db = supabaseAdmin();
   const phone = normalizePhone(input.phone ?? input.whatsappUserId ?? input.conversationId);
   const platformId = input.whatsappUserId || input.phone || input.conversationId || phone;
-  let query = db.from("leads").select("id,lead_id");
-  if (phone) query = query.or(`normalized_phone.eq.${phone},platform_id.eq.${platformId},normalized_platform_id.eq.${phone}`);
-  else query = query.eq("platform_id", platformId);
-  const { data: existing, error: findError } = await query.limit(1).maybeSingle();
-  if (findError) throw new Error(`whatsappLead(find): ${findError.message}`);
-  if (existing) return existing as { id: string; lead_id: string };
+  if (phone) {
+    const { data: byPhone, error } = await db
+      .from("leads")
+      .select("id,lead_id")
+      .eq("normalized_phone", phone)
+      .is("merged_into_lead_id", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`whatsappLead(find phone): ${error.message}`);
+    if (byPhone) return byPhone as { id: string; lead_id: string };
+  }
+  if (platformId) {
+    const { data: byPlatform, error } = await db
+      .from("leads")
+      .select("id,lead_id")
+      .eq("platform_id", platformId)
+      .is("merged_into_lead_id", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`whatsappLead(find platform): ${error.message}`);
+    if (byPlatform) return byPlatform as { id: string; lead_id: string };
+  }
 
   const { data: generatedLeadId, error: idError } = await db.rpc("crm_generate_lead_id");
   if (idError) throw new Error(`whatsappLead(id): ${idError.message}`);
@@ -236,11 +279,37 @@ async function ingestOne(input: Payload) {
 export async function POST(req: Request) {
   const secret = whatsappIngestSecret();
   if (!secret) return NextResponse.json({ error: "WhatsApp ingest is not configured." }, { status: 503 });
-  if (bearer(req) !== secret) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  if (!secretsEqual(bearer(req), secret)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   try {
-    const body = await req.json();
-    const result = await Promise.all(records(body).map(ingestOne));
+    const declaredLength = Number(req.headers.get("content-length") ?? "0");
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+      return NextResponse.json({ ok: false, error: "Payload is too large." }, { status: 413 });
+    }
+    const raw = await req.text();
+    if (Buffer.byteLength(raw, "utf8") > MAX_BODY_BYTES) {
+      return NextResponse.json({ ok: false, error: "Payload is too large." }, { status: 413 });
+    }
+    const body: unknown = JSON.parse(raw);
+    const inputs = records(body);
+    if (!inputs || inputs.length === 0) {
+      return NextResponse.json({ ok: false, error: "No valid records were supplied." }, { status: 422 });
+    }
+    if (inputs.length > MAX_RECORDS) {
+      return NextResponse.json(
+        { ok: false, error: `A batch may contain at most ${MAX_RECORDS} records.` },
+        { status: 413 },
+      );
+    }
+    const validationError = inputs.map(validateRecord).find(Boolean);
+    if (validationError) {
+      return NextResponse.json({ ok: false, error: validationError }, { status: 422 });
+    }
+
+    // Keep ordering deterministic and avoid racing two messages into duplicate
+    // lead creation for the same new phone number.
+    const result = [];
+    for (const input of inputs) result.push(await ingestOne(input));
     return NextResponse.json({ ok: true, records: result });
   } catch (error) {
     console.error("WhatsApp ingest failed", error);

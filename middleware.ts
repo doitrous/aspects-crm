@@ -7,7 +7,14 @@ import { NextResponse, type NextRequest } from "next/server";
  * (`CRM_INGEST_API_KEY`, the Meta verify tokens) and must not be redirected to
  * a sign-in page — a 302 would silently break delivery from Meta / n8n.
  */
-const PUBLIC_PREFIXES = ["/login", "/auth", "/api/webhooks", "/api/ingest", "/api/crm/ingest"];
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/auth",
+  "/api/webhooks",
+  "/api/ingest",
+  "/api/crm/ingest",
+  "/api/cron",
+];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -25,9 +32,19 @@ function isPublic(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("CRM authentication is not configured.");
+    return NextResponse.json(
+      { error: "Application authentication is not configured." },
+      { status: 503 },
+    );
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll: () => request.cookies.getAll(),

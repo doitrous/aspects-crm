@@ -12,9 +12,9 @@ let cached: SupabaseClient | null = null;
 
 export function supabaseBrowser(): SupabaseClient {
   if (cached) return cached;
-  cached = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) throw new Error("Supabase Auth is not configured for this application.");
+  cached = createBrowserClient(url, anonKey);
   return cached;
 }

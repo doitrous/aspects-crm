@@ -1,6 +1,15 @@
 import { strFromU8, unzipSync } from "fflate";
 import { parseDelimited } from "@/lib/financial/importMapping";
 
+const MAX_XLSX_EXPANDED_BYTES = 50 * 1024 * 1024;
+
+function requiredXlsxEntry(path: string): boolean {
+  return path === "xl/workbook.xml" ||
+    path === "xl/_rels/workbook.xml.rels" ||
+    path === "xl/sharedStrings.xml" ||
+    /^xl\/worksheets\/[^/]+\.xml$/i.test(path);
+}
+
 export interface ParsedSheet {
   name: string;
   headers: string[];
@@ -84,9 +93,24 @@ function worksheetRows(xml: string, sharedStrings: string[]): string[][] {
 
 export function parseXlsxWorkbook(buffer: ArrayBuffer): ParsedWorkbook {
   let archive: Record<string, Uint8Array>;
+  let expandedBytes = 0;
+  let tooLarge = false;
   try {
-    archive = unzipSync(new Uint8Array(buffer));
+    archive = unzipSync(new Uint8Array(buffer), {
+      filter: (file) => {
+        if (!requiredXlsxEntry(file.name)) return false;
+        expandedBytes += file.originalSize;
+        if (expandedBytes > MAX_XLSX_EXPANDED_BYTES) {
+          tooLarge = true;
+          throw new Error("expanded workbook too large");
+        }
+        return true;
+      },
+    });
   } catch {
+    if (tooLarge) {
+      throw new Error("This workbook expands beyond the 50 MB safety limit. Split it into smaller files before importing.");
+    }
     throw new Error("This file could not be opened as an XLSX workbook. Check that it is a valid, non-password-protected Excel file.");
   }
 

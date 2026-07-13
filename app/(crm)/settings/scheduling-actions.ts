@@ -19,8 +19,10 @@ function str(formData: FormData, key: string): string {
 }
 
 function actionError(error: unknown): SchedulingActionState {
-  if (error instanceof BookingError) return { ok: false, error: error.message };
-  if (error instanceof Error) return { ok: false, error: error.message };
+  if (error instanceof BookingError && !error.message.includes(":")) {
+    return { ok: false, error: error.message };
+  }
+  console.error("scheduling mutation failed", error);
   return { ok: false, error: "Scheduling change failed." };
 }
 

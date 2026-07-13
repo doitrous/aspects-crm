@@ -149,6 +149,9 @@ export async function importFinancialRows(rows: ImportRowInput[]): Promise<Impor
     throw err;
   }
 
+  if (!Array.isArray(rows) || rows.length === 0) return emptyResult("No import rows were supplied.");
+  if (rows.length > 5_000) return emptyResult("A single import may contain at most 5,000 rows.");
+
   const results: ImportRowResult[] = [];
   for (const row of rows) {
     if (row.quotedPrice == null || row.basePrice == null) {
@@ -167,8 +170,9 @@ export async function importFinancialRows(rows: ImportRowInput[]): Promise<Impor
           serviceName: row.serviceName || row.serviceCode,
         });
         createdLead = true;
-      } catch (err) {
-        results.push({ rowIndex: row.rowIndex, status: "error", message: `Could not create lead: ${(err as Error).message}` });
+      } catch {
+        console.error("Financial import lead creation failed", { row: row.rowIndex + 1 });
+        results.push({ rowIndex: row.rowIndex, status: "error", message: "Could not create a lead for this row." });
         continue;
       }
     }
@@ -190,7 +194,8 @@ export async function importFinancialRows(rows: ImportRowInput[]): Promise<Impor
         results.push({ rowIndex: row.rowIndex, status: "needs_approval", leadId, message: err.message });
         continue;
       }
-      results.push({ rowIndex: row.rowIndex, status: "error", leadId, message: (err as Error).message });
+      console.error("Financial import quote failed", { row: row.rowIndex + 1 });
+      results.push({ rowIndex: row.rowIndex, status: "error", leadId, message: "The quote could not be saved for this row." });
       continue;
     }
 
@@ -205,8 +210,9 @@ export async function importFinancialRows(rows: ImportRowInput[]): Promise<Impor
           occurredOn: row.serviceDate || undefined,
           note: `Bulk import row ${row.rowIndex + 1}.${reviewSuffix(row)}`,
         });
-      } catch (err) {
-        results.push({ rowIndex: row.rowIndex, status: "imported", leadId, message: `Quote saved; payment failed: ${(err as Error).message}` });
+      } catch {
+        console.error("Financial import payment failed", { row: row.rowIndex + 1 });
+        results.push({ rowIndex: row.rowIndex, status: "imported", leadId, message: "Quote saved, but the payment could not be saved." });
         continue;
       }
     }

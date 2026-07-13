@@ -31,6 +31,21 @@ npx tsc --noEmit
 npm run build
 ```
 
+## Production deployment
+
+1. Configure the mandatory CRM Supabase variables documented in `.env.example`.
+2. Apply unapplied CRM migrations in `supabase/migrations/` in numeric order.
+   Migration `0026_dashboard_metrics.sql` is additive and should be applied
+   before or alongside this release; the application retains a slower fallback
+   during a rolling deployment.
+3. Run `npm ci`, `npm run build`, then `npm run start` (port 3100).
+4. Schedule `POST /api/cron/overdue-emails` with `Authorization: Bearer
+   <CRON_SECRET>`. Do not place the secret in a URL for new schedulers.
+
+The booking integration and messaging/email integrations degrade independently
+when they are not configured; CRM authentication and the CRM service-role key
+are mandatory.
+
 See `.env.example`, `PERFORMANCE_AUDIT.md`,
 `CRM_IMPLEMENTATION_CHECKLIST.md`, and `docs/INTEGRATIONS.md` for deployment and
 verification details.

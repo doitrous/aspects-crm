@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { dispatchRule } from "@/lib/email/send";
+import { secretsEqual } from "@/lib/security/secrets";
 
 /**
  * Daily overdue-leads email (§E case 3). Intended to be hit by a scheduler at
@@ -19,9 +20,9 @@ function authorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
   const header = req.headers.get("authorization");
-  if (header === `Bearer ${secret}`) return true;
+  if (header?.startsWith("Bearer ") && secretsEqual(header.slice(7), secret)) return true;
   const url = new URL(req.url);
-  return url.searchParams.get("token") === secret;
+  return secretsEqual(url.searchParams.get("token"), secret);
 }
 
 /** Today's date (YYYY-MM-DD) in the configured timezone. */

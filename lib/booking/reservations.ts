@@ -1,6 +1,7 @@
 import "server-only";
 import { bookingConfigured, bookingDb } from "@/lib/booking/client";
 import type { Reservation, ReservationStatus } from "@/lib/types";
+import { isNewReservation } from "@/lib/reservationStatus";
 
 /** Localized name pair from the booking lookup tables. */
 interface NamePair {
@@ -101,6 +102,17 @@ export interface ReservationRange {
   to?: string; // YYYY-MM-DD inclusive
 }
 
+function reservationQuery(range: ReservationRange) {
+  let query = bookingDb()
+    .from("appointments")
+    .select(SELECT)
+    .order("appointment_date", { ascending: false })
+    .order("start_time", { ascending: true });
+  if (range.from) query = query.gte("appointment_date", range.from);
+  if (range.to) query = query.lte("appointment_date", range.to);
+  return query;
+}
+
 /**
  * Live reservations from the booking platform, newest appointment first.
  * Returns `[]` when the integration is not configured so pages can render an
@@ -108,14 +120,83 @@ export interface ReservationRange {
  */
 export async function getReservations(range: ReservationRange = {}): Promise<Reservation[]> {
   if (!bookingConfigured()) return [];
-  let q = bookingDb()
-    .from("appointments")
-    .select(SELECT)
-    .order("appointment_date", { ascending: false })
-    .order("start_time", { ascending: true });
-  if (range.from) q = q.gte("appointment_date", range.from);
-  if (range.to) q = q.lte("appointment_date", range.to);
-  const { data, error } = await q;
+  const { data, error } = await reservationQuery(range);
   if (error) throw new Error(`getReservations: ${error.message}`);
   return ((data ?? []) as unknown as AppointmentRow[]).map(mapRow);
+}
+
+export interface ReservationPage {
+  reservations: Reservation[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** A bounded reservation page for the growing website-booking queue. */
+export async function getReservationsPage(
+  page = 1,
+  pageSize = 100,
+  range: ReservationRange = {},
+): Promise<ReservationPage> {
+  const safePage = Math.max(1, Math.floor(page));
+  const safePageSize = Math.min(200, Math.max(1, Math.floor(pageSize)));
+  if (!bookingConfigured()) return { reservations: [], total: 0, page: safePage, pageSize: safePageSize };
+  const from = (safePage - 1) * safePageSize;
+  const query = reservationQuery(range).range(from, from + safePageSize - 1);
+  // PostgREST only computes a count when requested on the select call, so run
+  // a cheap head query in parallel with the embedded display rows.
+  let countQuery = bookingDb().from("appointments").select("id", { count: "exact", head: true });
+  if (range.from) countQuery = countQuery.gte("appointment_date", range.from);
+  if (range.to) countQuery = countQuery.lte("appointment_date", range.to);
+  const [rows, count] = await Promise.all([query, countQuery]);
+  if (rows.error) throw new Error(`getReservationsPage: ${rows.error.message}`);
+  if (count.error) throw new Error(`getReservationsPage(count): ${count.error.message}`);
+  return {
+    reservations: ((rows.data ?? []) as unknown as AppointmentRow[]).map(mapRow),
+    total: count.count ?? 0,
+    page: safePage,
+    pageSize: safePageSize,
+  };
+}
+
+interface ReservationBadgeRow {
+  id: string;
+  status: string;
+  created_at: string;
+}
+
+/**
+ * Count only reservations that can qualify for the navigation badge. This
+ * avoids loading every appointment plus all embedded lookup rows on every CRM
+ * navigation. Dismissed IDs stay in the CRM database, so they are excluded
+ * after the small candidate query.
+ */
+export async function getNewReservationCount(dismissedIds: ReadonlySet<string>): Promise<number> {
+  if (!bookingConfigured()) return 0;
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const db = bookingDb();
+  const [reserved, recent] = await Promise.all([
+    db.from("appointments").select("id", { count: "exact", head: true }).eq("status", "reserved"),
+    db
+      .from("appointments")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", cutoff)
+      .neq("status", "reserved"),
+  ]);
+  if (reserved.error) throw new Error(`getNewReservationCount(reserved): ${reserved.error.message}`);
+  if (recent.error) throw new Error(`getNewReservationCount(recent): ${recent.error.message}`);
+
+  let dismissedNew = 0;
+  const dismissed = [...dismissedIds];
+  for (let index = 0; index < dismissed.length; index += 200) {
+    const { data, error } = await db
+      .from("appointments")
+      .select("id,status,created_at")
+      .in("id", dismissed.slice(index, index + 200));
+    if (error) throw new Error(`getNewReservationCount(dismissed): ${error.message}`);
+    dismissedNew += ((data ?? []) as ReservationBadgeRow[]).filter((row) =>
+      isNewReservation(toStatus(row.status), row.created_at),
+    ).length;
+  }
+  return Math.max(0, (reserved.count ?? 0) + (recent.count ?? 0) - dismissedNew);
 }

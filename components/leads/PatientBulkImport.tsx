@@ -9,6 +9,8 @@ import { importLeadRows, type LeadImportResult, type LeadImportRowInput } from "
 
 const inputClass = "h-9 rounded-control border border-line bg-white px-2.5 text-[12px] text-ink-800 outline-none focus:border-primary";
 const REQUIRED_FIELDS: LeadImportField[] = ["mrn", "name", "phone", "nationality"];
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_IMPORT_ROWS = 5_000;
 
 function StepLabel({ step, children }: { step: number; children: React.ReactNode }) {
   return <div className="text-[10px] font-black uppercase tracking-[.16em] text-primary">Step {step} of 6 · {children}</div>;
@@ -39,7 +41,13 @@ export function PatientBulkImport() {
     setResult(null);
     setConfirmed(false);
     try {
+      if (file.size > MAX_FILE_BYTES) {
+        throw new Error("This workbook is larger than 20 MB. Split it into smaller files before importing.");
+      }
       const parsed = await parseSpreadsheetFile(file);
+      if (parsed.sheets.some((item) => item.rows.length > MAX_IMPORT_ROWS)) {
+        throw new Error("A worksheet may contain at most 5,000 patient rows. Split larger sheets before importing.");
+      }
       setWorkbook(parsed);
       setSheetIndex(0);
       setMapping(autoMapLeadHeaders(parsed.sheets[0].headers));

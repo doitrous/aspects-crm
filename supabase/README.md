@@ -42,7 +42,7 @@ list, not `ls`:
    They were authored in the **booking-website repository** and are restored
    here so this repo can describe its own database. Verified 2026-07-10: all
    52 tables they create exist in the live CRM project.
-2. **`migrations/0002_*.sql` … `migrations/0006_*.sql`** — applied second, from
+2. **`migrations/0002_*.sql` onward** — applied second, from
    this repo. They add the financial source of truth, role history, and comment
    metadata **on top of** the baseline (e.g. `crm_lead_financials` has an FK to
    `leads`, created in `014`).

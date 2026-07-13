@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { dispatchRule } from "@/lib/email/send";
+import { secretsEqual } from "@/lib/security/secrets";
 
 /**
  * Booking → CRM ingest receiver.
@@ -43,6 +44,7 @@ interface ReservationPayload {
 }
 
 const LEADS = "leads";
+const MAX_BODY_BYTES = 64_000;
 
 function unauthorized(): NextResponse {
   return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
@@ -64,6 +66,11 @@ function normalizePhone(cc?: string, num?: string): string | null {
 /** Next sequential lead code, e.g. "L0110" → "L0111". Defensive fallback in case
  *  the table has no DB-side default; harmless if it does. */
 async function nextLeadCode(db: ReturnType<typeof supabaseAdmin>): Promise<string> {
+  const { data: generated, error: generateError } = await db.rpc("crm_generate_lead_id");
+  if (!generateError && generated) return String(generated);
+
+  // Compatibility fallback for installations that have not applied the lead
+  // ID generator migration yet. The database function is the atomic path.
   const { data } = await db
     .from(LEADS)
     .select("lead_id")
@@ -75,6 +82,47 @@ async function nextLeadCode(db: ReturnType<typeof supabaseAdmin>): Promise<strin
   return `L${String(n).padStart(4, "0")}`;
 }
 
+function optionalString(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, maxLength) : undefined;
+}
+
+function parsePayload(value: unknown): ReservationPayload | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const input = value as Record<string, unknown>;
+  const bookingAppointmentId = optionalString(input.bookingAppointmentId, 100);
+  const patientName = optionalString(input.patientName, 200);
+  if (!bookingAppointmentId || !patientName) return null;
+
+  const fee = input.feeAtBooking;
+  if (fee !== undefined && fee !== null && (typeof fee !== "number" || !Number.isFinite(fee) || fee < 0)) {
+    return null;
+  }
+  const gender = input.gender;
+  if (gender !== undefined && gender !== null && gender !== "male" && gender !== "female") return null;
+
+  return {
+    bookingAppointmentId,
+    patientName,
+    phoneCountryCode: optionalString(input.phoneCountryCode, 10),
+    phoneNumber: optionalString(input.phoneNumber, 30),
+    patientEmail: optionalString(input.patientEmail, 320),
+    gender: gender === "male" || gender === "female" ? gender : null,
+    serviceName: optionalString(input.serviceName, 200),
+    doctorName: optionalString(input.doctorName, 200),
+    branchName: optionalString(input.branchName, 200),
+    specialtyName: optionalString(input.specialtyName, 200),
+    appointmentDate: optionalString(input.appointmentDate, 10),
+    startTime: optionalString(input.startTime, 8),
+    isNewPatient: typeof input.isNewPatient === "boolean" ? input.isNewPatient : undefined,
+    primaryComplaint: optionalString(input.primaryComplaint, 2_000),
+    referralSource: optionalString(input.referralSource, 200),
+    feeAtBooking: typeof fee === "number" ? fee : undefined,
+    createdAt: optionalString(input.createdAt, 40),
+  };
+}
+
 export async function POST(req: Request) {
   const expected = process.env.CRM_INGEST_API_KEY;
   if (!expected) {
@@ -83,18 +131,28 @@ export async function POST(req: Request) {
       { status: 503 },
     );
   }
-  if (presentedKey(req) !== expected) return unauthorized();
+  if (!secretsEqual(presentedKey(req), expected)) return unauthorized();
 
-  let body: ReservationPayload;
+  const declaredLength = Number(req.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return NextResponse.json({ ok: false, error: "payload_too_large" }, { status: 413 });
+  }
+
+  let raw: unknown;
   try {
-    body = (await req.json()) as ReservationPayload;
+    const text = await req.text();
+    if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) {
+      return NextResponse.json({ ok: false, error: "payload_too_large" }, { status: 413 });
+    }
+    raw = JSON.parse(text);
   } catch {
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
 
-  if (!body.bookingAppointmentId || !body.patientName) {
+  const body = parsePayload(raw);
+  if (!body) {
     return NextResponse.json(
-      { ok: false, error: "missing_required_fields", need: ["bookingAppointmentId", "patientName"] },
+      { ok: false, error: "invalid_payload", need: ["bookingAppointmentId", "patientName"] },
       { status: 422 },
     );
   }
@@ -133,7 +191,7 @@ export async function POST(req: Request) {
       source: "website_ingest",
     }, { onConflict: "appointment_id" });
     if (linkError) return NextResponse.json({ ok: false, error: "booking_link_failed" }, { status: 500 });
-    await db
+    const { error: updateError } = await db
       .from(LEADS)
       .update({
         has_unread: true,
@@ -143,6 +201,13 @@ export async function POST(req: Request) {
         updated_at: now,
       })
       .eq("id", byAppt.id);
+    if (updateError) {
+      console.error("Reservation ingest existing-lead update failed", {
+        appointmentId: body.bookingAppointmentId,
+        code: updateError.code,
+      });
+      return NextResponse.json({ ok: false, error: "lead_update_failed" }, { status: 500 });
+    }
     return NextResponse.json({ ok: true, action: "updated", leadId: byAppt.id, leadCode: byAppt.lead_id });
   }
 
@@ -158,7 +223,7 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (byPhone) {
-      await db
+      const { error: updateError } = await db
         .from(LEADS)
         .update({
           booking_appointment_id: body.bookingAppointmentId,
@@ -170,6 +235,13 @@ export async function POST(req: Request) {
           updated_at: now,
         })
         .eq("id", byPhone.id);
+      if (updateError) {
+        console.error("Reservation ingest linked-lead update failed", {
+          appointmentId: body.bookingAppointmentId,
+          code: updateError.code,
+        });
+        return NextResponse.json({ ok: false, error: "lead_update_failed" }, { status: 500 });
+      }
       const { error: linkError } = await db.from("crm_lead_booking_links").upsert({
         lead_id: byPhone.id,
         appointment_id: body.bookingAppointmentId,
@@ -212,10 +284,11 @@ export async function POST(req: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json(
-      { ok: false, error: "insert_failed", detail: error.message },
-      { status: 500 },
-    );
+    console.error("Reservation ingest lead insert failed", {
+      appointmentId: body.bookingAppointmentId,
+      code: error.code,
+    });
+    return NextResponse.json({ ok: false, error: "insert_failed" }, { status: 500 });
   }
   const { error: linkError } = await db.from("crm_lead_booking_links").upsert({
     lead_id: created.id,

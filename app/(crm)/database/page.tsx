@@ -29,7 +29,9 @@ function pageNumber(v: string | string[] | undefined): number {
 async function syncWebsiteReservationsIntoDatabase(): Promise<void> {
   if (!bookingConfigured()) return;
   try {
-    const reservations = await getReservations();
+    const from = new Date();
+    from.setUTCDate(from.getUTCDate() - 90);
+    const reservations = await getReservations({ from: from.toISOString().slice(0, 10) });
     await syncReservationsToLeads(reservations);
   } catch (error) {
     // The local patient database must remain usable during a booking-platform
