@@ -36,7 +36,6 @@ export const NAV: NavItem[] = [
   { label: "Emails", i18nKey: "nav.emails", href: "/emails", icon: "✉", roles: ["admin", "auditor"], section: "administration" },
   // Auditors own operational configuration (§C); admins additionally manage users.
   { label: "Settings", i18nKey: "nav.settings", href: "/settings", icon: "⚙", roles: ["admin", "auditor"], section: "administration" },
-  { label: "Bulk Import", i18nKey: "nav.bulkImport", href: "/bulk-import", icon: "⇪", roles: ["auditor", "admin"], section: "administration" },
 ];
 
 /** Does `pathname` sit at or beneath `href`? `/settings` does not match `/settingsx`. */

@@ -76,9 +76,7 @@ test("database workflows share one drawer section in the requested order", () =>
   assert.deepEqual(new Set(databaseWorkflows.map((item) => item.section)), new Set(["data"]));
 });
 
-test("bulk import appears directly below settings in administration", () => {
-  const settingsIndex = NAV.findIndex((item) => item.href === "/settings");
-  assert.equal(NAV[settingsIndex]?.section, "administration");
-  assert.equal(NAV[settingsIndex + 1]?.href, "/bulk-import");
-  assert.equal(NAV[settingsIndex + 1]?.section, "administration");
+test("bulk import is contained inside settings instead of the main drawer", () => {
+  assert.equal(NAV.some((item) => item.href === "/bulk-import"), false);
+  assert.equal(NAV.some((item) => item.href === "/settings"), true);
 });

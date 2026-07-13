@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useActionState, useState, type ReactNode } from "react";
 import {
@@ -28,6 +29,14 @@ import type {
   IngestLogSetting,
 } from "@/lib/data/settingsData";
 import type { LeadSourceInfo } from "@/lib/types";
+
+const PatientBulkImport = dynamic(
+  () => import("@/components/leads/PatientBulkImport").then((module) => module.PatientBulkImport),
+  {
+    ssr: false,
+    loading: () => <div className="rounded-xl border border-line-soft bg-panel p-5 text-[12px] text-ink-500">Loading importer…</div>,
+  },
+);
 
 const SETTINGS_IDLE: SettingsActionState = { ok: false };
 const SETTINGS_PAGE_SIZE = 30;
@@ -445,6 +454,7 @@ function ConnectedBadge({ ok }: { ok: boolean }) {
 /* ── Shell ────────────────────────────────────────────────────── */
 type TabKey =
   | "general"
+  | "bulkImport"
   | "leadFields"
   | "tags"
   | "lost"
@@ -465,6 +475,7 @@ type TabKey =
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "general", label: "General CRM Settings" },
+  { key: "bulkImport", label: "Bulk Import" },
   { key: "leadFields", label: "Lead Fields" },
   { key: "tags", label: "Tags & Colors" },
   { key: "lost", label: "Lost Reasons" },
@@ -561,6 +572,15 @@ export function SettingsManager({
               ]}
             />
           </Card>
+        )}
+
+        {tab === "bulkImport" && (
+          <div>
+            <p className="mb-4 max-w-3xl text-[12px] text-ink-500">
+              Upload patient spreadsheets into the CRM Database. Files are reviewed and mapped before any patient records are imported.
+            </p>
+            <PatientBulkImport />
+          </div>
         )}
 
         {tab === "leadFields" && (
