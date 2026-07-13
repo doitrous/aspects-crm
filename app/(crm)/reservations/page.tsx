@@ -109,7 +109,8 @@ export default async function ReservationsPage({
               <tbody>
                 {reservations.map((r) => {
                   const isNew = isNewReservation(r.status, r.createdAt, now);
-                  const leadId = leadByAppointment.get(r.id);
+                  const syncedLead = leadByAppointment.get(r.id);
+                  const leadId = syncedLead?.leadId;
                   return (
                     <tr
                       key={r.id}
@@ -126,12 +127,17 @@ export default async function ReservationsPage({
                                 New
                               </span>
                             )}
+                            {syncedLead?.revisiting && (
+                              <span className="rounded-pill border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-violet-700">
+                                Revisiting Patient
+                              </span>
+                            )}
                             {leadId && <span className="font-mono text-[10.5px] text-ink-400">{leadId}</span>}
                           </div>
                           <span className="font-semibold text-ink-900 group-hover:text-primary">{r.patientName}</span>
                         </Link>
                         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-ink-400">
-                          <span>{r.isNewPatient ? "New patient" : "Returning"}</span>
+                          <span>{syncedLead?.revisiting ? "Revisiting patient" : r.isNewPatient ? "New patient" : "Returning"}</span>
                           {r.patientAge ? <span>· {r.patientAge}y</span> : null}
                         </div>
                       </td>

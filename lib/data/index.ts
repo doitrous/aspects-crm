@@ -6,6 +6,8 @@ import type {
   DuplicateDecision,
   DuplicateGroup,
   DuplicatePair,
+  DuplicateQueueResult,
+  DuplicateQueueView,
   Escalation,
   EscalationQueueItem,
   Lead,
@@ -88,6 +90,9 @@ export function escalationQueue(): Promise<EscalationQueueItem[]> {
 }
 export function duplicateQueue(): Promise<DuplicatePair[]> {
   return provider.duplicateQueue();
+}
+export function duplicateQueuePage(view?: DuplicateQueueView, page?: number, pageSize?: number): Promise<DuplicateQueueResult> {
+  return provider.duplicateQueuePage(view, page, pageSize);
 }
 export function followUpQueue(stage?: "follow_up" | "post_op", page?: number, pageSize?: number): Promise<FollowUpListResult> {
   return provider.followUpQueue(stage, page, pageSize);

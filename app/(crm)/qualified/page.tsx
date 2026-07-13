@@ -25,6 +25,7 @@ export default async function QualifiedLeadsPage({ searchParams }: { searchParam
   const filters: LeadFilters = {
     q: str(sp.q),
     stage: "qualified",
+    excludeDatabaseOnly: true,
     platform: channel?.startsWith("platform:") ? channel.slice("platform:".length) : str(sp.platform),
     doctorId: str(sp.doctor),
     specialtyId: str(sp.specialty),

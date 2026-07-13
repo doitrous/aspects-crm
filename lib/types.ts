@@ -39,7 +39,7 @@ export type MessageChannel = "facebook" | "instagram" | "whatsapp" | "comment";
 export type EscalationSeverity = "low" | "medium" | "high" | "critical";
 export type EscalationStatus = "open" | "assigned" | "resolved";
 
-export type DuplicateStatus = "none" | "suspected" | "merged" | "not_duplicate";
+export type DuplicateStatus = "none" | "suspected" | "linked" | "merged" | "not_duplicate";
 
 /** Reviewer decision on a suspected duplicate pair (maps to DB flag status). */
 export type DuplicateDecision = "merged" | "linked" | "dismissed";
@@ -313,6 +313,7 @@ export interface Lead {
   platformId?: string; // messenger/ig/whatsapp id
   chatLink?: string;
   sourceId?: string;
+  sourceLabel?: string;
   campaignId?: string;
   specialtyId?: string;
   serviceName?: string; // real DB stores a free-text service (leads.service_name)
@@ -378,6 +379,8 @@ export interface LeadSummary {
   uid?: string; // DB uuid
   name: string;
   phone: string;
+  mrn?: string;
+  platformId?: string;
   stage: PipelineStage;
   platform: Platform;
   createdAt: string;
@@ -406,6 +409,18 @@ export interface DuplicatePair {
   reviewedBy?: string;
   primary?: LeadSummary;
   duplicate?: LeadSummary;
+}
+
+export type DuplicateQueueView = "open" | "resolved";
+
+export interface DuplicateQueueResult {
+  items: DuplicatePair[];
+  total: number;
+  openTotal: number;
+  resolvedTotal: number;
+  page: number;
+  pageSize: number;
+  view: DuplicateQueueView;
 }
 
 /** A lead in the follow-up workflow with its active stage. */
@@ -490,6 +505,7 @@ export interface Reservation {
   leadId?: string;
   patientName: string;
   patientPhone: string; // country code + national number
+  patientMrn?: string;
   patientEmail?: string;
   patientAge?: number;
   doctorId?: string;

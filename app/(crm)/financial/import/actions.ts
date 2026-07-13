@@ -9,6 +9,7 @@ import { FinancialError, saveQuote, addTransaction } from "@/lib/data/financials
 import { createManualLead } from "@/lib/data/leadMutations";
 import { logActivity } from "@/lib/audit/log";
 import type { ImportMethod } from "@/lib/financial/importMapping";
+import { matchablePhoneDigits } from "@/lib/phoneMatching";
 
 export interface ImportRowInput {
   rowIndex: number;
@@ -53,10 +54,6 @@ export interface ImportResult {
   rows: ImportRowResult[];
 }
 
-function digits(v: string | undefined): string {
-  return (v ?? "").replace(/\D/g, "");
-}
-
 /**
  * Resolve a spreadsheet row to an existing lead by Lead ID -> MRN -> phone.
  * Creation happens only later, after match attempts fail and the row contains
@@ -72,14 +69,15 @@ async function resolveLead(row: ImportRowInput): Promise<string | null> {
     const { data } = await db.from("leads").select("lead_id").eq("mrn", row.mrn.trim()).maybeSingle();
     if (data) return data.lead_id as string;
   }
-  const phone = digits(row.phone);
-  if (phone.length >= 7) {
-    const tail = phone.slice(-9);
-    const { data } = await db
+  const phone = matchablePhoneDigits(row.phone);
+  if (phone) {
+    const query = db
       .from("leads")
       .select("lead_id,normalized_phone")
-      .ilike("normalized_phone", `%${tail}`)
       .limit(1);
+    const { data } = await (phone.length >= 7
+      ? query.ilike("normalized_phone", `%${phone.slice(-9)}`)
+      : query.or(`normalized_phone.eq.${phone},normalized_phone.eq.20${phone}`));
     if (data && data.length) return data[0].lead_id as string;
   }
   return null;

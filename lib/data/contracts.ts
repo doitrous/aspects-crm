@@ -6,6 +6,8 @@ import type {
   DuplicateDecision,
   DuplicateGroup,
   DuplicatePair,
+  DuplicateQueueResult,
+  DuplicateQueueView,
   Escalation,
   EscalationQueueItem,
   FollowUpItem,
@@ -37,6 +39,8 @@ export interface LeadFilters {
   duplicate?: boolean;
   bookingStatus?: string;
   moderator?: string;
+  /** Hide passive database-import records from operational pipeline queues. */
+  excludeDatabaseOnly?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -95,6 +99,7 @@ export interface DataProvider {
   // Phase 3 — auditor queues + previous-day report
   escalationQueue(): Promise<EscalationQueueItem[]>;
   duplicateQueue(): Promise<DuplicatePair[]>;
+  duplicateQueuePage(view?: DuplicateQueueView, page?: number, pageSize?: number): Promise<DuplicateQueueResult>;
   followUpQueue(stage?: "follow_up" | "post_op", page?: number, pageSize?: number): Promise<FollowUpListResult>;
   auditorReport(date?: string): Promise<AuditReport | null>;
   auditorReportDates(): Promise<string[]>;

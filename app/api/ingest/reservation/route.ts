@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { dispatchRule } from "@/lib/email/send";
 import { secretsEqual } from "@/lib/security/secrets";
+import {
+  assignRevisitingPatientTag,
+  isRevisitingMetadata,
+  normalizePatientMrn,
+  withRevisitingMetadata,
+  type RevisitingMatch,
+} from "@/lib/booking/revisiting";
+import { matchablePhoneDigits } from "@/lib/phoneMatching";
 
 /**
  * Booking → CRM ingest receiver.
@@ -26,6 +34,7 @@ export const runtime = "nodejs";
 interface ReservationPayload {
   bookingAppointmentId: string;
   patientName: string;
+  patientMrn?: string;
   phoneCountryCode?: string;
   phoneNumber?: string;
   patientEmail?: string;
@@ -94,6 +103,8 @@ function parsePayload(value: unknown): ReservationPayload | null {
   const bookingAppointmentId = optionalString(input.bookingAppointmentId, 100);
   const patientName = optionalString(input.patientName, 200);
   if (!bookingAppointmentId || !patientName) return null;
+  const patientMrn = optionalString(input.patientMrn ?? input.mrn, 9);
+  if (patientMrn && !normalizePatientMrn(patientMrn)) return null;
 
   const fee = input.feeAtBooking;
   if (fee !== undefined && fee !== null && (typeof fee !== "number" || !Number.isFinite(fee) || fee < 0)) {
@@ -105,6 +116,7 @@ function parsePayload(value: unknown): ReservationPayload | null {
   return {
     bookingAppointmentId,
     patientName,
+    patientMrn,
     phoneCountryCode: optionalString(input.phoneCountryCode, 10),
     phoneNumber: optionalString(input.phoneNumber, 30),
     patientEmail: optionalString(input.patientEmail, 320),
@@ -160,10 +172,12 @@ export async function POST(req: Request) {
   const db = supabaseAdmin();
   const now = new Date().toISOString();
   const normalizedPhone = normalizePhone(body.phoneCountryCode, body.phoneNumber);
+  const matchablePhone = matchablePhoneDigits(normalizedPhone);
 
   const channelMeta = {
     channel: "website_booking",
     booking_appointment_id: body.bookingAppointmentId,
+    patient_mrn: body.patientMrn ?? null,
     doctor_name: body.doctorName ?? null,
     branch_name: body.branchName ?? null,
     specialty_name: body.specialtyName ?? null,
@@ -208,54 +222,88 @@ export async function POST(req: Request) {
       });
       return NextResponse.json({ ok: false, error: "lead_update_failed" }, { status: 500 });
     }
-    return NextResponse.json({ ok: true, action: "updated", leadId: byAppt.id, leadCode: byAppt.lead_id });
+    return NextResponse.json({ ok: true, action: "updated", leadId: byAppt.id, leadCode: byAppt.lead_id, revisiting: isRevisitingMetadata(byAppt.metadata) });
   }
 
-  // 2) Same patient by phone? Link the reservation to the existing lead + mark unread.
-  if (normalizedPhone) {
-    const { data: byPhone } = await db
+  // 2) Same patient by exact MRN first, then normalized phone. Re-enter the
+  // operational queue and mark the existing record as a revisiting patient.
+  type MatchedLead = { id: string; lead_id: string; metadata: Record<string, unknown> | null };
+  let matchedLead: MatchedLead | null = null;
+  let matchedBy: RevisitingMatch | null = null;
+  const patientMrn = normalizePatientMrn(body.patientMrn);
+  if (patientMrn) {
+    const { data } = await db
       .from(LEADS)
       .select("id, lead_id, metadata")
-      .eq("normalized_phone", normalizedPhone)
+      .eq("mrn", patientMrn)
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-
-    if (byPhone) {
-      const { error: updateError } = await db
-        .from(LEADS)
-        .update({
-          booking_appointment_id: body.bookingAppointmentId,
-          service_name: body.serviceName ?? undefined,
-          has_unread: true,
-          unread_since: now,
-          last_incoming_at: now,
-          metadata: { ...(byPhone.metadata ?? {}), ...channelMeta },
-          updated_at: now,
-        })
-        .eq("id", byPhone.id);
-      if (updateError) {
-        console.error("Reservation ingest linked-lead update failed", {
-          appointmentId: body.bookingAppointmentId,
-          code: updateError.code,
-        });
-        return NextResponse.json({ ok: false, error: "lead_update_failed" }, { status: 500 });
-      }
-      const { error: linkError } = await db.from("crm_lead_booking_links").upsert({
-        lead_id: byPhone.id,
-        appointment_id: body.bookingAppointmentId,
-        source: "website_ingest",
-      }, { onConflict: "appointment_id" });
-      if (linkError) return NextResponse.json({ ok: false, error: "booking_link_failed" }, { status: 500 });
-      return NextResponse.json({ ok: true, action: "linked", leadId: byPhone.id, leadCode: byPhone.lead_id });
+    if (data) {
+      matchedLead = {
+        id: String(data.id),
+        lead_id: String(data.lead_id),
+        metadata: (data.metadata as Record<string, unknown> | null) ?? null,
+      };
+      matchedBy = "mrn";
     }
+  }
+  if (!matchedLead && matchablePhone) {
+    const { data } = await db
+      .from(LEADS)
+      .select("id, lead_id, metadata")
+      .eq("normalized_phone", matchablePhone)
+      .is("merged_into_lead_id", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      matchedLead = {
+        id: String(data.id),
+        lead_id: String(data.lead_id),
+        metadata: (data.metadata as Record<string, unknown> | null) ?? null,
+      };
+      matchedBy = "phone";
+    }
+  }
+
+  if (matchedLead && matchedBy) {
+    const { error: updateError } = await db
+      .from(LEADS)
+      .update({
+        booking_appointment_id: body.bookingAppointmentId,
+        service_name: body.serviceName ?? undefined,
+        status: "new_lead",
+        has_unread: true,
+        unread_since: now,
+        last_incoming_at: now,
+        metadata: withRevisitingMetadata({ ...(matchedLead.metadata ?? {}), ...channelMeta }, matchedBy, body.bookingAppointmentId),
+        updated_at: now,
+      })
+      .eq("id", matchedLead.id);
+    if (updateError) {
+      console.error("Reservation ingest linked-lead update failed", {
+        appointmentId: body.bookingAppointmentId,
+        code: updateError.code,
+      });
+      return NextResponse.json({ ok: false, error: "lead_update_failed" }, { status: 500 });
+    }
+    const { error: linkError } = await db.from("crm_lead_booking_links").upsert({
+      lead_id: matchedLead.id,
+      appointment_id: body.bookingAppointmentId,
+      source: "website_ingest",
+    }, { onConflict: "appointment_id" });
+    if (linkError) return NextResponse.json({ ok: false, error: "booking_link_failed" }, { status: 500 });
+    await assignRevisitingPatientTag(matchedLead.id);
+    return NextResponse.json({ ok: true, action: "linked", leadId: matchedLead.id, leadCode: matchedLead.lead_id, revisiting: true, matchedBy });
   }
 
   // 3) Brand-new lead from the reservation.
   const leadCode = await nextLeadCode(db);
   const insert = {
     lead_id: leadCode,
+    mrn: patientMrn,
     name: body.patientName,
     status: "new_lead",
     platform: "manual", // no distinct `website_booking` platform value yet; channel is in metadata

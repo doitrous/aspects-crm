@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { whatsappIngestSecret } from "@/lib/whatsapp/config";
 import { secretsEqual } from "@/lib/security/secrets";
+import { matchablePhoneDigits } from "@/lib/phoneMatching";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -133,12 +134,14 @@ async function updateExistingMessage(
 async function leadFor(input: Payload): Promise<{ id: string; lead_id: string }> {
   const db = supabaseAdmin();
   const phone = normalizePhone(input.phone ?? input.whatsappUserId ?? input.conversationId);
-  const platformId = input.whatsappUserId || input.phone || input.conversationId || phone;
-  if (phone) {
+  const matchablePhone = matchablePhoneDigits(phone);
+  const explicitPlatformId = input.whatsappUserId || input.conversationId || null;
+  const platformId = explicitPlatformId || matchablePhone;
+  if (matchablePhone) {
     const { data: byPhone, error } = await db
       .from("leads")
       .select("id,lead_id")
-      .eq("normalized_phone", phone)
+      .eq("normalized_phone", matchablePhone)
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -172,7 +175,7 @@ async function leadFor(input: Payload): Promise<{ id: string; lead_id: string }>
       normalized_phone: phone,
       platform: "whatsapp",
       platform_id: platformId,
-      normalized_platform_id: phone ?? platformId,
+      normalized_platform_id: explicitPlatformId ?? matchablePhone,
       status: "new_lead",
       has_unread: input.direction !== "outgoing",
       first_contact_at: now,

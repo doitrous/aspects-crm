@@ -397,9 +397,11 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
             <div className="truncate font-display text-[17px] font-semibold text-clinic-ink">
               {lead.patientName}
             </div>
+            <div className="mt-0.5 font-mono text-[12px] font-bold text-ink-700">
+              MRN {lead.mrn ?? "--"}
+            </div>
             <div className="font-mono text-[10.5px] text-ink-400">
               {lead.id}
-              {lead.mrn ? ` · ${lead.mrn}` : ""}
             </div>
             {lead.chatLink && (
               <a
@@ -576,7 +578,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 <DetailField label="Branch" value={lead.branch ?? "—"} />
                 <DetailField label="Patient type" value={<span className="capitalize">{lead.patientType}</span>} />
                 <DetailField label="Campaign" value={campaignName(lead.campaignId)} />
-                <DetailField label="Heard via" value={pm ? pm.label : sourceName(lead.sourceId)} />
+                <DetailField label="Heard via" value={lead.sourceLabel ?? (pm ? pm.label : sourceName(lead.sourceId))} />
                 {stage === "lost" && <DetailField label="Lost reason" value={lead.lostReason ?? "—"} />}
               </div>
             </section>

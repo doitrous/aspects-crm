@@ -224,7 +224,7 @@ export default async function CalendarPage({
                     <div className="flex max-h-[220px] flex-col gap-1 overflow-y-auto">
                       {dayRes.map((r) => {
                         const meta = RESERVATION_STATUS_META[r.status];
-                        const leadId = leadByAppointment.get(r.id);
+                        const leadId = leadByAppointment.get(r.id)?.leadId;
                         const title = `${formatClock(r.startTime)} · ${r.patientName} · ${r.doctorName ?? ""} · ${meta.label}`;
 
                         const body = (
@@ -304,7 +304,7 @@ export default async function CalendarPage({
                       <div className="mb-1 text-[12px] font-semibold text-ink-700">{doctor}</div>
                       <div className="flex flex-col gap-1">
                         {list.map((r) => {
-                          const leadId = leadByAppointment.get(r.id);
+                          const leadId = leadByAppointment.get(r.id)?.leadId;
                           const meta = RESERVATION_STATUS_META[r.status];
                           const row = (
                             <div className="grid grid-cols-[72px_80px_1fr] gap-2 rounded-control px-2 py-1.5 text-[11.5px]" style={{ background: meta.bg }}>

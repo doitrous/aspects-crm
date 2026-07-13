@@ -19,6 +19,7 @@ interface AppointmentRow {
   patient_age: number | null;
   patient_phone_country_code: string | null;
   patient_phone: string | null;
+  patient_mrn?: string | null;
   patient_email: string | null;
   appointment_date: string;
   start_time: string;
@@ -36,12 +37,13 @@ interface AppointmentRow {
   services: NamePair | NamePair[] | null;
 }
 
-const SELECT =
+const BASE_SELECT =
   "id,doctor_id,specialty_id,branch_id,service_id,patient_name,patient_age,patient_phone_country_code,patient_phone,patient_email," +
   "appointment_date,start_time,end_time,status,is_new_patient,primary_complaint," +
   "referral_source,fee_at_booking,notes,created_at," +
   "doctors(name_en,name_ar),specialties(name_en,name_ar)," +
   "branches(name_en,name_ar),services(name_en,name_ar)";
+let patientMrnColumnSupported: boolean | null = null;
 
 const VALID_STATUS: ReservationStatus[] = [
   "reserved",
@@ -74,6 +76,7 @@ function mapRow(r: AppointmentRow): Reservation {
     id: r.id,
     patientName: r.patient_name,
     patientPhone: `${cc}${phone}`.trim(),
+    patientMrn: r.patient_mrn?.trim() || undefined,
     patientEmail: r.patient_email ?? undefined,
     patientAge: r.patient_age ?? undefined,
     doctorId: r.doctor_id ?? undefined,
@@ -102,15 +105,41 @@ export interface ReservationRange {
   to?: string; // YYYY-MM-DD inclusive
 }
 
-function reservationQuery(range: ReservationRange) {
+function reservationQuery(range: ReservationRange, includeMrn: boolean) {
+  const select = includeMrn ? BASE_SELECT.replace("patient_email,", "patient_email,patient_mrn,") : BASE_SELECT;
   let query = bookingDb()
     .from("appointments")
-    .select(SELECT)
+    .select(select)
     .order("appointment_date", { ascending: false })
     .order("start_time", { ascending: true });
   if (range.from) query = query.gte("appointment_date", range.from);
   if (range.to) query = query.lte("appointment_date", range.to);
   return query;
+}
+
+function missingPatientMrnColumn(error: { code?: string; message?: string } | null): boolean {
+  return Boolean(
+    error &&
+    error.message?.includes("patient_mrn") &&
+    (["42703", "PGRST204"].includes(error.code ?? "") || /column|schema cache|does not exist/i.test(error.message)),
+  );
+}
+
+async function reservationRows(range: ReservationRange, from?: number, to?: number): Promise<AppointmentRow[]> {
+  const includeMrn = patientMrnColumnSupported !== false;
+  let query = reservationQuery(range, includeMrn);
+  if (from !== undefined && to !== undefined) query = query.range(from, to);
+  let result = await query;
+  if (includeMrn && missingPatientMrnColumn(result.error)) {
+    patientMrnColumnSupported = false;
+    let fallback = reservationQuery(range, false);
+    if (from !== undefined && to !== undefined) fallback = fallback.range(from, to);
+    result = await fallback;
+  } else if (!result.error && includeMrn) {
+    patientMrnColumnSupported = true;
+  }
+  if (result.error) throw new Error(`getReservations: ${result.error.message}`);
+  return (result.data ?? []) as unknown as AppointmentRow[];
 }
 
 /**
@@ -120,9 +149,7 @@ function reservationQuery(range: ReservationRange) {
  */
 export async function getReservations(range: ReservationRange = {}): Promise<Reservation[]> {
   if (!bookingConfigured()) return [];
-  const { data, error } = await reservationQuery(range);
-  if (error) throw new Error(`getReservations: ${error.message}`);
-  return ((data ?? []) as unknown as AppointmentRow[]).map(mapRow);
+  return (await reservationRows(range)).map(mapRow);
 }
 
 export interface ReservationPage {
@@ -142,17 +169,15 @@ export async function getReservationsPage(
   const safePageSize = Math.min(200, Math.max(1, Math.floor(pageSize)));
   if (!bookingConfigured()) return { reservations: [], total: 0, page: safePage, pageSize: safePageSize };
   const from = (safePage - 1) * safePageSize;
-  const query = reservationQuery(range).range(from, from + safePageSize - 1);
   // PostgREST only computes a count when requested on the select call, so run
   // a cheap head query in parallel with the embedded display rows.
   let countQuery = bookingDb().from("appointments").select("id", { count: "exact", head: true });
   if (range.from) countQuery = countQuery.gte("appointment_date", range.from);
   if (range.to) countQuery = countQuery.lte("appointment_date", range.to);
-  const [rows, count] = await Promise.all([query, countQuery]);
-  if (rows.error) throw new Error(`getReservationsPage: ${rows.error.message}`);
+  const [rows, count] = await Promise.all([reservationRows(range, from, from + safePageSize - 1), countQuery]);
   if (count.error) throw new Error(`getReservationsPage(count): ${count.error.message}`);
   return {
-    reservations: ((rows.data ?? []) as unknown as AppointmentRow[]).map(mapRow),
+    reservations: rows.map(mapRow),
     total: count.count ?? 0,
     page: safePage,
     pageSize: safePageSize,

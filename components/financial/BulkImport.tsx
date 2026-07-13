@@ -15,6 +15,7 @@ import {
 } from "@/app/(crm)/financial/import/actions";
 import { Card } from "@/components/ui/Card";
 import { parseSpreadsheetFile, type ParsedSheet } from "@/lib/import/spreadsheetFile";
+import { phoneDuplicateKey } from "@/lib/phoneMatching";
 
 const field = "rounded-control border border-line-soft bg-panel px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary";
 const stepTitle = "text-[13px] font-bold text-ink-900";
@@ -88,7 +89,8 @@ export function BulkImport() {
     const rows = parsed.rows.map((r, i) => mapRow(r, parsed.headers, mapping, i));
     const seen = new Map<string, number>();
     for (const r of rows) {
-      const key = (r.leadId && `lead:${r.leadId}`) || (r.mrn && `mrn:${r.mrn}`) || (r.phone && `phone:${r.phone.replace(/\D/g, "").slice(-9)}`) || "";
+      const phoneKey = phoneDuplicateKey(r.phone);
+      const key = (r.leadId && `lead:${r.leadId}`) || (r.mrn && `mrn:${r.mrn}`) || (phoneKey && `phone:${phoneKey}`) || "";
       if (!key) continue;
       const prior = seen.get(key);
       if (prior !== undefined) {

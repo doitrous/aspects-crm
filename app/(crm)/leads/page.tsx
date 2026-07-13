@@ -31,6 +31,7 @@ export default async function LeadsPage({
   const filters: LeadFilters = {
     q: str(sp.q),
     stage: "new",
+    excludeDatabaseOnly: true,
     platform: channel?.startsWith("platform:") ? channel.slice("platform:".length) : str(sp.platform),
     doctorId: str(sp.doctor),
     specialtyId: str(sp.specialty),

@@ -13,6 +13,8 @@ import type {
   DuplicateDecision,
   DuplicateGroup,
   DuplicatePair,
+  DuplicateQueueResult,
+  DuplicateQueueView,
   DuplicateStatus,
   Escalation,
   EscalationQueueItem,
@@ -121,6 +123,8 @@ function toUiDuplicateStatus(status: string | null): DuplicateStatus {
   switch (status) {
     case "merged":
       return "merged";
+    case "linked":
+      return "linked";
     case "dismissed":
     case "not_duplicate":
       return "not_duplicate";
@@ -213,7 +217,7 @@ async function loadDuplicateSet(): Promise<Set<string>> {
     .select("lead_id,duplicate_lead_id,status");
   const set = new Set<string>();
   for (const f of data ?? []) {
-    if (f.status === "merged" || f.status === "dismissed" || f.status === "not_duplicate") continue;
+    if (f.status === "linked" || f.status === "merged" || f.status === "dismissed" || f.status === "not_duplicate") continue;
     if (f.lead_id) set.add(f.lead_id as string);
     if (f.duplicate_lead_id) set.add(f.duplicate_lead_id as string);
   }
@@ -233,7 +237,7 @@ async function loadDuplicateSetForLeadIds(leadIds: string[]): Promise<Set<string
   if (secondary.error) throw new Error(`loadDuplicateSetForLeadIds(secondary): ${secondary.error.message}`);
   const set = new Set<string>();
   for (const flag of [...(primary.data ?? []), ...(secondary.data ?? [])]) {
-    if (flag.status === "merged" || flag.status === "dismissed") continue;
+    if (flag.status === "linked" || flag.status === "merged" || flag.status === "dismissed") continue;
     if (flag.lead_id) set.add(flag.lead_id as string);
     if (flag.duplicate_lead_id) set.add(flag.duplicate_lead_id as string);
   }
@@ -353,6 +357,9 @@ function pageParams(filters: LeadFilters): { page: number; pageSize: number; fro
 function applyLeadFilters(query: any, filters: LeadFilters) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let q = query as any;
+  if (filters.excludeDatabaseOnly) {
+    q = q.or("metadata->>record_source.is.null,metadata->>record_source.neq.database,metadata->>revisiting_patient.eq.true");
+  }
   if (filters.stages?.length) {
     q = q.in("status", filters.stages.map((stage) => UI_TO_DB_STAGE[stage]));
   } else if (filters.stage && filters.stage !== "all") {
@@ -394,6 +401,10 @@ function mapLead(row: LeadRow, lk: Lookups, tagRows: Array<{ name: string; color
   const lastMessageAt =
     row.last_incoming_at ?? row.last_outgoing_at ?? row.last_contact_at ?? row.updated_at;
   const metadata = row.metadata ?? {};
+  const revisiting = metadata.revisiting_patient === true;
+  const visibleTags = revisiting && !tagRows.some((tag) => tag.name === "Revisiting Patient")
+    ? [...tagRows, { name: "Revisiting Patient", color: "#7c3aed" }]
+    : tagRows;
   return {
     id: row.lead_id,
     uid: row.id,
@@ -405,6 +416,7 @@ function mapLead(row: LeadRow, lk: Lookups, tagRows: Array<{ name: string; color
     platformId: row.platform_id ?? undefined,
     chatLink: row.chat_link ?? undefined,
     sourceId: row.source_id ?? undefined,
+    sourceLabel: metadata.record_source === "database" ? "Database" : undefined,
     campaignId: row.campaign ?? undefined,
     specialtyId: undefined,
     serviceName: row.service_name ?? undefined,
@@ -414,14 +426,14 @@ function mapLead(row: LeadRow, lk: Lookups, tagRows: Array<{ name: string; color
     doctorName: undefined,
     doctorNames: Array.isArray(metadata.treating_doctor_names) ? metadata.treating_doctor_names.filter((value): value is string => typeof value === "string") : undefined,
     branch: undefined,
-    patientType: "new",
+    patientType: revisiting ? "returning" : "new",
     stage: toUiStage(row.status),
     stageHistory: [],
     assignedModerator: row.coordinator_user_id
       ? lk.usersById.get(row.coordinator_user_id)
       : undefined,
-    tags: tagRows.map((tag) => tag.name),
-    tagColors: Object.fromEntries(tagRows.filter((tag) => tag.color).map((tag) => [tag.name, tag.color!])),
+    tags: visibleTags.map((tag) => tag.name),
+    tagColors: Object.fromEntries(visibleTags.filter((tag) => tag.color).map((tag) => [tag.name, tag.color!])),
     unread: row.has_unread,
     attentionMessage: typeof metadata.moderator_notice === "string" ? metadata.moderator_notice : undefined,
     attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab as Lead["attentionTab"] : undefined,
@@ -446,6 +458,8 @@ interface SummaryRow {
   id: string;
   lead_id: string;
   name: string | null;
+  mrn?: string | null;
+  platform_id?: string | null;
   status: string | null;
   platform: string | null;
   phone_country_code: string | null;
@@ -459,7 +473,7 @@ interface SummaryRow {
 }
 
 const SUMMARY_COLUMNS =
-  "id,lead_id,name,status,platform,phone_country_code,phone_number," +
+  "id,lead_id,name,mrn,status,platform,platform_id,phone_country_code,phone_number," +
   "normalized_phone,service_name,coordinator_user_id,created_at,last_contact_at,metadata";
 
 function rowToSummary(r: SummaryRow, usersById: Map<string, string>): LeadSummary {
@@ -469,6 +483,8 @@ function rowToSummary(r: SummaryRow, usersById: Map<string, string>): LeadSummar
     uid: r.id,
     name: r.name?.trim() || "Unnamed lead",
     phone: buildPhone(r as unknown as LeadRow),
+    mrn: r.mrn ?? undefined,
+    platformId: r.platform_id ?? undefined,
     stage: toUiStage(r.status),
     platform: toUiPlatform(r.platform),
     createdAt: r.created_at,
@@ -498,6 +514,63 @@ async function loadLeadSummaries(
     map.set(r.id, rowToSummary(r, usersById));
   }
   return map;
+}
+
+type DuplicateFlagRow = {
+  id: string;
+  lead_id: string | null;
+  duplicate_lead_id: string | null;
+  duplicate_type: string | null;
+  identifier_value: string | null;
+  status: string | null;
+  notes: string | null;
+  reviewed_by: string | null;
+  confidence_score: number | null;
+  match_priority?: number | null;
+  created_at: string;
+};
+
+const DUPLICATE_TYPE_PRIORITY: Record<string, number> = {
+  mrn: 1,
+  lead_id: 2,
+  phone: 3,
+  platform_id: 4,
+  unique_id: 5,
+  chat_link: 6,
+  name: 7,
+};
+
+async function enrichDuplicateRows(
+  rows: DuplicateFlagRow[],
+  usersById: Map<string, string>,
+): Promise<DuplicatePair[]> {
+  const uuids = [
+    ...new Set(rows.flatMap((row) => [row.lead_id, row.duplicate_lead_id]).filter((id): id is string => Boolean(id))),
+  ];
+  const summaries = await loadLeadSummaries(uuids, usersById);
+  return rows
+    // Defensive read-side protection for databases that have not finished the
+    // cleanup migration yet. A blank cell is never duplicate evidence.
+    .filter((row) => {
+      const evidence = row.identifier_value?.trim();
+      if (!evidence) return false;
+      return row.duplicate_type !== "phone" || evidence.replace(/\D/g, "").length > 4;
+    })
+    .map((row) => ({
+      id: row.id,
+      type: row.duplicate_type?.trim() || "unique_id",
+      confidence: typeof row.confidence_score === "number" ? row.confidence_score : 0.8,
+      status: toUiDuplicateStatus(row.status),
+      notes: row.notes?.trim() || row.identifier_value?.trim() || undefined,
+      createdAt: row.created_at,
+      reviewedBy: row.reviewed_by ? usersById.get(row.reviewed_by) : undefined,
+      primary: row.lead_id ? summaries.get(row.lead_id) : undefined,
+      duplicate: row.duplicate_lead_id ? summaries.get(row.duplicate_lead_id) : undefined,
+    }))
+    .sort((left, right) =>
+      (DUPLICATE_TYPE_PRIORITY[left.type] ?? 99) - (DUPLICATE_TYPE_PRIORITY[right.type] ?? 99) ||
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
+    );
 }
 
 /** UTC calendar helpers for the previous-day auditor model. */
@@ -1029,7 +1102,10 @@ export const supabaseProvider: DataProvider = {
       throw new Error(`dashboardMetrics: ${aggregateError.message}`);
     }
 
-    const leadCount = () => db.from("leads").select("id", { count: "exact", head: true });
+    const leadCount = () => db
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .or("metadata->>record_source.is.null,metadata->>record_source.neq.database,metadata->>revisiting_patient.eq.true");
     const n = async (p: PromiseLike<{ count: number | null }>) => (await p).count ?? 0;
 
     const [newLeads, unread, overdue, qualified, booked, followUp, lost, appointments, dupSet, escalations] =
@@ -1073,7 +1149,7 @@ export const supabaseProvider: DataProvider = {
     };
     const statuses = ["new_lead", "qualified", "booked", "follow_up", "post_op_follow_up", "lost"] as const;
     const counts = await Promise.all(statuses.map(async (status) => {
-      const { count, error } = await db.from("leads").select("id", { count: "exact", head: true }).is("merged_into_lead_id", null).eq("status", status);
+      const { count, error } = await db.from("leads").select("id", { count: "exact", head: true }).is("merged_into_lead_id", null).eq("status", status).or("metadata->>record_source.is.null,metadata->>record_source.neq.database,metadata->>revisiting_patient.eq.true");
       if (error) throw new Error(`pipelineCounts(${status}): ${error.message}`);
       return count ?? 0;
     }));
@@ -1115,30 +1191,44 @@ export const supabaseProvider: DataProvider = {
     const { data, error } = await supabaseAdmin()
       .from("lead_duplicate_flags")
       .select(
-        "id,lead_id,duplicate_lead_id,duplicate_type,identifier_value,status,notes,reviewed_by,confidence_score,created_at",
+        "id,lead_id,duplicate_lead_id,duplicate_type,identifier_value,status,notes,reviewed_by,confidence_score,match_priority,created_at",
       )
+      .order("match_priority", { ascending: true })
       .order("created_at", { ascending: false });
     if (error) throw new Error(`duplicateQueue: ${error.message}`);
-    const rows = data ?? [];
-    const uuids = [
-      ...new Set(
-        rows
-          .flatMap((f) => [f.lead_id as string, f.duplicate_lead_id as string])
-          .filter(Boolean),
-      ),
-    ];
-    const summaries = await loadLeadSummaries(uuids, usersById);
-    return rows.map((f) => ({
-      id: f.id as string,
-      type: (f.duplicate_type as string) ?? "possible",
-      confidence: typeof f.confidence_score === "number" ? (f.confidence_score as number) : 0.8,
-      status: toUiDuplicateStatus(f.status as string),
-      notes: (f.notes as string) ?? (f.identifier_value as string) ?? undefined,
-      createdAt: f.created_at as string,
-      reviewedBy: f.reviewed_by ? usersById.get(f.reviewed_by as string) : undefined,
-      primary: summaries.get(f.lead_id as string),
-      duplicate: summaries.get(f.duplicate_lead_id as string),
-    }));
+    return enrichDuplicateRows((data ?? []) as unknown as DuplicateFlagRow[], usersById);
+  },
+
+  async duplicateQueuePage(
+    view: DuplicateQueueView = "open",
+    requestedPage = 1,
+    requestedPageSize = 30,
+  ): Promise<DuplicateQueueResult> {
+    const db = supabaseAdmin();
+    const pageSize = Math.min(30, Math.max(1, Math.floor(requestedPageSize)));
+    const page = Math.max(1, Math.floor(requestedPage));
+    const from = (page - 1) * pageSize;
+    const columns = "id,lead_id,duplicate_lead_id,duplicate_type,identifier_value,status,notes,reviewed_by,confidence_score,match_priority,created_at";
+    let rowsQuery = db.from("lead_duplicate_flags").select(columns, { count: "exact" });
+    rowsQuery = view === "open" ? rowsQuery.eq("status", "pending") : rowsQuery.neq("status", "pending");
+    const [usersById, rowsResult, openCount, resolvedCount] = await Promise.all([
+      loadUserMap(),
+      rowsQuery.order("match_priority", { ascending: true }).order("created_at", { ascending: false }).range(from, from + pageSize - 1),
+      db.from("lead_duplicate_flags").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      db.from("lead_duplicate_flags").select("id", { count: "exact", head: true }).neq("status", "pending"),
+    ]);
+    if (rowsResult.error) throw new Error(`duplicateQueuePage: ${rowsResult.error.message}`);
+    if (openCount.error) throw new Error(`duplicateQueuePage(open count): ${openCount.error.message}`);
+    if (resolvedCount.error) throw new Error(`duplicateQueuePage(resolved count): ${resolvedCount.error.message}`);
+    return {
+      items: await enrichDuplicateRows((rowsResult.data ?? []) as unknown as DuplicateFlagRow[], usersById),
+      total: rowsResult.count ?? 0,
+      openTotal: openCount.count ?? 0,
+      resolvedTotal: resolvedCount.count ?? 0,
+      page,
+      pageSize,
+      view,
+    };
   },
 
   async followUpQueue(stage?: "follow_up" | "post_op", requestedPage = 1, requestedPageSize = 30) {
@@ -1156,6 +1246,7 @@ export const supabaseProvider: DataProvider = {
       .select(SUMMARY_COLUMNS, { count: "exact" })
       .in("status", statuses)
       .is("merged_into_lead_id", null)
+      .or("metadata->>record_source.is.null,metadata->>record_source.neq.database,metadata->>revisiting_patient.eq.true")
       .order("updated_at", { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) throw new Error(`followUpQueue: ${error.message}`);

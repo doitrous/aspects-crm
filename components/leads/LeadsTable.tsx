@@ -86,6 +86,9 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
                       {lead.patientName}
                     </span>
                   </div>
+                  <div className="mt-0.5 font-mono text-[11px] font-bold text-ink-700">
+                    MRN {lead.mrn ?? "--"}
+                  </div>
                   {lead.attentionMessage && (
                     <div className="mt-1 max-w-[260px] truncate rounded bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800">
                       Escalation resolved: <span data-patient-content>{lead.attentionMessage}</span>
@@ -93,7 +96,6 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
                   )}
                   <div className="mt-0.5 font-mono text-[10.5px] text-ink-400">
                     {lead.id}
-                    {lead.mrn ? ` · ${lead.mrn}` : ""}
                   </div>
                   {lead.tags.length > 0 && (
                     <div className="mt-1 flex max-w-[280px] flex-wrap gap-1">
@@ -111,13 +113,16 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
                 </td>
                 <td data-patient-content className="px-3 py-3 text-ink-600">{lead.phone}</td>
                 <td className="px-3 py-3">
-                  {pm && (
+                  {(lead.sourceLabel || pm) && (
                     <span
                       className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] font-medium"
-                      style={{ background: pm.bg, color: pm.fg }}
+                      style={{
+                        background: lead.sourceLabel === "Database" ? "#f1f5f9" : pm?.bg,
+                        color: lead.sourceLabel === "Database" ? "#475569" : pm?.fg,
+                      }}
                     >
-                      <span>{pm.icon}</span>
-                      {pm.label}
+                      <span>{lead.sourceLabel === "Database" ? "▦" : pm?.icon}</span>
+                      {lead.sourceLabel ?? pm?.label}
                     </span>
                   )}
                 </td>

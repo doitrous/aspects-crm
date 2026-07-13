@@ -113,11 +113,14 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
   const tagRows = ((tagsRes.data ?? []) as { lead_tags?: { name?: string | null; color?: string | null } | { name?: string | null; color?: string | null }[] | null }[])
     .map((r) => Array.isArray(r.lead_tags) ? r.lead_tags[0] : r.lead_tags)
     .filter((tag): tag is { name: string; color?: string | null } => Boolean(tag?.name));
-  const tags = tagRows.map((tag) => tag.name);
   const user = userRes.data as { full_name?: string | null; email?: string | null } | null;
   const lost = lostReasonRes.data as { label?: string | null } | null;
   const lastMessageAt = row.last_incoming_at ?? row.last_outgoing_at ?? row.last_contact_at ?? row.updated_at;
   const metadata = row.metadata ?? {};
+  const revisiting = metadata.revisiting_patient === true;
+  const visibleTagRows = revisiting && !tagRows.some((tag) => tag.name === "Revisiting Patient")
+    ? [...tagRows, { name: "Revisiting Patient", color: "#7c3aed" }]
+    : tagRows;
 
   return {
     id: row.lead_id,
@@ -130,6 +133,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     platformId: row.platform_id ?? undefined,
     chatLink: row.chat_link ?? undefined,
     sourceId: row.source_id ?? undefined,
+    sourceLabel: metadata.record_source === "database" ? "Database" : undefined,
     specialtyId: typeof metadata.specialty_id === "string" ? metadata.specialty_id : undefined,
     campaignId: row.campaign ?? undefined,
     serviceName: row.service_name ?? undefined,
@@ -137,12 +141,12 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     serviceNames: Array.isArray(metadata.service_names) ? metadata.service_names.filter((value): value is string => typeof value === "string") : row.service_name ? [row.service_name] : undefined,
     doctorId: row.doctor_id ?? undefined,
     doctorNames: Array.isArray(metadata.treating_doctor_names) ? metadata.treating_doctor_names.filter((value): value is string => typeof value === "string") : undefined,
-    patientType: "new",
+    patientType: revisiting ? "returning" : "new",
     stage: toUiStage(row.status),
     stageHistory: [],
     assignedModerator: user ? (user.full_name?.trim() || user.email || undefined) : undefined,
-    tags,
-    tagColors: Object.fromEntries(tagRows.filter((tag) => tag.color).map((tag) => [tag.name, tag.color!])),
+    tags: visibleTagRows.map((tag) => tag.name),
+    tagColors: Object.fromEntries(visibleTagRows.filter((tag) => tag.color).map((tag) => [tag.name, tag.color!])),
     unread: row.has_unread,
     attentionMessage: typeof metadata.moderator_notice === "string" ? metadata.moderator_notice : undefined,
     attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab as Lead["attentionTab"] : undefined,

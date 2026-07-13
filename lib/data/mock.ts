@@ -5,6 +5,8 @@ import type {
   CrmSetting,
   DuplicateGroup,
   DuplicatePair,
+  DuplicateQueueResult,
+  DuplicateQueueView,
   Escalation,
   EscalationQueueItem,
   Lead,
@@ -212,6 +214,29 @@ export const mockProvider: DataProvider = {
         duplicate: duplicate ? toSummary(duplicate) : undefined,
       };
     });
+  },
+
+  async duplicateQueuePage(
+    view: DuplicateQueueView = "open",
+    requestedPage = 1,
+    requestedPageSize = 30,
+  ): Promise<DuplicateQueueResult> {
+    const all = await this.duplicateQueue();
+    const open = all.filter((pair) => pair.status === "suspected");
+    const resolved = all.filter((pair) => pair.status !== "suspected");
+    const selected = view === "open" ? open : resolved;
+    const pageSize = Math.min(30, Math.max(1, Math.floor(requestedPageSize)));
+    const page = Math.max(1, Math.floor(requestedPage));
+    const from = (page - 1) * pageSize;
+    return {
+      items: selected.slice(from, from + pageSize),
+      total: selected.length,
+      openTotal: open.length,
+      resolvedTotal: resolved.length,
+      page,
+      pageSize,
+      view,
+    };
   },
 
   async followUpQueue(stage?: "follow_up" | "post_op", requestedPage = 1, requestedPageSize = 30) {

@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/Card";
 import { parseSpreadsheetFile, type ParsedWorkbook } from "@/lib/import/spreadsheetFile";
 import { autoMapLeadHeaders, LEAD_IMPORT_FIELDS, mapLeadImportRow, type LeadImportField } from "@/lib/import/leadImportMapping";
 import { importLeadRows, type LeadImportResult, type LeadImportRowInput } from "@/app/(crm)/bulk-import/actions";
+import { phoneDuplicateKey } from "@/lib/phoneMatching";
 
 const inputClass = "h-9 rounded-control border border-line bg-white px-2.5 text-[12px] text-ink-800 outline-none focus:border-primary";
 const REQUIRED_FIELDS: LeadImportField[] = ["mrn", "name", "phone", "nationality"];
@@ -135,7 +136,8 @@ export function PatientBulkImport() {
     const rows = sheet.rows.map((row, index) => mapLeadImportRow(row, sheet.headers, mapping, index));
     const seen = new Map<string, number>();
     for (const row of rows) {
-      const identities = [row.mrn && /^\d{1,9}$/.test(row.mrn) ? `MRN:${row.mrn}` : "", row.phone ? `Phone:${row.phone.replace(/\D/g, "").slice(-9)}` : ""].filter(Boolean);
+      const phoneKey = phoneDuplicateKey(row.phone);
+      const identities = [row.mrn && /^\d{1,9}$/.test(row.mrn) ? `MRN:${row.mrn}` : "", phoneKey ? `Phone:${phoneKey}` : ""].filter(Boolean);
       for (const identity of identities) {
         const earlier = seen.get(identity);
         if (earlier !== undefined) row.warnings.push(`${identity.split(":")[0]} duplicates import row ${earlier + 1}`);

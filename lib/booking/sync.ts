@@ -1,6 +1,14 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import type { Reservation } from "@/lib/types";
+import {
+  assignRevisitingPatientTag,
+  isRevisitingMetadata,
+  normalizePatientMrn,
+  withRevisitingMetadata,
+  type RevisitingMatch,
+} from "@/lib/booking/revisiting";
+import { matchablePhoneDigits } from "@/lib/phoneMatching";
 
 function normalizePhone(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
@@ -31,12 +39,19 @@ interface ExistingLeadRow {
   booking_appointment_id?: string | null;
   status?: string | null;
   normalized_phone?: string | null;
+  mrn?: string | null;
+}
+
+export interface SyncedReservationLead {
+  leadId: string;
+  revisiting: boolean;
 }
 
 async function loadExistingReservations(reservations: Reservation[]): Promise<{
   linkedLeadIdByAppointment: Map<string, string>;
   leadsById: Map<string, ExistingLeadRow>;
   legacyByAppointment: Map<string, ExistingLeadRow>;
+  leadsByMrn: Map<string, ExistingLeadRow>;
   leadsByPhone: Map<string, ExistingLeadRow>;
 }> {
   const db = supabaseAdmin();
@@ -83,10 +98,35 @@ async function loadExistingReservations(reservations: Reservation[]): Promise<{
             !linkedLeadIdByAppointment.has(reservation.id) &&
             !legacyByAppointment.has(reservation.id),
         )
-        .map((reservation) => normalizePhone(reservation.patientPhone))
+        .map((reservation) => matchablePhoneDigits(reservation.patientPhone))
         .filter((phone): phone is string => Boolean(phone)),
     ),
   ];
+  const unresolvedMrns = [
+    ...new Set(
+      reservations
+        .filter(
+          (reservation) =>
+            !linkedLeadIdByAppointment.has(reservation.id) &&
+            !legacyByAppointment.has(reservation.id),
+        )
+        .map((reservation) => normalizePatientMrn(reservation.patientMrn))
+        .filter((mrn): mrn is string => Boolean(mrn)),
+    ),
+  ];
+  const leadsByMrn = new Map<string, ExistingLeadRow>();
+  for (const group of chunks(unresolvedMrns)) {
+    const { data, error } = await db
+      .from("leads")
+      .select("id,lead_id,mrn,metadata,booking_appointment_id,status,normalized_phone,created_at")
+      .in("mrn", group)
+      .is("merged_into_lead_id", null)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(`syncReservation(find MRNs): ${error.message}`);
+    for (const row of (data ?? []) as ExistingLeadRow[]) {
+      if (row.mrn && !leadsByMrn.has(row.mrn)) leadsByMrn.set(row.mrn, row);
+    }
+  }
   const leadsByPhone = new Map<string, ExistingLeadRow>();
   for (const group of chunks(unresolvedPhones)) {
     const { data, error } = await db
@@ -103,7 +143,7 @@ async function loadExistingReservations(reservations: Reservation[]): Promise<{
     }
   }
 
-  return { linkedLeadIdByAppointment, leadsById, legacyByAppointment, leadsByPhone };
+  return { linkedLeadIdByAppointment, leadsById, legacyByAppointment, leadsByMrn, leadsByPhone };
 }
 
 async function nextLeadCode(db: ReturnType<typeof supabaseAdmin>): Promise<string> {
@@ -156,17 +196,18 @@ async function linkBooking(leadUid: string, appointmentId: string, source = "web
   if (error) throw new Error(`syncReservation(booking link): ${error.message}`);
 }
 
-export async function syncReservationsToLeads(reservations: Reservation[]): Promise<Map<string, string>> {
+export async function syncReservationsToLeads(reservations: Reservation[]): Promise<Map<string, SyncedReservationLead>> {
   const db = supabaseAdmin();
-  const result = new Map<string, string>();
+  const result = new Map<string, SyncedReservationLead>();
   if (reservations.length === 0) return result;
 
-  const { linkedLeadIdByAppointment, leadsById, legacyByAppointment, leadsByPhone } =
+  const { linkedLeadIdByAppointment, leadsById, legacyByAppointment, leadsByMrn, leadsByPhone } =
     await loadExistingReservations(reservations);
 
   for (const reservation of reservations) {
     const now = new Date().toISOString();
     const normalizedPhone = normalizePhone(reservation.patientPhone);
+    const patientMrn = normalizePatientMrn(reservation.patientMrn);
     const phoneParts = splitPhone(reservation.patientPhone);
     const meta = {
       channel: "website_booking",
@@ -185,6 +226,7 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
       primary_complaint: reservation.primaryComplaint ?? null,
       referral_source: reservation.referralSource ?? null,
       fee_at_booking: reservation.feeAtBooking ?? null,
+      patient_mrn: patientMrn,
       is_new_patient: reservation.isNewPatient,
       booked_at: reservation.createdAt,
       ingested_at: now,
@@ -196,39 +238,47 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
     const byAppointment = linkedLead ?? legacyLead;
     if (byAppointment) {
       if (!linkedLead) await linkBooking(byAppointment.id, reservation.id);
-      result.set(reservation.id, byAppointment.lead_id);
+      result.set(reservation.id, {
+        leadId: byAppointment.lead_id,
+        revisiting: isRevisitingMetadata(byAppointment.metadata),
+      });
       continue;
     }
 
-    if (normalizedPhone) {
-      const byPhone = leadsByPhone.get(normalizedPhone);
-      if (byPhone) {
-        const oldValues = { booking_appointment_id: byPhone.booking_appointment_id, status: byPhone.status };
-        const { error: updateError } = await db
-          .from("leads")
-          .update({
-            booking_appointment_id: reservation.id,
-            service_name: reservation.serviceName ?? undefined,
-            has_unread: true,
-            unread_since: now,
-            last_incoming_at: now,
-            metadata: { ...((byPhone.metadata as Record<string, unknown> | null) ?? {}), ...meta },
-            updated_at: now,
-          })
-          .eq("id", byPhone.id);
-        if (updateError) throw new Error(`syncReservation(link): ${updateError.message}`);
-        await linkBooking(byPhone.id as string, reservation.id);
-        await logSystemLeadEvent({
-          leadUid: byPhone.id as string,
-          action: "lead.booking_linked",
-          title: "Reservation linked",
-          body: `${reservation.date} ${reservation.startTime}`,
-          oldValues,
-          newValues: { booking_appointment_id: reservation.id, booking_status: reservation.status },
-        });
-        result.set(reservation.id, byPhone.lead_id);
-        continue;
-      }
+    const byMrn = patientMrn ? leadsByMrn.get(patientMrn) : undefined;
+    const matchablePhone = matchablePhoneDigits(reservation.patientPhone);
+    const byPhone = matchablePhone ? leadsByPhone.get(matchablePhone) : undefined;
+    const matchedLead = byMrn ?? byPhone;
+    const matchedBy: RevisitingMatch | null = byMrn ? "mrn" : byPhone ? "phone" : null;
+    if (matchedLead && matchedBy) {
+      const oldValues = { booking_appointment_id: matchedLead.booking_appointment_id, status: matchedLead.status };
+      const nextStatus = reservation.status === "confirmed" || reservation.status === "attended" ? "booked" : "new_lead";
+      const { error: updateError } = await db
+        .from("leads")
+        .update({
+          booking_appointment_id: reservation.id,
+          service_name: reservation.serviceName ?? undefined,
+          status: nextStatus,
+          has_unread: true,
+          unread_since: now,
+          last_incoming_at: now,
+          metadata: withRevisitingMetadata({ ...((matchedLead.metadata as Record<string, unknown> | null) ?? {}), ...meta }, matchedBy, reservation.id),
+          updated_at: now,
+        })
+        .eq("id", matchedLead.id);
+      if (updateError) throw new Error(`syncReservation(link): ${updateError.message}`);
+      await linkBooking(matchedLead.id as string, reservation.id);
+      await assignRevisitingPatientTag(matchedLead.id as string);
+      await logSystemLeadEvent({
+        leadUid: matchedLead.id as string,
+        action: "lead.booking_linked",
+        title: "Revisiting patient reservation linked",
+        body: `${reservation.date} ${reservation.startTime}`,
+        oldValues,
+        newValues: { booking_appointment_id: reservation.id, booking_status: reservation.status, status: nextStatus, revisiting_patient: true, matched_by: matchedBy },
+      });
+      result.set(reservation.id, { leadId: matchedLead.lead_id, revisiting: true });
+      continue;
     }
 
     const leadCode = await nextLeadCode(db);
@@ -237,6 +287,7 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
       .from("leads")
       .insert({
         lead_id: leadCode,
+        mrn: patientMrn,
         name: reservation.patientName,
         status: newStatus,
         platform: "web",
@@ -275,7 +326,18 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
         normalized_phone: normalizedPhone,
       });
     }
-    result.set(reservation.id, created.lead_id as string);
+    if (patientMrn) {
+      leadsByMrn.set(patientMrn, {
+        id: created.id as string,
+        lead_id: created.lead_id as string,
+        mrn: patientMrn,
+        metadata: meta,
+        booking_appointment_id: reservation.id,
+        status: newStatus,
+        normalized_phone: normalizedPhone,
+      });
+    }
+    result.set(reservation.id, { leadId: created.lead_id as string, revisiting: false });
   }
   return result;
 }

@@ -34,9 +34,19 @@ function Side({ lead, tag }: { lead?: LeadSummary; tag: string }) {
       <div className="font-mono text-[10.5px] text-ink-400">{lead.id}</div>
       <dl className="mt-2 space-y-1 text-[11.5px]">
         <div className="flex justify-between gap-2">
+          <dt className="text-ink-400">MRN</dt>
+          <dd className="font-mono font-medium text-ink-700">{lead.mrn || "—"}</dd>
+        </div>
+        <div className="flex justify-between gap-2">
           <dt className="text-ink-400">Phone</dt>
           <dd className="font-medium text-ink-700">{lead.phone || "—"}</dd>
         </div>
+        {lead.platformId && (
+          <div className="flex justify-between gap-2">
+            <dt className="text-ink-400">Platform ID</dt>
+            <dd className="max-w-[180px] truncate font-mono font-medium text-ink-700">{lead.platformId}</dd>
+          </div>
+        )}
         <div className="flex justify-between gap-2">
           <dt className="text-ink-400">Source</dt>
           <dd className="font-medium text-ink-700">{pm ? pm.label : "—"}</dd>
@@ -63,8 +73,19 @@ function Side({ lead, tag }: { lead?: LeadSummary; tag: string }) {
 }
 
 const RESOLVED_META: Record<string, { label: string; bg: string; fg: string }> = {
+  linked: { label: "Linked", bg: "#eef4ff", fg: "#3538cd" },
   merged: { label: "Merged", bg: "#ecfdf3", fg: "#067647" },
   not_duplicate: { label: "Not a duplicate", bg: "#f2f4f7", fg: "#667085" },
+};
+
+const MATCH_LABEL: Record<string, string> = {
+  mrn: "MRN",
+  lead_id: "Lead ID",
+  phone: "Phone number",
+  platform_id: "Platform ID",
+  unique_id: "Unique ID",
+  chat_link: "Chat link",
+  name: "Three-part name",
 };
 
 const STAGE_LABEL = {
@@ -76,13 +97,23 @@ const STAGE_LABEL = {
   lost: "Lost",
 } as const;
 
-export function DuplicateCard({ pair }: { pair: DuplicatePair }) {
+export function DuplicateCard({
+  pair,
+  selectable = false,
+  selected = false,
+  onSelectedChange,
+}: {
+  pair: DuplicatePair;
+  selectable?: boolean;
+  selected?: boolean;
+  onSelectedChange?: (selected: boolean) => void;
+}) {
   const router = useRouter();
   const [mergeOpen, setMergeOpen] = useState(false);
   const [keepStatus, setKeepStatus] = useState(pair.primary?.stage ?? "new");
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [mergePending, startMerge] = useTransition();
-  const resolved = pair.status === "merged" || pair.status === "not_duplicate";
+  const resolved = pair.status === "linked" || pair.status === "merged" || pair.status === "not_duplicate";
   const rm = RESOLVED_META[pair.status];
   const conflictingStages = pair.primary && pair.duplicate && pair.primary.stage !== pair.duplicate.stage;
 
@@ -102,11 +133,17 @@ export function DuplicateCard({ pair }: { pair: DuplicatePair }) {
   return (
     <div className="rounded-card border border-line bg-panel p-4 shadow-card">
       <div className="mb-3 flex flex-wrap items-center gap-2">
+        {selectable && (
+          <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 rounded-control border border-line px-2.5 text-[11px] font-semibold text-ink-700">
+            <input type="checkbox" checked={selected} onChange={(event) => onSelectedChange?.(event.target.checked)} />
+            Select
+          </label>
+        )}
         <span className="rounded-pill bg-[#fffaeb] px-2.5 py-1 text-[11px] font-semibold text-warn">
           ⧉ {Math.round(pair.confidence * 100)}% match
         </span>
         <span className="rounded-pill bg-line-faint px-2.5 py-1 text-[11px] font-medium text-ink-600">
-          on {pair.type}
+          on {MATCH_LABEL[pair.type] ?? pair.type}
         </span>
         {pair.notes && (
           <span className="text-[11.5px] text-ink-400">{pair.notes}</span>
@@ -136,6 +173,12 @@ export function DuplicateCard({ pair }: { pair: DuplicatePair }) {
             action={resolveDuplicateAction.bind(null, pair.id, "dismissed")}
             label="Not a duplicate"
             pendingLabel="Saving…"
+            tone="ghost"
+          />
+          <ResolveButton
+            action={resolveDuplicateAction.bind(null, pair.id, "linked")}
+            label="Link records"
+            pendingLabel="Linking…"
             tone="ghost"
           />
           <button type="button" onClick={() => conflictingStages ? setMergeOpen(true) : merge()} className="rounded-control bg-primary px-3 py-1.5 text-[11.5px] font-semibold text-white hover:bg-primary-hover">

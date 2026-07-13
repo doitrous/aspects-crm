@@ -7,6 +7,7 @@ import { ActorError, writeActor } from "@/lib/data/actor";
 import { logActivity } from "@/lib/audit/log";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { forcedLeadName } from "@/lib/import/leadImportMapping";
+import { matchablePhoneDigits, phoneDigits } from "@/lib/phoneMatching";
 
 export interface LeadImportRowInput {
   rowIndex: number;
@@ -42,10 +43,6 @@ export interface LeadImportResult {
   rows: LeadImportRowResult[];
 }
 
-function digits(value: string | undefined): string {
-  return (value ?? "").replace(/\D/g, "");
-}
-
 export interface LeadImportOptions {
   importInvalid: boolean;
   mergeSameMrn: boolean;
@@ -72,9 +69,12 @@ async function existingLead(row: LeadImportRowInput, importId?: string): Promise
     if (error) throw error;
     if (data?.lead_id) return { match: "mrn", lead: data as ExistingMatch["lead"] };
   }
-  const phone = digits(row.phone);
-  if (phone.length >= 7) {
-    const { data, error } = await db.from("leads").select(EXISTING_COLUMNS).ilike("normalized_phone", `%${phone.slice(-9)}`).is("merged_into_lead_id", null).limit(1).maybeSingle();
+  const phone = matchablePhoneDigits(row.phone);
+  if (phone) {
+    const phoneQuery = db.from("leads").select(EXISTING_COLUMNS).is("merged_into_lead_id", null).limit(1);
+    const { data, error } = await (phone.length >= 7
+      ? phoneQuery.ilike("normalized_phone", `%${phone.slice(-9)}`)
+      : phoneQuery.or(`normalized_phone.eq.${phone},normalized_phone.eq.20${phone}`)).maybeSingle();
     if (error) throw error;
     if (data?.lead_id) return { match: "phone", lead: data as ExistingMatch["lead"] };
   }
@@ -125,7 +125,7 @@ function emptyResult(error: string): LeadImportResult {
 function identityErrors(row: LeadImportRowInput): string[] {
   const errors: string[] = [];
   if (!row.name?.trim()) errors.push("Patient name is required");
-  const phone = digits(row.phone);
+  const phone = phoneDigits(row.phone);
   if (!row.phone?.trim()) errors.push("Phone number is required");
   else if (phone.length < 7) errors.push("Phone number must contain at least 7 digits");
   if (!row.mrn?.trim()) errors.push("MRN is required");
@@ -134,15 +134,16 @@ function identityErrors(row: LeadImportRowInput): string[] {
   return errors;
 }
 
-function importMetadata(row: LeadImportRowInput, errors: string[], importId?: string) {
+function importMetadata(row: LeadImportRowInput, errors: string[], importId?: string, databaseRecord = true) {
   return {
     imported_via: "patient_bulk_import",
+    ...(databaseRecord ? { record_source: "database" } : {}),
     imported_at: new Date().toISOString(),
     import_row: row.rowIndex + 1,
     import_validation_errors: errors,
     imported_mrn_raw: row.mrn ?? null,
     nationality: row.nationality ?? null,
-    source_name: row.source ?? null,
+    original_source_name: row.source ?? null,
     doctor_name: row.doctorName ?? null,
     specialty_name: row.specialtyName ?? null,
     patient_age: row.age ?? null,
@@ -170,7 +171,7 @@ async function createImportedLead(
     phone_country_code: row.phone?.trim() ? "+20" : null,
     phone_number: row.phone?.trim() || null,
     platform: "manual",
-    source_id: await sourceId(row.source, sourceCache),
+    source_id: await sourceId("database", sourceCache),
     service_name: row.serviceName?.trim() || null,
     gender: row.gender ?? null,
     notes: row.notes?.trim() || null,
@@ -187,7 +188,7 @@ async function createImportedLead(
 async function mergeImportedRow(match: ExistingMatch, row: LeadImportRowInput, errors: string[], importId?: string): Promise<void> {
   const current = match.lead;
   const metadata = (current.metadata as Record<string, unknown> | null) ?? {};
-  const patch: Record<string, unknown> = { metadata: { ...metadata, ...importMetadata(row, errors, importId), bulk_merged_by: match.match }, updated_at: new Date().toISOString() };
+  const patch: Record<string, unknown> = { metadata: { ...metadata, ...importMetadata(row, errors, importId, false), bulk_merged_by: match.match }, updated_at: new Date().toISOString() };
   if (!current.name && row.name?.trim()) patch.name = row.name.trim();
   if (!current.mrn && row.mrn && /^\d{1,9}$/.test(row.mrn.trim())) patch.mrn = row.mrn.trim();
   if (!current.phone_number && row.phone?.trim()) { patch.phone_country_code = "+20"; patch.phone_number = row.phone.trim(); }
