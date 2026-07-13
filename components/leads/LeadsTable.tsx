@@ -57,15 +57,17 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
         <tbody>
           {leads.map((lead) => {
             const pm = PLATFORM_META[lead.platform];
-            const open = () => router.push(
-              lead.attentionTab
-                ? `/leads/${lead.id}?tab=${encodeURIComponent(lead.attentionTab)}`
-                : `/leads/${lead.id}`,
-            );
+            const href = lead.attentionTab
+              ? `/leads/${lead.id}?tab=${encodeURIComponent(lead.attentionTab)}`
+              : `/leads/${lead.id}`;
+            const open = () => router.push(href);
+            const prefetch = () => router.prefetch(href);
             return (
               <tr
                 key={lead.id}
                 onClick={open}
+                onMouseEnter={prefetch}
+                onFocus={prefetch}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();

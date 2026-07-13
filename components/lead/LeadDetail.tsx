@@ -71,7 +71,33 @@ const TABS = [
 type Tab = (typeof TABS)[number];
 type LoadableTab = "Overview" | "Messenger / IG DM" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments" | "Timeline";
 
-const tabCache = new Map<string, Partial<LeadDetailData>>();
+const TAB_CACHE_TTL_MS = 5 * 60_000;
+const MAX_TAB_CACHE_ENTRIES = 100;
+const tabCache = new Map<string, { data: Partial<LeadDetailData>; cachedAt: number }>();
+
+function readCachedTab(key: string): Partial<LeadDetailData> | null {
+  const cached = tabCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.cachedAt > TAB_CACHE_TTL_MS) {
+    tabCache.delete(key);
+    return null;
+  }
+  // Refresh insertion order so the bounded cache evicts the least recently
+  // used entry instead of data the user is actively revisiting.
+  tabCache.delete(key);
+  tabCache.set(key, cached);
+  return cached.data;
+}
+
+function cacheTab(key: string, data: Partial<LeadDetailData>): void {
+  tabCache.delete(key);
+  tabCache.set(key, { data, cachedAt: Date.now() });
+  while (tabCache.size > MAX_TAB_CACHE_ENTRIES) {
+    const oldest = tabCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    tabCache.delete(oldest);
+  }
+}
 
 function mergeTabPayload(current: LeadDetailData, payload: Partial<LeadDetailData>): LeadDetailData {
   return {
@@ -215,7 +241,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
     if (!loadable.includes(tab as LoadableTab)) return;
     if (loadedTabs.has(tab)) return;
     const cacheKey = `${lead.id}:${tab}`;
-    const cached = tabCache.get(cacheKey);
+    const cached = readCachedTab(cacheKey);
     if (cached) {
       // Show cached data immediately, then continue to the network request so
       // newly ingested messages and receipt metadata replace stale copies.
@@ -235,7 +261,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
       })
       .then((payload) => {
         if (cancelled) return;
-        tabCache.set(cacheKey, payload);
+        cacheTab(cacheKey, payload);
         setData((current) => mergeTabPayload(current, payload));
         setLoadedTabs((current) => new Set(current).add(tab));
       })

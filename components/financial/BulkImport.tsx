@@ -20,6 +20,7 @@ const field = "rounded-control border border-line-soft bg-panel px-2 py-1.5 text
 const stepTitle = "text-[13px] font-bold text-ink-900";
 
 export function BulkImport() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [parsed, setParsed] = useState<ParsedSheet | null>(null);
   const [mapping, setMapping] = useState<Record<string, CanonicalField | "">>({});
@@ -64,6 +65,10 @@ export function BulkImport() {
       setParsed(null);
       setMapping({});
       setParseError((err as Error).message);
+    } finally {
+      // The workbook is parsed locally and never uploaded as a temporary
+      // server file. Drop the native File reference after reading its bytes.
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -127,8 +132,21 @@ export function BulkImport() {
     }));
     startTransition(async () => {
       const res = await importFinancialRows(payload);
-      setResult(res);
+      setResult({
+        ...res,
+        // Imported rows are fully represented by the summary count and are
+        // not rendered in the result panel. Keep only reviewable outcomes.
+        rows: res.rows.filter((row) => row.status !== "imported"),
+      });
       setConfirmed(false);
+      if (!res.error) {
+        setParsed(null);
+        setMapping({});
+        setText("");
+        setFileName("");
+        setPreviewOpen(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
     });
   }
 
@@ -146,7 +164,7 @@ export function BulkImport() {
         >
           <span className="font-semibold text-ink-800">Drop file here or choose a file</span>
           <span className="mt-1 text-[11px] text-ink-400">Supported: .xlsx, .csv, .tsv, .txt</span>
-          <input type="file" accept=".xlsx,.csv,.tsv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={onFile} className="sr-only" />
+          <input ref={fileInputRef} type="file" accept=".xlsx,.csv,.tsv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={onFile} className="sr-only" />
         </label>
         {fileName && <div className="mb-2 text-[11.5px] font-semibold text-ink-500">Loaded: {fileName}</div>}
         {parseError && <div className="mb-2 text-[12px] font-semibold text-red-600">{parseError}</div>}

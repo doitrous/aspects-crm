@@ -57,6 +57,12 @@ function translateTree(root: Node): void {
   for (const child of Array.from(root.childNodes)) translateTree(child);
 }
 
+function releaseTree(root: Node): void {
+  if (root.nodeType === Node.TEXT_NODE) originalText.delete(root as Text);
+  if (root instanceof Element) originalAttributes.delete(root);
+  for (const child of Array.from(root.childNodes)) releaseTree(child);
+}
+
 function restoreEnglish(): void {
   for (const [text, original] of originalText) {
     if (text.isConnected && text.textContent === translation(original)) {
@@ -97,6 +103,10 @@ export function ArabicPageTranslator() {
         for (const record of records) {
           if (record.type === "characterData") translateTree(record.target);
           for (const node of Array.from(record.addedNodes)) translateTree(node);
+          // Navigation can replace large page subtrees while Arabic mode stays
+          // active. Release their original strings so detached DOM is not kept
+          // alive for the rest of the browser session.
+          for (const node of Array.from(record.removedNodes)) releaseTree(node);
         }
       });
       observer.observe(document.body, { childList: true, subtree: true, characterData: true });

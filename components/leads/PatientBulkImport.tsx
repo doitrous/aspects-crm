@@ -11,6 +11,27 @@ const inputClass = "h-9 rounded-control border border-line bg-white px-2.5 text-
 const REQUIRED_FIELDS: LeadImportField[] = ["mrn", "name", "phone", "nationality"];
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_IMPORT_ROWS = 5_000;
+const IMPORT_BATCH_SIZE = 40;
+
+function emptyImportResult(): LeadImportResult {
+  return { ok: true, imported: 0, merged: 0, existing: 0, skipped: 0, failed: 0, rows: [] };
+}
+
+function combineImportResults(current: LeadImportResult, next: LeadImportResult): LeadImportResult {
+  return {
+    ok: current.ok && next.ok,
+    error: next.error,
+    imported: current.imported + next.imported,
+    merged: current.merged + next.merged,
+    existing: current.existing + next.existing,
+    skipped: current.skipped + next.skipped,
+    failed: current.failed + next.failed,
+    // Successful rows are represented by the counters and never rendered.
+    // Retain only rows that may need review so large imports do not leave
+    // thousands of redundant result objects in browser memory.
+    rows: [...current.rows, ...next.rows.filter((row) => row.status !== "imported")],
+  };
+}
 
 function StepLabel({ step, children }: { step: number; children: React.ReactNode }) {
   return <div className="text-[10px] font-black uppercase tracking-[.16em] text-primary">Step {step} of 6 · {children}</div>;
@@ -20,6 +41,7 @@ export function PatientBulkImport() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mappingRef = useRef<HTMLDivElement>(null);
+  const importIdRef = useRef<string | null>(null);
   const [workbook, setWorkbook] = useState<ParsedWorkbook | null>(null);
   const [sheetIndex, setSheetIndex] = useState(0);
   const [mapping, setMapping] = useState<Record<string, LeadImportField | "">>({});
@@ -32,13 +54,24 @@ export function PatientBulkImport() {
   const [mergeSamePhone, setMergeSamePhone] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [result, setResult] = useState<LeadImportResult | null>(null);
+  const [resumeOffset, setResumeOffset] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [progress, setProgress] = useState<{ processed: number; total: number; batch: number; batches: number } | null>(null);
   const [pending, startTransition] = useTransition();
   const sheet = workbook?.sheets[sheetIndex] ?? null;
+
+  function resetImportRun() {
+    importIdRef.current = null;
+    setResumeOffset(0);
+    setPaused(false);
+    setProgress(null);
+    setResult(null);
+  }
 
   async function loadFile(file: File) {
     setParsing(true);
     setParseError("");
-    setResult(null);
+    resetImportRun();
     setConfirmed(false);
     try {
       if (file.size > MAX_FILE_BYTES) {
@@ -59,6 +92,9 @@ export function PatientBulkImport() {
       setFileName(file.name);
       setParseError((error as Error).message);
     } finally {
+      // Parsing is entirely browser-side. Clear the native input as soon as
+      // its bytes have been consumed so the browser can release the File.
+      if (fileInputRef.current) fileInputRef.current.value = "";
       setParsing(false);
     }
   }
@@ -80,7 +116,7 @@ export function PatientBulkImport() {
     setSheetIndex(index);
     setMapping(autoMapLeadHeaders(next.headers));
     setConfirmed(false);
-    setResult(null);
+    resetImportRun();
   }
 
   function mapColumn(header: string, field: LeadImportField | "") {
@@ -91,6 +127,7 @@ export function PatientBulkImport() {
       return next;
     });
     setConfirmed(false);
+    resetImportRun();
   }
 
   const mappedRows = useMemo(() => {
@@ -138,10 +175,70 @@ export function PatientBulkImport() {
       notes: row.notes,
     }));
     startTransition(async () => {
-      const response = await importLeadRows(payload, { importInvalid, mergeSameMrn, mergeSamePhone });
-      setResult(response);
+      const totalBatches = Math.ceil(payload.length / IMPORT_BATCH_SIZE);
+      const startingOffset = paused ? Math.min(resumeOffset, payload.length) : 0;
+      setPaused(false);
+      if (!importIdRef.current || startingOffset === 0) {
+        importIdRef.current = crypto.randomUUID();
+      }
+      let aggregate = startingOffset > 0 && result
+        ? { ...result, ok: true, error: undefined }
+        : emptyImportResult();
+
+      for (let offset = startingOffset; offset < payload.length; offset += IMPORT_BATCH_SIZE) {
+        const batch = payload.slice(offset, offset + IMPORT_BATCH_SIZE);
+        const batchIndex = Math.floor(offset / IMPORT_BATCH_SIZE) + 1;
+        setProgress({ processed: offset, total: payload.length, batch: batchIndex, batches: totalBatches });
+        try {
+          const response = await importLeadRows(batch, {
+            importInvalid,
+            mergeSameMrn,
+            mergeSamePhone,
+            batch: {
+              importId: importIdRef.current,
+              index: batchIndex,
+              total: totalBatches,
+              isFinal: offset + batch.length >= payload.length,
+            },
+          });
+          if (!response.ok) {
+            setResumeOffset(offset);
+            setPaused(true);
+            setProgress({ processed: offset, total: payload.length, batch: batchIndex, batches: totalBatches });
+            setResult({ ...aggregate, ok: false, error: response.error ?? "This batch could not be imported. Press Resume import to retry it." });
+            return;
+          }
+          aggregate = combineImportResults(aggregate, response);
+          const processed = offset + batch.length;
+          setResumeOffset(processed);
+          setProgress({ processed, total: payload.length, batch: batchIndex, batches: totalBatches });
+        } catch {
+          setResumeOffset(offset);
+          setPaused(true);
+          setProgress({ processed: offset, total: payload.length, batch: batchIndex, batches: totalBatches });
+          setResult({
+            ...aggregate,
+            ok: false,
+            error: `Import paused after ${offset.toLocaleString()} of ${payload.length.toLocaleString()} rows. Press Resume import to continue safely from this batch.`,
+          });
+          return;
+        }
+      }
+
+      setResult({ ...aggregate, ok: true, error: undefined });
+      setResumeOffset(0);
+      setPaused(false);
       setConfirmed(false);
-      if (response.ok) router.refresh();
+      importIdRef.current = null;
+      // The result counters and exceptional rows are sufficient after a
+      // completed import. Release the parsed workbook and mapping arrays.
+      setWorkbook(null);
+      setMapping({});
+      setFileName("");
+      setProgress(null);
+      setShowErrorColumnsOnly(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      router.refresh();
     });
   }
 
@@ -181,15 +278,16 @@ export function PatientBulkImport() {
       <Card className="border-primary/20 p-5">
         <StepLabel step={6}>Import options and submit</StepLabel><h2 className="mt-1 text-lg font-black text-ink-900">Import {rowsToImport} rows as regular CRM leads</h2><p className="mt-1 text-[12px] text-ink-500">No service, doctor, price, payment, or financial field is required. CRM Lead IDs are generated normally.</p>
         <div className="mt-4 grid gap-2 md:grid-cols-3">
-          <label className={`flex items-start gap-2 rounded-xl border p-3 text-[12px] ${importInvalid ? "border-red-300 bg-red-50" : "border-line-soft"}`}><input type="checkbox" checked={importInvalid} onChange={(event) => { setImportInvalid(event.target.checked); setConfirmed(false); }} className="mt-0.5"/><span><strong className="block text-ink-900">Import invalid rows too</strong>Include all {invalidRows.length} invalid rows instead of skipping them.</span></label>
-          <label className={`flex items-start gap-2 rounded-xl border p-3 text-[12px] ${mergeSameMrn ? "border-primary bg-primary-soft" : "border-line-soft"}`}><input type="checkbox" checked={mergeSameMrn} onChange={(event) => { setMergeSameMrn(event.target.checked); setConfirmed(false); }} className="mt-0.5"/><span><strong className="block text-ink-900">Bulk merge same MRN</strong>Enrich an existing lead when the MRN matches exactly.</span></label>
-          <label className={`flex items-start gap-2 rounded-xl border p-3 text-[12px] ${mergeSamePhone ? "border-primary bg-primary-soft" : "border-line-soft"}`}><input type="checkbox" checked={mergeSamePhone} onChange={(event) => { setMergeSamePhone(event.target.checked); setConfirmed(false); }} className="mt-0.5"/><span><strong className="block text-ink-900">Bulk merge same phone</strong>Enrich an existing lead when normalized phone digits match.</span></label>
+          <label className={`flex items-start gap-2 rounded-xl border p-3 text-[12px] ${importInvalid ? "border-red-300 bg-red-50" : "border-line-soft"}`}><input type="checkbox" checked={importInvalid} disabled={pending} onChange={(event) => { setImportInvalid(event.target.checked); setConfirmed(false); resetImportRun(); }} className="mt-0.5"/><span><strong className="block text-ink-900">Import invalid rows too</strong>Include all {invalidRows.length} invalid rows instead of skipping them.</span></label>
+          <label className={`flex items-start gap-2 rounded-xl border p-3 text-[12px] ${mergeSameMrn ? "border-primary bg-primary-soft" : "border-line-soft"}`}><input type="checkbox" checked={mergeSameMrn} disabled={pending} onChange={(event) => { setMergeSameMrn(event.target.checked); setConfirmed(false); resetImportRun(); }} className="mt-0.5"/><span><strong className="block text-ink-900">Bulk merge same MRN</strong>Enrich an existing lead when the MRN matches exactly.</span></label>
+          <label className={`flex items-start gap-2 rounded-xl border p-3 text-[12px] ${mergeSamePhone ? "border-primary bg-primary-soft" : "border-line-soft"}`}><input type="checkbox" checked={mergeSamePhone} disabled={pending} onChange={(event) => { setMergeSamePhone(event.target.checked); setConfirmed(false); resetImportRun(); }} className="mt-0.5"/><span><strong className="block text-ink-900">Bulk merge same phone</strong>Enrich an existing lead when normalized phone digits match.</span></label>
         </div>
         <label className="mt-4 flex items-start gap-2 rounded-xl border border-line-soft bg-line-faint/40 p-3 text-[12px] font-semibold text-ink-700"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} className="mt-0.5"/><span>I reviewed all mappings, all preview rows, all visible errors, the skipped-row list, and the selected merge/override options.</span></label>
-        <button type="button" onClick={submitImport} disabled={!confirmed || rowsToImport === 0 || pending} className="mt-4 min-h-11 rounded-xl bg-primary px-6 text-[13px] font-black text-white disabled:opacity-40">{pending ? "Importing leads…" : `Import ${rowsToImport} rows`}</button>
+        {progress && <div className="mt-4 rounded-xl border border-primary/20 bg-primary-soft/30 p-3" role="status" aria-live="polite"><div className="flex items-center justify-between gap-3 text-[11.5px] font-bold text-ink-700"><span>{pending ? `Importing batch ${progress.batch} of ${progress.batches}` : paused ? "Import paused — ready to resume" : "Import complete"}</span><span>{progress.processed.toLocaleString()} / {progress.total.toLocaleString()} rows</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${progress.total ? Math.round((progress.processed / progress.total) * 100) : 0}%` }} /></div></div>}
+        <button type="button" onClick={submitImport} disabled={!confirmed || rowsToImport === 0 || pending} className="mt-4 min-h-11 rounded-xl bg-primary px-6 text-[13px] font-black text-white disabled:opacity-40">{pending ? `Importing ${progress?.processed.toLocaleString() ?? 0} / ${mappedRows.length.toLocaleString()}…` : paused ? `Resume import from row ${resumeOffset + 1}` : `Import ${rowsToImport} rows`}</button>
       </Card>
     </>}
 
-    {result && <Card className="p-5"><h2 className="text-base font-black text-ink-900">Import result</h2>{result.error ? <p className="mt-2 font-bold text-red-700">{result.error}</p> : <><div className="mt-3 flex flex-wrap gap-2 text-[12px]"><span className="rounded-full bg-emerald-50 px-3 py-1 font-bold text-emerald-700">{result.imported} created</span><span className="rounded-full bg-primary-soft px-3 py-1 font-bold text-primary">{result.merged} merged</span><span className="rounded-full bg-blue-50 px-3 py-1 font-bold text-blue-700">{result.existing} existing</span><span className="rounded-full bg-amber-50 px-3 py-1 font-bold text-amber-700">{result.skipped} skipped</span><span className="rounded-full bg-red-50 px-3 py-1 font-bold text-red-700">{result.failed} failed</span></div><div className="mt-3 max-h-64 overflow-auto text-[11.5px]">{result.rows.filter((row) => row.status !== "imported").map((row) => <div key={row.rowIndex} className="border-t border-line-faint py-2"><span className="font-mono text-ink-400">Row {row.rowIndex + 1}</span> · <span className={row.status === "error" ? "font-bold text-red-700" : "font-bold text-ink-700"}>{row.message}</span></div>)}</div></>}</Card>}
+    {result && <Card className="p-5"><h2 className="text-base font-black text-ink-900">Import result</h2>{result.error && <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 font-bold text-amber-800">{result.error}</p>}<div className="mt-3 flex flex-wrap gap-2 text-[12px]"><span className="rounded-full bg-emerald-50 px-3 py-1 font-bold text-emerald-700">{result.imported} created</span><span className="rounded-full bg-primary-soft px-3 py-1 font-bold text-primary">{result.merged} merged</span><span className="rounded-full bg-blue-50 px-3 py-1 font-bold text-blue-700">{result.existing} existing</span><span className="rounded-full bg-amber-50 px-3 py-1 font-bold text-amber-700">{result.skipped} skipped</span><span className="rounded-full bg-red-50 px-3 py-1 font-bold text-red-700">{result.failed} failed</span></div><div className="mt-3 max-h-64 overflow-auto text-[11.5px]">{result.rows.filter((row) => row.status !== "imported").map((row) => <div key={row.rowIndex} className="border-t border-line-faint py-2"><span className="font-mono text-ink-400">Row {row.rowIndex + 1}</span> · <span className={row.status === "error" ? "font-bold text-red-700" : "font-bold text-ink-700"}>{row.message}</span></div>)}</div></Card>}
   </div>;
 }
