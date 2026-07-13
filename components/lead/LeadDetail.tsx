@@ -53,7 +53,7 @@ import {
   resolveEscalationAction,
   returnEscalationAction,
 } from "@/app/(crm)/escalations/actions";
-import { resolveDuplicateAction } from "@/app/(crm)/duplicates/actions";
+import { linkDuplicateWithChoicesAction, resolveDuplicateAction } from "@/app/(crm)/duplicates/actions";
 import { EscalationResolutionControls } from "@/components/queues/EscalationResolutionControls";
 import { mergeMessages } from "@/lib/messages/merge";
 import { deriveLeadBookingSummary } from "@/lib/booking/leadSummary";
@@ -170,7 +170,7 @@ export interface LeadDetailData {
   timeline: TimelineEvent[];
   bookings: Booking[];
   escalations: Escalation[];
-  duplicateGroups: (DuplicateGroup & { members: { id: string; name: string; phone: string }[] })[];
+  duplicateGroups: (DuplicateGroup & { members: { id: string; name: string; phone: string; mrn?: string }[] })[];
   bookingCatalog: React.ComponentProps<typeof BookingTab>["catalog"];
   /** `null` when the viewer may not see financials, or the records are unreadable. */
   financials: LeadFinancials | null;
@@ -587,7 +587,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 <div className="text-[11.5px] font-semibold text-ink-500"><span>Main specialty + add-ons</span><select name="specialtyId" defaultValue={lead.specialtyId ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Choose main specialty</option>{data.bookingCatalog.specialties.map((row) => <option key={row.id} value={row.id}>{row.nameEn}</option>)}</select><div className="mt-1 max-h-20 overflow-auto rounded-control border border-line-soft bg-white p-1.5">{data.bookingCatalog.specialties.map((row)=><label key={row.id} className="flex items-center gap-2 py-0.5 text-[10.5px] font-medium"><input type="checkbox" name="specialtyIds" value={row.id} defaultChecked={data.treatingDoctors.some((d)=>d.specialtyId===row.id && row.id!==lead.specialtyId)}/>Add-on · {row.nameEn}</label>)}</div></div>
                 <div className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500"><span>Services</span><input type="search" value={serviceSearch} onChange={(e)=>setServiceSearch(e.target.value)} placeholder="Type to filter services…" className="calm-field mt-1.5 h-9 w-full px-2.5 text-[11.5px]"/><div className="mt-1.5 max-h-32 overflow-auto border border-line bg-panel p-2">{data.bookingCatalog.services.filter((service)=>service.nameEn.toLowerCase().includes(serviceSearch.trim().toLowerCase())).map((service) => <label key={service.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="serviceIds" value={service.id} defaultChecked={lead.serviceIds?.includes(service.id) || (!lead.serviceIds?.length && lead.serviceName === service.nameEn)} />{service.nameEn}</label>)}</div></div>
                 <div className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500"><span>Treating doctors</span><input type="search" value={doctorSearch} onChange={(e)=>setDoctorSearch(e.target.value)} placeholder="Type to filter doctors…" className="calm-field mt-1.5 h-9 w-full px-2.5 text-[11.5px]"/><div className="mt-1.5 max-h-32 overflow-auto border border-line bg-panel p-2">{data.bookingCatalog.doctors.filter((doctor)=>doctor.nameEn.toLowerCase().includes(doctorSearch.trim().toLowerCase())).map((doctor) => <label key={doctor.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="doctorIds" value={doctor.id} defaultChecked={data.treatingDoctors.some((row) => row.doctorId === doctor.id) || (!data.treatingDoctors.length && lead.doctorId === doctor.id)} />{doctor.nameEn}</label>)}</div></div>
-                <div className="md:col-span-2 xl:col-span-3 flex justify-end"><button disabled={pending || !data.bookingCatalog.configured} className="rounded-control bg-primary px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-50">{pending ? "Saving..." : "Save patient information"}</button></div>
+                <div className="md:col-span-2 xl:col-span-3 flex justify-end"><button disabled={pending} className="rounded-md bg-primary px-4 py-2.5 text-[12px] font-semibold text-white disabled:opacity-50">{pending ? "Saving..." : "Save patient information"}</button></div>
               </form>
             </details>
             {(lead.linkedLeads?.length || lead.familyMembers?.length) ? (
@@ -1394,6 +1394,7 @@ function DuplicatesPanel({
               >
                 <div className="font-semibold text-ink-900">{mem.name}</div>
                 <div className="text-ink-400">{mem.phone}</div>
+                <div className="text-[10.5px] text-ink-500">MRN {mem.mrn || "missing"}</div>
                 <div className="font-mono text-[10.5px] text-ink-400">{mem.id}</div>
               </Link>
             ))}
@@ -1402,11 +1403,7 @@ function DuplicatesPanel({
             <Link href="/duplicates" className="rounded-control border border-primary bg-primary-soft px-2.5 py-1.5 text-[11.5px] font-semibold text-primary hover:bg-primary-softer">
               Review and merge
             </Link>
-            <DuplicateActionButton
-              action={() => resolveDuplicateAction(g.id, "linked")}
-              label="Link identities"
-              pendingLabel="Saving..."
-            />
+            <LinkIdentityButton group={g} />
             <DuplicateActionButton
               action={() => resolveDuplicateAction(g.id, "dismissed")}
               label="Not a duplicate"
@@ -1417,6 +1414,24 @@ function DuplicatesPanel({
       ))}
     </div>
   );
+}
+
+function LinkIdentityButton({ group }: { group: LeadDetailData["duplicateGroups"][number] }) {
+  const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const [first, second] = group.members;
+  const [nameFrom, setNameFrom] = useState(first?.id ?? "");
+  const [mrnFrom, setMrnFrom] = useState(first?.mrn ? first.id : second?.id ?? first?.id ?? "");
+  const [phoneFrom, setPhoneFrom] = useState("both");
+  if (!first || !second) return null;
+  const submit = () => startTransition(async () => {
+    setError(null);
+    const result = await linkDuplicateWithChoicesAction(group.id, { nameFrom, mrnFrom, phoneFrom });
+    if (result.error) setError(result.error); else { setOpen(false); router.refresh(); }
+  });
+  return <><button type="button" onClick={() => setOpen(true)} className="rounded-control border border-primary bg-primary-soft px-2.5 py-1.5 text-[11.5px] font-semibold text-primary">Link identities</button>{open&&<Modal title="Link patient records" onClose={()=>setOpen(false)}><p className="mb-3 text-[11.5px] leading-5 text-ink-600">Both records, conversations and timelines remain intact. Choose the canonical identity shown in combined views.</p><div className="grid grid-cols-[90px_1fr_1fr] gap-2 text-[11px]"><b className="text-ink-400">Field</b><b>{first.id}</b><b>{second.id}</b><span>Name</span>{[first,second].map((m)=><label key={`n-${m.id}`} className="border border-line p-2"><input type="radio" checked={nameFrom===m.id} onChange={()=>setNameFrom(m.id)}/> {m.name}</label>)}<span>MRN</span>{[first,second].map((m)=><label key={`m-${m.id}`} className="border border-line p-2"><input type="radio" checked={mrnFrom===m.id} onChange={()=>setMrnFrom(m.id)}/> {m.mrn||"Missing"}</label>)}<span>Phone</span>{[first,second].map((m)=><label key={`p-${m.id}`} className="border border-line p-2"><input type="radio" checked={phoneFrom===m.id} onChange={()=>setPhoneFrom(m.id)}/> {m.phone||"Missing"}</label>)}</div><label className="mt-2 flex items-center gap-2 border border-primary/25 bg-primary-soft p-2 text-[11.5px] font-semibold text-primary"><input type="radio" checked={phoneFrom==="both"} onChange={()=>setPhoneFrom("both")}/> Keep both phone numbers</label>{error&&<p className="mt-2 text-[11px] text-danger">{error}</p>}<div className="mt-4 flex justify-end gap-2"><button type="button" onClick={()=>setOpen(false)} className="rounded-md border border-line px-3 py-2 text-[11.5px]">Cancel</button><button type="button" disabled={pending} onClick={submit} className="rounded-md bg-primary px-3 py-2 text-[11.5px] font-bold text-white">{pending?"Linking…":"Confirm link"}</button></div></Modal>}</>;
 }
 
 function DuplicateActionButton({

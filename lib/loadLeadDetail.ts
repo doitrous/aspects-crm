@@ -326,7 +326,7 @@ async function duplicateGroupsWithMembers(id: string): Promise<LeadDetailData["d
   if (!ids.length) return groups.map((g) => ({ ...g, members: [] }));
   const { data: leads, error } = await supabaseAdmin()
     .from("leads")
-    .select("lead_id,name,phone_country_code,phone_number,normalized_phone")
+    .select("lead_id,name,mrn,phone_country_code,phone_number,normalized_phone")
     .in("lead_id", ids);
   if (error) throw new Error(`duplicateGroupsWithMembers: ${error.message}`);
   const byId = new Map(
@@ -336,12 +336,13 @@ async function duplicateGroupsWithMembers(id: string): Promise<LeadDetailData["d
         id: l.lead_id as string,
         name: (l.name as string | null)?.trim() || "Unnamed lead",
         phone: buildPhone(l as { phone_country_code: string | null; phone_number: string | null; normalized_phone: string | null }),
+        mrn: (l.mrn as string | null) ?? undefined,
       },
     ]),
   );
   return groups.map((g) => ({
     ...g,
-    members: g.leadIds.map((lid) => byId.get(lid)).filter((l): l is { id: string; name: string; phone: string } => Boolean(l)),
+    members: g.leadIds.map((lid) => byId.get(lid)).filter((l): l is NonNullable<typeof l> => Boolean(l)),
   }));
 }
 

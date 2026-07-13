@@ -5,6 +5,9 @@ import { resolveDuplicate } from "@/lib/data";
 import { mergeDuplicateFlag } from "@/lib/data/leadMutations";
 import type { DuplicateDecision } from "@/lib/types";
 import type { PipelineStage } from "@/lib/types";
+import { supabaseAdmin } from "@/lib/supabase/server";
+import { writeActor } from "@/lib/data/actor";
+import { assertCan } from "@/lib/auth/permissions";
 
 export interface DuplicateActionState {
   ok: string | null;
@@ -53,6 +56,55 @@ export async function resolveDuplicateAction(
     ok: decision === "merged" ? "Leads merged." : decision === "linked" ? "Leads linked without merging." : "Marked as not a duplicate.",
     error: null,
   };
+}
+
+export async function linkDuplicateWithChoicesAction(
+  flagId: string,
+  choices: { nameFrom: string; mrnFrom: string; phoneFrom: string },
+): Promise<DuplicateActionState> {
+  try {
+    const actor = await writeActor();
+    assertCan(actor.role, "leads.edit");
+    const db = supabaseAdmin();
+    const { data: flag, error: flagError } = await db.from("lead_duplicate_flags")
+      .select("lead_id,duplicate_lead_id").eq("id", flagId).single();
+    if (flagError || !flag) throw new Error(flagError?.message ?? "Duplicate pair not found.");
+    const { data: rows, error: leadsError } = await db.from("leads")
+      .select("id,lead_id,name,mrn,phone_country_code,phone_number,normalized_phone")
+      .in("id", [flag.lead_id, flag.duplicate_lead_id]);
+    if (leadsError || !rows || rows.length !== 2) throw new Error(leadsError?.message ?? "Patient records not found.");
+    const byHuman = new Map(rows.map((row) => [row.lead_id as string, row]));
+    const canonical = rows.find((row) => row.id === flag.lead_id)!;
+    const nameSource = byHuman.get(choices.nameFrom) ?? canonical;
+    const mrnSource = byHuman.get(choices.mrnFrom) ?? canonical;
+    const phoneSource = choices.phoneFrom === "both" ? canonical : byHuman.get(choices.phoneFrom) ?? canonical;
+    if (mrnSource.id !== canonical.id && mrnSource.mrn) {
+      const { error } = await db.from("leads").update({ mrn: null }).eq("id", mrnSource.id);
+      if (error) throw error;
+    }
+    const { error: updateError } = await db.from("leads").update({
+      name: nameSource.name,
+      mrn: mrnSource.mrn,
+      phone_country_code: phoneSource.phone_country_code,
+      phone_number: phoneSource.phone_number,
+      normalized_phone: phoneSource.normalized_phone,
+      updated_at: new Date().toISOString(),
+    }).eq("id", canonical.id);
+    if (updateError) throw updateError;
+    const { data: phones, error: phonesError } = await db.from("crm_lead_phones").select("country_code,phone_number,normalized_phone,label").in("lead_id", [flag.lead_id, flag.duplicate_lead_id]);
+    if (phonesError) throw phonesError;
+    const copied = choices.phoneFrom === "both" ? phones ?? [] : (phones ?? []).filter((phone) => phone.normalized_phone === phoneSource.normalized_phone);
+    if (copied.length) {
+      const { error } = await db.from("crm_lead_phones").upsert(copied.map((phone) => ({ ...phone, lead_id: canonical.id, is_primary: phone.normalized_phone === phoneSource.normalized_phone, updated_at: new Date().toISOString() })), { onConflict: "lead_id,normalized_phone" });
+      if (error) throw error;
+    }
+    await resolveDuplicate(flagId, "linked", `Identity linked by ${actor.name}; canonical values selected in side-by-side review.`);
+  } catch (error) {
+    console.error("linked identity resolution failed", error);
+    return { ok: null, error: duplicateError(error) };
+  }
+  for (const path of ["/duplicates", "/leads", "/database", "/qualified", "/follow-up", "/post-op"]) revalidatePath(path);
+  return { ok: "Patient records linked; both histories and selected phone numbers were retained.", error: null };
 }
 
 export async function bulkResolveDuplicatesAction(

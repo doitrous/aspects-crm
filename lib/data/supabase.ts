@@ -1121,8 +1121,7 @@ export const supabaseProvider: DataProvider = {
 
     const leadCount = () => db
       .from("leads")
-      .select("id", { count: "exact", head: true })
-      .or("metadata->>record_source.is.null,metadata->>record_source.neq.database,metadata->>revisiting_patient.eq.true");
+      .select("id", { count: "exact", head: true });
     const n = async (p: PromiseLike<{ count: number | null }>) => (await p).count ?? 0;
 
     const [newLeads, unread, overdue, qualified, booked, followUp, lost, appointments, dupSet, escalations] =
@@ -1166,7 +1165,7 @@ export const supabaseProvider: DataProvider = {
     };
     const statuses = ["new_lead", "qualified", "booked", "follow_up", "post_op_follow_up", "lost"] as const;
     const counts = await Promise.all(statuses.map(async (status) => {
-      const { count, error } = await db.from("leads").select("id", { count: "exact", head: true }).is("merged_into_lead_id", null).eq("status", status).or("metadata->>record_source.is.null,metadata->>record_source.neq.database,metadata->>revisiting_patient.eq.true");
+      const { count, error } = await db.from("leads").select("id", { count: "exact", head: true }).is("merged_into_lead_id", null).eq("status", status);
       if (error) throw new Error(`pipelineCounts(${status}): ${error.message}`);
       return count ?? 0;
     }));
@@ -1263,7 +1262,6 @@ export const supabaseProvider: DataProvider = {
       .select(SUMMARY_COLUMNS, { count: "exact" })
       .in("status", statuses)
       .is("merged_into_lead_id", null)
-      .or("metadata->>record_source.is.null,metadata->>record_source.neq.database,metadata->>revisiting_patient.eq.true")
       .order("updated_at", { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) throw new Error(`followUpQueue: ${error.message}`);
