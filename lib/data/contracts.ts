@@ -39,8 +39,8 @@ export interface LeadFilters {
   duplicate?: boolean;
   bookingStatus?: string;
   moderator?: string;
-  /** Hide passive database-import records from operational pipeline queues. */
-  excludeDatabaseOnly?: boolean;
+  /** Hide canonical Database patients from a queue without deleting them. */
+  excludeDatabasePatients?: boolean;
   page?: number;
   pageSize?: number;
 }

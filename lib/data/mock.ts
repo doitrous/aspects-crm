@@ -19,6 +19,7 @@ import type {
   TimelineEvent,
 } from "@/lib/types";
 import { nestComments } from "@/lib/data/comments";
+import { isDatabasePatientSource } from "@/lib/data/databasePatientVisibility";
 import {
   NOW,
   bookings,
@@ -46,6 +47,7 @@ function filterLeads(filters: LeadFilters): Lead[] {
   return leads
     .filter((l) => {
       if (filters.q && !matchesSearch(l, filters.q)) return false;
+      if (filters.excludeDatabasePatients && isDatabasePatientSource(l.sourceLabel)) return false;
       if (filters.stage && filters.stage !== "all" && l.stage !== filters.stage) return false;
       if (filters.platform && l.platform !== filters.platform) return false;
       if (filters.doctorId && l.doctorId !== filters.doctorId) return false;

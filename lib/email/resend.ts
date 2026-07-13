@@ -21,7 +21,7 @@ export function emailConfigured(): boolean {
 }
 
 function fromAddress(): string {
-  return process.env.EMAIL_FROM || "Aspects Clinica CRM <onboarding@resend.dev>";
+  return process.env.EMAIL_FROM || "Aspects Clinica CRM <info@aspectsclinica.net>";
 }
 
 export async function sendEmail(input: {

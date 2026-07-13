@@ -3,6 +3,7 @@ import { bookingConfigured, bookingDb } from "@/lib/booking/client";
 import { bookingStatusForReservation } from "@/lib/booking/service";
 import { deriveLeadBookingSummary } from "@/lib/booking/leadSummary";
 import { refreshReplyOverdueFlags } from "@/lib/data/replySla";
+import { NON_DATABASE_PATIENT_FILTER } from "@/lib/data/databasePatientVisibility";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { nestComments } from "@/lib/data/comments";
 import { writeActor } from "@/lib/data/actor";
@@ -360,8 +361,8 @@ function pageParams(filters: LeadFilters): { page: number; pageSize: number; fro
 function applyLeadFilters(query: any, filters: LeadFilters) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let q = query as any;
-  if (filters.excludeDatabaseOnly) {
-    q = q.or("metadata->>record_source.is.null,metadata->>record_source.neq.database,metadata->>revisiting_patient.eq.true");
+  if (filters.excludeDatabasePatients) {
+    q = q.or(NON_DATABASE_PATIENT_FILTER);
   }
   if (filters.stages?.length) {
     q = q.in("status", filters.stages.map((stage) => UI_TO_DB_STAGE[stage]));
@@ -1091,7 +1092,19 @@ export const supabaseProvider: DataProvider = {
   async dashboardMetrics(): Promise<DashboardMetrics> {
     await refreshReplyOverdueFlags();
     const db = supabaseAdmin();
-    const { data: aggregate, error: aggregateError } = await db.rpc("crm_dashboard_metrics");
+    const [{ data: aggregate, error: aggregateError }, operationalNewLeads] = await Promise.all([
+      db.rpc("crm_dashboard_metrics"),
+      db
+        .from("leads")
+        .select("id", { count: "exact", head: true })
+        .is("merged_into_lead_id", null)
+        .eq("status", "new_lead")
+        .or(NON_DATABASE_PATIENT_FILTER),
+    ]);
+    if (operationalNewLeads.error) {
+      throw new Error(`dashboardMetrics(newLeads): ${operationalNewLeads.error.message}`);
+    }
+    const newLeads = operationalNewLeads.count ?? 0;
     if (!aggregateError && aggregate && typeof aggregate === "object" && !Array.isArray(aggregate)) {
       const value = aggregate as Record<string, unknown>;
       const count = (key: string) => {
@@ -1100,7 +1113,9 @@ export const supabaseProvider: DataProvider = {
       };
       const unread = count("unread");
       return {
-        newLeads: count("newLeads"),
+        // Keep the navigation badge correct even during a rolling deployment
+        // where the application is newer than the aggregate RPC migration.
+        newLeads,
         unread,
         incomingUnanswered: unread,
         overdue: count("overdue"),
@@ -1124,9 +1139,8 @@ export const supabaseProvider: DataProvider = {
       .select("id", { count: "exact", head: true });
     const n = async (p: PromiseLike<{ count: number | null }>) => (await p).count ?? 0;
 
-    const [newLeads, unread, overdue, qualified, booked, followUp, lost, appointments, dupSet, escalations] =
+    const [unread, overdue, qualified, booked, followUp, lost, appointments, dupSet, escalations] =
       await Promise.all([
-        n(leadCount().is("merged_into_lead_id", null).eq("status", "new_lead")),
         n(leadCount().is("merged_into_lead_id", null).eq("has_unread", true)),
         n(leadCount().is("merged_into_lead_id", null).eq("is_reply_overdue", true)),
         n(leadCount().is("merged_into_lead_id", null).eq("status", "qualified")),
@@ -1165,7 +1179,11 @@ export const supabaseProvider: DataProvider = {
     };
     const statuses = ["new_lead", "qualified", "booked", "follow_up", "post_op_follow_up", "lost"] as const;
     const counts = await Promise.all(statuses.map(async (status) => {
-      const { count, error } = await db.from("leads").select("id", { count: "exact", head: true }).is("merged_into_lead_id", null).eq("status", status);
+      let query = db.from("leads").select("id", { count: "exact", head: true }).is("merged_into_lead_id", null).eq("status", status);
+      if (status === "new_lead") {
+        query = query.or(NON_DATABASE_PATIENT_FILTER);
+      }
+      const { count, error } = await query;
       if (error) throw new Error(`pipelineCounts(${status}): ${error.message}`);
       return count ?? 0;
     }));

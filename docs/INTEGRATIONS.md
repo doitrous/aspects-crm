@@ -16,10 +16,17 @@ normalized phone as the fallback. The reservation ingest receiver is
 
 ## Facebook and Instagram
 
-Meta webhooks enter through `POST /api/webhooks/meta`. Signatures and ingest
-credentials are validated server-side. Normalized conversation content is
-stored in the canonical CRM conversation/message tables; receipts, reactions,
-and referrals remain distinct event records.
+Meta can post directly to `POST /api/webhooks/meta`, where signatures and ingest
+credentials are validated server-side. The production n8n flow instead receives
+Meta's webhook and posts normalized events to
+`POST /api/crm/ingest/message` and `POST /api/crm/ingest/comment`.
+Normalized conversation content is stored in the canonical CRM
+conversation/message tables; receipts, reactions, and referrals remain distinct
+event records.
+
+There is currently no interactive Instagram OAuth flow or
+`/api/auth/instagram/callback` route. Production uses server-managed Meta tokens,
+so an `INSTAGRAM_REDIRECT_URI` variable is neither read nor required.
 
 ## WhatsApp
 
