@@ -40,7 +40,7 @@ const SETTINGS_IDLE: SettingsActionState = { ok: false };
 const SETTINGS_PAGE_SIZE = 30;
 
 const field =
-  "rounded-control border border-line-soft bg-white px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary disabled:opacity-60";
+  "min-w-0 rounded-control border border-line-soft bg-white px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary disabled:opacity-60";
 const label = "flex flex-col gap-1 text-[11px] font-semibold text-ink-500";
 
 function Feedback({ state }: { state: SettingsActionState }) {
@@ -201,8 +201,8 @@ function FollowUpStageForm({
   const [del, delAction, delPending] = useActionState(deleteFollowUpStageAction, SETTINGS_IDLE);
   return (
     <div className="relative rounded-xl border border-line bg-white p-4 shadow-sm">
-      <span className="absolute -left-3 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-ink-900 text-[10px] font-black text-white">{stage?.stageOrder ?? "+"}</span>
-      <form action={action} className="grid gap-3 pl-2 sm:grid-cols-2 xl:grid-cols-4">
+      <span className="absolute -start-3 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-[10px] font-black text-white">{stage?.stageOrder ?? "+"}</span>
+      <form action={action} className="grid gap-3 ps-2 sm:grid-cols-2 xl:grid-cols-4">
         {stage && <input type="hidden" name="id" value={stage.id} />}
         <input type="hidden" name="workflowType" value={stage?.workflowType ?? workflowType ?? "regular"} />
         <label className={label}>
@@ -376,7 +376,7 @@ function ConnectedBadge({ ok }: { ok: boolean }) {
 }
 
 /* ── Shell ────────────────────────────────────────────────────── */
-type TabKey =
+export type SettingsTabKey =
   | "general"
   | "bulkImport"
   | "leadFields"
@@ -397,7 +397,7 @@ type TabKey =
   | "ingestion"
   | "users";
 
-const TABS: Array<{ key: TabKey; label: string }> = [
+const TABS: Array<{ key: SettingsTabKey; label: string }> = [
   { key: "general", label: "General CRM Settings" },
   { key: "bulkImport", label: "Bulk Import" },
   { key: "leadFields", label: "Lead Fields" },
@@ -427,6 +427,7 @@ export interface IntegrationStatus {
 }
 
 export function SettingsManager({
+  initialTab = "general",
   canManage,
   tags,
   lostReasons,
@@ -442,6 +443,7 @@ export function SettingsManager({
   financial,
   ingestLogs,
 }: {
+  initialTab?: SettingsTabKey;
   canManage: boolean;
   tags: TagSetting[];
   lostReasons: LostReasonSetting[];
@@ -457,17 +459,27 @@ export function SettingsManager({
   financial: ReactNode;
   ingestLogs: IngestLogSetting[];
 }) {
-  const [tab, setTab] = useState<TabKey>("general");
+  const [tab, setTab] = useState<SettingsTabKey>(initialTab);
+
+  function selectTab(next: SettingsTabKey) {
+    setTab(next);
+    const url = new URL(window.location.href);
+    if (next === "general") url.searchParams.delete("section");
+    else url.searchParams.set("section", next);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[200px_1fr]">
-      <aside className="flex flex-row flex-wrap gap-1 lg:flex-col">
+      <aside className="flex flex-row flex-nowrap gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible">
         {TABS.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            type="button"
+            aria-pressed={tab === t.key}
+            onClick={() => selectTab(t.key)}
             className={
-              "rounded-control px-3 py-2 text-left text-[12.5px] font-semibold transition-colors " +
+              "shrink-0 rounded-control px-3 py-2 text-left text-[12.5px] font-semibold transition-colors lg:shrink " +
               (tab === t.key ? "bg-primary-soft text-primary" : "text-ink-600 hover:bg-line-faint/60")
             }
           >
@@ -566,10 +578,10 @@ export function SettingsManager({
 
         {tab === "followup" && (
           <div className="space-y-5">
-            <div className="rounded-xl bg-ink-900 p-5 text-white"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Workflow designer</div><h3 className="mt-1 text-[22px] font-black">Follow-up journeys</h3><p className="mt-1 max-w-2xl text-[12px] text-white/65">Regular leads and post-op patients have separate journeys. Each step defines when it becomes due, what activates it, and exactly what the moderator should do.</p></div>
+            <div className="section-hero rounded-xl p-5"><div className="section-hero-eyebrow text-[10px] font-black uppercase tracking-[0.16em]">Workflow designer</div><h3 className="mt-1 text-[22px] font-black text-ink-950">Follow-up journeys</h3><p className="section-hero-muted mt-1 max-w-2xl text-[12px]">Regular leads and post-op patients have separate journeys. Each step defines when it becomes due, what activates it, and exactly what the moderator should do.</p></div>
             {(["regular", "postop"] as const).map((type) => {
               const stages = followUpStages.filter((stage) => stage.workflowType === type).sort((a, b) => a.stageOrder - b.stageOrder);
-              return <Card key={type} className="p-4 sm:p-5"><div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-line pb-3"><div><div className="text-[16px] font-black text-ink-900">{type === "regular" ? "Regular lead flow" : "Post-op patient flow"}</div><p className="mt-1 text-[11px] text-ink-500">{type === "regular" ? "Starts when a lead enters Follow-Up." : "Starts from the procedure date or Post-Op stage."}</p></div><span className="rounded-full bg-primary-soft px-3 py-1 text-[10.5px] font-black text-primary">{stages.length} steps</span></div><div className="ml-3 space-y-3 border-l-2 border-line-soft pl-5">{stages.map((stage) => <FollowUpStageForm key={stage.id} stage={stage} canManage={canManage} tags={tags} workflowType={type} />)}{canManage && <FollowUpStageForm canManage={canManage} tags={tags} workflowType={type} />}</div></Card>;
+              return <Card key={type} className="p-4 sm:p-5"><div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-line pb-3"><div><div className="text-[16px] font-black text-ink-900">{type === "regular" ? "Regular lead flow" : "Post-op patient flow"}</div><p className="mt-1 text-[11px] text-ink-500">{type === "regular" ? "Starts when a lead enters Follow-Up." : "Starts from the procedure date or Post-Op stage."}</p></div><span className="rounded-full bg-primary-soft px-3 py-1 text-[10.5px] font-black text-primary">{stages.length} steps</span></div><div className="ms-3 space-y-3 border-s-2 border-line-soft ps-5">{stages.map((stage) => <FollowUpStageForm key={stage.id} stage={stage} canManage={canManage} tags={tags} workflowType={type} />)}{canManage && <FollowUpStageForm canManage={canManage} tags={tags} workflowType={type} />}</div></Card>;
             })}
           </div>
         )}
@@ -661,10 +673,10 @@ export function SettingsManager({
 
         {tab === "email" && (
           <Card className="overflow-hidden p-0">
-            <div className="bg-slate-950 p-5 text-white">
-              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-300">Email system</div>
-              <h3 className="mt-2 text-[22px] font-bold">Automations now live beside their delivery history.</h3>
-              <p className="mt-2 max-w-2xl text-[12px] leading-5 text-slate-300">Build event conditions, recipients, messages, reminder timing, and on/off state in one workspace. This settings page remains the map; the Emails page is the control room.</p>
+            <div className="section-hero p-5">
+              <div className="section-hero-eyebrow text-[11px] font-bold uppercase tracking-[0.16em]">Email system</div>
+              <h3 className="mt-2 text-[22px] font-bold text-ink-950">Automations now live beside their delivery history.</h3>
+              <p className="section-hero-muted mt-2 max-w-2xl text-[12px] leading-5">Build event conditions, recipients, messages, reminder timing, and on/off state in one workspace. This settings page remains the map; the Emails page is the control room.</p>
             </div>
             <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div><div className="text-[18px] font-bold text-ink-950">{emailRules.filter((rule) => rule.isActive).length} active of {emailRules.length}</div><div className="text-[12px] text-ink-500">All sends retain provider status and error evidence.</div></div>

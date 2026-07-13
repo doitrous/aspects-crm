@@ -35,7 +35,9 @@ const config: Config = {
         },
         // Text ramp
         ink: {
+          950: "rgb(var(--c-ink-950) / <alpha-value>)",
           900: "rgb(var(--c-ink-900) / <alpha-value>)",
+          800: "rgb(var(--c-ink-800) / <alpha-value>)",
           700: "rgb(var(--c-ink-700) / <alpha-value>)",
           600: "rgb(var(--c-ink-600) / <alpha-value>)",
           500: "rgb(var(--c-ink-500) / <alpha-value>)",

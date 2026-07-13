@@ -53,7 +53,7 @@ export default async function EscalationsPage() {
                   <th className="px-3 py-2.5">Raised by</th>
                   <th className="px-3 py-2.5">Assigned</th>
                   <th className="px-3 py-2.5">Raised</th>
-                  <th className="px-3 py-2.5 pr-[18px] text-right">Action</th>
+                  <th className="px-3 py-2.5 pe-[18px] text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -85,7 +85,7 @@ export default async function EscalationsPage() {
                       <td className="px-3 py-3 text-ink-600">{e.raisedBy}</td>
                       <td className="px-3 py-3 text-ink-600">{e.assignedTo ?? "—"}</td>
                       <td className="px-3 py-3 text-ink-500">{formatDate(e.createdAt)}</td>
-                      <td className="px-3 py-3 pr-[18px] text-right">
+                      <td className="px-3 py-3 pe-[18px] text-right">
                         {e.status === "resolved" ? (
                           <span className="text-[11px] text-ink-400">
                             {e.resolvedBy ? `by ${e.resolvedBy}` : "—"}

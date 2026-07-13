@@ -99,6 +99,13 @@ test("admins and auditors may reset account passwords, operational roles may not
   assert.equal(can("viewer", "users.resetPassword"), false);
 });
 
+test("only admins and auditors may change user display names", () => {
+  assert.equal(can("admin", "users.changeDisplayName"), true);
+  assert.equal(can("auditor", "users.changeDisplayName"), true);
+  assert.equal(can("moderator", "users.changeDisplayName"), false);
+  assert.equal(can("viewer", "users.changeDisplayName"), false);
+});
+
 /* ── lockout protection (§21) ────────────────────────────────── */
 
 const admin1: AccountRef = { id: "a1", role: "admin", isActive: true };

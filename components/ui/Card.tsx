@@ -35,7 +35,7 @@ export function CardHeader({
       )}
     >
       <div className="text-[13px] font-bold text-ink-900">{title}</div>
-      {action && <div className="ml-auto">{action}</div>}
+      {action && <div className="ms-auto">{action}</div>}
     </div>
   );
 }

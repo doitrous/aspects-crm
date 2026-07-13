@@ -135,7 +135,7 @@ function BlockForm({ snapshot }: { snapshot: BookingSchedulingSnapshot }) {
         <label className="flex h-8 items-center gap-2 text-[11px] font-semibold text-ink-600">
           <input type="checkbox" name="fullDay" /> Full day
         </label>
-        <button className="h-8 rounded-control bg-ink-900 px-3 text-[12px] font-bold text-white disabled:opacity-50" disabled={pending}>
+        <button className="h-8 rounded-control bg-primary px-3 text-[12px] font-bold text-white hover:bg-primary-hover disabled:opacity-50" disabled={pending}>
           {pending ? "Adding" : "Add block"}
         </button>
       </div>
@@ -180,9 +180,9 @@ export function SchedulingSettings({ snapshot }: { snapshot: BookingSchedulingSn
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl bg-ink-900 p-5 text-white">
-        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Live availability</div>
-        <div className="mt-1 flex flex-wrap items-end justify-between gap-4"><div><h3 className="text-[22px] font-black">Doctor schedules</h3><p className="mt-1 max-w-2xl text-[12px] text-white/65">Each doctor has one clear schedule card. Changes immediately control website and CRM booking availability.</p></div><div className="flex gap-2"><span className="rounded-lg bg-white/10 px-3 py-2 text-[11px] font-bold">{doctorsWithSchedules.length} doctors</span><span className="rounded-lg bg-white/10 px-3 py-2 text-[11px] font-bold">{scheduleCount} sessions</span></div></div>
+      <div className="section-hero rounded-xl p-5">
+        <div className="section-hero-eyebrow text-[10px] font-black uppercase tracking-[0.16em]">Live availability</div>
+        <div className="mt-1 flex flex-wrap items-end justify-between gap-4"><div><h3 className="text-[22px] font-black text-ink-950">Doctor schedules</h3><p className="section-hero-muted mt-1 max-w-2xl text-[12px]">Each doctor has one clear schedule card. Changes immediately control website and CRM booking availability.</p></div><div className="flex gap-2"><span className="section-hero-stat rounded-lg px-3 py-2 text-[11px] font-bold text-ink-800">{doctorsWithSchedules.length} doctors</span><span className="section-hero-stat rounded-lg px-3 py-2 text-[11px] font-bold text-ink-800">{scheduleCount} sessions</span></div></div>
       </div>
       <Card className="p-4 sm:p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-4">
@@ -232,7 +232,7 @@ export function SchedulingSettings({ snapshot }: { snapshot: BookingSchedulingSn
                 <div className="text-[12px] font-bold text-ink-900">{block.date}</div>
                 <div className="text-[12px] text-ink-700">
                   {block.fullDay ? "Full day" : `${block.startTime} - ${block.endTime}`}
-                  {block.reason ? <span className="ml-2 text-ink-400">{block.reason}</span> : null}
+                  {block.reason ? <span className="ms-2 text-ink-400">{block.reason}</span> : null}
                 </div>
                 <div className="text-[11.5px] text-ink-500">
                   {block.doctorId ? doctorsById.get(block.doctorId)?.nameEn ?? block.doctorName ?? "Unknown doctor" : "Any doctor"}

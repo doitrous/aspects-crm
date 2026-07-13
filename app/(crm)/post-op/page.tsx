@@ -41,7 +41,7 @@ export default async function PostOpFollowUpPage({ searchParams }: { searchParam
                   <th className="px-3 py-2.5">Reason</th>
                   <th className="px-3 py-2.5">Due</th>
                   <th className="px-3 py-2.5">Last contact</th>
-                  <th className="px-3 py-2.5 pr-[18px]">Coordinator</th>
+                  <th className="px-3 py-2.5 pe-[18px]">Coordinator</th>
                 </tr>
               </thead>
               <tbody>
@@ -61,7 +61,7 @@ export default async function PostOpFollowUpPage({ searchParams }: { searchParam
                       )}
                     </td>
                     <td className="px-3 py-3 text-ink-500">{i.lastContactAt ? formatDate(i.lastContactAt) : "-"}</td>
-                    <td className="px-3 py-3 pr-[18px] text-ink-600">{i.lead.assignedModerator ?? "-"}</td>
+                    <td className="px-3 py-3 pe-[18px] text-ink-600">{i.lead.assignedModerator ?? "-"}</td>
                   </tr>
                 ))}
               </tbody>

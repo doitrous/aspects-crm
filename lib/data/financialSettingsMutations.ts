@@ -209,6 +209,143 @@ export async function upsertServiceConsumableDefault(input: {
   revalidatePath("/financial/settings");
 }
 
+export type FinancialRuleTarget = { id: string | null; name: string };
+export type DuplicateRuleResult = { created: number; skipped: number };
+
+function sameNullable(a: unknown, b: unknown): boolean {
+  return String(a ?? "") === String(b ?? "");
+}
+
+function ensureDuplicateSize(size: number): void {
+  if (size < 1) throw new FinancialSettingsError("Choose at least one destination.");
+  if (size > 200) throw new FinancialSettingsError("Choose 200 destinations or fewer at a time.");
+}
+
+export async function duplicateServiceConsumableDefault(
+  sourceId: string,
+  targets: FinancialRuleTarget[],
+): Promise<DuplicateRuleResult> {
+  const a = await actor();
+  ensureDuplicateSize(targets.length);
+  const db = supabaseAdmin();
+  const [{ data: source, error: sourceError }, { data: existing, error: existingError }] = await Promise.all([
+    db.from("crm_service_consumable_defaults").select("*").eq("id", sourceId).maybeSingle(),
+    db.from("crm_service_consumable_defaults").select("service_id,service_name,description"),
+  ]);
+  if (sourceError || !source) throw new FinancialSettingsError(sourceError?.message ?? "Consumable rule not found.");
+  if (existingError) throw new FinancialSettingsError(existingError.message);
+
+  const rows = targets
+    .filter((target, index, all) => target.name.trim() && all.findIndex((item) => sameNullable(item.id, target.id) && item.name === target.name) === index)
+    .filter((target) => !sameNullable(target.id, source.service_id) || target.name !== source.service_name)
+    .filter((target) => !(existing ?? []).some((row) => sameNullable(row.service_id, target.id) && row.service_name === target.name && row.description === source.description))
+    .map((target) => ({
+      service_id: target.id,
+      service_name: target.name.trim(),
+      component_id: source.component_id,
+      description: source.description,
+      quantity: source.quantity,
+      unit_cost: source.unit_cost,
+      active: source.active,
+      created_by: a.id,
+    }));
+  if (rows.length) {
+    const { data, error } = await db.from("crm_service_consumable_defaults").insert(rows).select("id");
+    if (error || !data) throw new FinancialSettingsError(error?.message ?? "Could not duplicate consumable rules.");
+    await Promise.all(data.map((row, index) => auditSetting({ actorId: a.id, action: "financial.service_consumable_default_duplicated", entityType: "service_consumable_default", entityId: row.id as string, newValues: { ...rows[index], source_id: sourceId } })));
+  }
+  revalidatePath("/financial/settings");
+  return { created: rows.length, skipped: targets.length - rows.length };
+}
+
+export async function duplicateDiscountRule(input: {
+  sourceId: string;
+  moderators: Array<{ id: string; name: string }>;
+  services: FinancialRuleTarget[];
+}): Promise<DuplicateRuleResult> {
+  const a = await actor();
+  if (!input.moderators.length && !input.services.length) throw new FinancialSettingsError("Choose at least one moderator or service.");
+  const combinations = Math.max(1, input.moderators.length) * Math.max(1, input.services.length);
+  ensureDuplicateSize(combinations);
+  const db = supabaseAdmin();
+  const [{ data: source, error: sourceError }, { data: existing, error: existingError }] = await Promise.all([
+    db.from("crm_discount_rules").select("*").eq("id", input.sourceId).maybeSingle(),
+    db.from("crm_discount_rules").select("scope,moderator_id,service_id,service_name,effective_from,effective_to"),
+  ]);
+  if (sourceError || !source) throw new FinancialSettingsError(sourceError?.message ?? "Discount rule not found.");
+  if (existingError) throw new FinancialSettingsError(existingError.message);
+  const moderators = input.moderators.length ? input.moderators : [{ id: null, name: "" }];
+  const services = input.services.length ? input.services : [{ id: null, name: "" }];
+  const candidates = moderators.flatMap((moderator) => services.map((service) => {
+    const scope = moderator.id && (service.id || service.name) ? "moderator_service" : moderator.id ? "moderator" : "service";
+    return {
+      scope,
+      moderator_id: moderator.id,
+      service_id: service.id,
+      service_name: service.name || null,
+      max_discount_pct: source.max_discount_pct,
+      active: source.active,
+      effective_from: source.effective_from,
+      effective_to: source.effective_to,
+      created_by: a.id,
+    };
+  }));
+  const rows = candidates
+    .filter((row, index, all) => all.findIndex((item) => item.scope === row.scope && sameNullable(item.moderator_id, row.moderator_id) && sameNullable(item.service_id, row.service_id) && sameNullable(item.service_name, row.service_name)) === index)
+    .filter((row) => !(row.scope === source.scope && sameNullable(row.moderator_id, source.moderator_id) && sameNullable(row.service_id, source.service_id) && sameNullable(row.service_name, source.service_name)))
+    .filter((row) => !(existing ?? []).some((item) => item.scope === row.scope && sameNullable(item.moderator_id, row.moderator_id) && sameNullable(item.service_id, row.service_id) && sameNullable(item.service_name, row.service_name) && sameNullable(item.effective_from, row.effective_from) && sameNullable(item.effective_to, row.effective_to)));
+  if (rows.length) {
+    const { data, error } = await db.from("crm_discount_rules").insert(rows).select("id");
+    if (error || !data) throw new FinancialSettingsError(error?.message ?? "Could not duplicate discount rules.");
+    await Promise.all(data.map((row, index) => auditSetting({ actorId: a.id, action: "financial.discount_rule_duplicated", entityType: "discount_rule", entityId: row.id as string, newValues: { ...rows[index], source_id: input.sourceId } })));
+  }
+  revalidatePath("/financial/settings");
+  return { created: rows.length, skipped: candidates.length - rows.length };
+}
+
+export async function duplicateDoctorCompRule(input: {
+  sourceId: string;
+  doctors: Array<{ id: string; name: string }>;
+  services: FinancialRuleTarget[];
+}): Promise<DuplicateRuleResult> {
+  const a = await actor();
+  if (!input.doctors.length && !input.services.length) throw new FinancialSettingsError("Choose at least one doctor or service.");
+  const db = supabaseAdmin();
+  const [{ data: source, error: sourceError }, { data: existing, error: existingError }] = await Promise.all([
+    db.from("crm_doctor_compensation_rules").select("*").eq("id", input.sourceId).maybeSingle(),
+    db.from("crm_doctor_compensation_rules").select("doctor_id,service_id,service_name,effective_from,effective_to"),
+  ]);
+  if (sourceError || !source) throw new FinancialSettingsError(sourceError?.message ?? "Doctor compensation rule not found.");
+  if (existingError) throw new FinancialSettingsError(existingError.message);
+  const doctors = input.doctors.length ? input.doctors : [{ id: source.doctor_id as string, name: String(source.doctor_name ?? "") }];
+  const services = input.services.length ? input.services : [{ id: (source.service_id as string | null) ?? null, name: String(source.service_name ?? "") }];
+  ensureDuplicateSize(doctors.length * services.length);
+  const candidates = doctors.flatMap((doctor) => services.map((service) => ({
+    doctor_id: doctor.id,
+    doctor_name: doctor.name || null,
+    service_id: service.id,
+    service_name: service.name || null,
+    kind: source.kind,
+    value: source.value,
+    basis: source.basis,
+    active: source.active,
+    effective_from: source.effective_from,
+    effective_to: source.effective_to,
+    created_by: a.id,
+  })));
+  const rows = candidates
+    .filter((row, index, all) => all.findIndex((item) => item.doctor_id === row.doctor_id && sameNullable(item.service_id, row.service_id) && sameNullable(item.service_name, row.service_name)) === index)
+    .filter((row) => !(row.doctor_id === source.doctor_id && sameNullable(row.service_id, source.service_id) && sameNullable(row.service_name, source.service_name)))
+    .filter((row) => !(existing ?? []).some((item) => item.doctor_id === row.doctor_id && sameNullable(item.service_id, row.service_id) && sameNullable(item.service_name, row.service_name) && sameNullable(item.effective_from, row.effective_from) && sameNullable(item.effective_to, row.effective_to)));
+  if (rows.length) {
+    const { data, error } = await db.from("crm_doctor_compensation_rules").insert(rows).select("id");
+    if (error || !data) throw new FinancialSettingsError(error?.message ?? "Could not duplicate doctor compensation rules.");
+    await Promise.all(data.map((row, index) => auditSetting({ actorId: a.id, action: "financial.doctor_comp_rule_duplicated", entityType: "doctor_compensation_rule", entityId: row.id as string, newValues: { ...rows[index], source_id: input.sourceId } })));
+  }
+  revalidatePath("/financial/settings");
+  return { created: rows.length, skipped: candidates.length - rows.length };
+}
+
 export async function upsertExternalCostDefault(input: {
   serviceId?: string | null;
   serviceName: string;

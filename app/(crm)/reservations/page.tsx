@@ -106,8 +106,8 @@ export default async function ReservationsPage({
                   <th className="px-3 py-2.5">Appointment</th>
                   <th className="px-3 py-2.5">Status</th>
                   <th className="px-3 py-2.5">Update</th>
-                  <th className="px-3 py-2.5 pr-[18px]">Booked</th>
-                  {canManageReservations && <th className="px-3 py-2.5 pr-[18px]">Actions</th>}
+                  <th className="px-3 py-2.5 pe-[18px]">Booked</th>
+                  {canManageReservations && <th className="px-3 py-2.5 pe-[18px]">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -171,8 +171,8 @@ export default async function ReservationsPage({
                       <td className="px-3 py-3">
                         <ReservationStatusSelect appointmentId={r.id} leadId={leadId} status={r.status} />
                       </td>
-                      <td className="px-3 py-3 pr-[18px] text-ink-500">{formatDate(r.createdAt)}</td>
-                      {canManageReservations && <td className="px-3 py-3 pr-[18px]"><ReservationManagementControls appointmentId={r.id} patientName={r.patientName} /></td>}
+                      <td className="px-3 py-3 pe-[18px] text-ink-500">{formatDate(r.createdAt)}</td>
+                      {canManageReservations && <td className="px-3 py-3 pe-[18px]"><ReservationManagementControls appointmentId={r.id} patientName={r.patientName} /></td>}
                     </tr>
                   );
                 })}

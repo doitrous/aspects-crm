@@ -9,6 +9,32 @@ import { logActivity } from "@/lib/audit/log";
 
 const COLS = "id, email, full_name, role, is_active, auth_user_id, avatar_url";
 
+export async function updateUserDisplayName(userId: string, rawName: string): Promise<void> {
+  const actor = await writeActor();
+  assertCan(actor.role, "users.changeDisplayName");
+  const name = rawName.replace(/\s+/g, " ").trim();
+  if (name.length < 2 || name.length > 80) {
+    throw new UserAdminError("Display name must be between 2 and 80 characters.");
+  }
+  const row = await findRow(userId);
+  if (!row) throw new UserAdminError("That user no longer exists.");
+  if ((row.full_name ?? "").trim() === name) return;
+  const { error } = await supabaseAdmin()
+    .from("crm_users")
+    .update({ full_name: name, updated_at: new Date().toISOString() })
+    .eq("id", userId);
+  if (error) throw new UserAdminError(error.message);
+  await logActivity({
+    actorId: actor.id,
+    action: "user.display_name_updated",
+    entityType: "user",
+    entityId: userId,
+    oldValues: { full_name: row.full_name },
+    newValues: { full_name: name },
+    metadata: { target_email: row.email, changed_by_role: actor.role },
+  });
+}
+
 export async function resetUserPassword(userId: string, password: string): Promise<void> {
   const actor = await writeActor();
   assertCan(actor.role, "users.resetPassword");

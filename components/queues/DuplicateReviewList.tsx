@@ -48,7 +48,7 @@ export function DuplicateReviewList({ items, view }: { items: DuplicatePair[]; v
     <div className="space-y-3">
       {view === "open" && items.length > 0 && (
         <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-card border border-primary/20 bg-panel p-3 shadow-sm">
-          <label className="mr-auto inline-flex min-h-9 cursor-pointer items-center gap-2 text-[12px] font-semibold text-ink-700">
+          <label className="me-auto inline-flex min-h-9 cursor-pointer items-center gap-2 text-[12px] font-semibold text-ink-700">
             <input
               type="checkbox"
               checked={allSelected}

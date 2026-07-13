@@ -27,7 +27,7 @@ export function AccountManager({ user }: { user: SessionUser }) {
         <div><div className="text-[17px] font-black text-ink-900">{user.name}</div><div className="mt-0.5 text-[11.5px] text-ink-500">{user.email}</div><span className="mt-2 inline-flex rounded-full bg-primary-soft px-2.5 py-1 text-[10px] font-black capitalize text-primary">{user.role}</span></div>
       </div>
       <form action={avatarAction} className="mt-5 border-t border-line pt-4">
-        <label className="text-[11px] font-bold text-ink-600">New profile picture<input name="avatar" type="file" accept="image/jpeg,image/png,image/webp" required className="mt-2 block w-full text-[11.5px] text-ink-500 file:mr-3 file:rounded-control file:border-0 file:bg-line-faint file:px-3 file:py-2 file:font-bold file:text-ink-700" /></label>
+        <label className="text-[11px] font-bold text-ink-600">New profile picture<input name="avatar" type="file" accept="image/jpeg,image/png,image/webp" required className="mt-2 block w-full text-[11.5px] text-ink-500 file:me-3 file:rounded-control file:border-0 file:bg-line-faint file:px-3 file:py-2 file:font-bold file:text-ink-700" /></label>
         <p className="mt-2 text-[10.5px] text-ink-400">JPG, PNG or WebP · maximum 2 MB.</p>
         <button disabled={avatarPending} className="mt-3 h-9 rounded-control bg-primary px-4 text-[12px] font-bold text-white disabled:opacity-50">{avatarPending ? "Uploading…" : "Update picture"}</button>
         <Feedback state={avatarState} />
@@ -38,7 +38,7 @@ export function AccountManager({ user }: { user: SessionUser }) {
       <form action={passwordAction} className="mt-5 max-w-lg space-y-3">
         <label className="block text-[11px] font-bold text-ink-600">New password<input name="password" type="password" minLength={8} autoComplete="new-password" required className={input} /></label>
         <label className="block text-[11px] font-bold text-ink-600">Confirm new password<input name="confirmation" type="password" minLength={8} autoComplete="new-password" required className={input} /></label>
-        <button disabled={passwordPending} className="h-10 rounded-control bg-ink-900 px-5 text-[12px] font-black text-white hover:bg-primary disabled:opacity-50">{passwordPending ? "Changing…" : "Change password"}</button>
+        <button disabled={passwordPending} className="h-10 rounded-control bg-primary px-5 text-[12px] font-black text-white hover:bg-primary-hover disabled:opacity-50">{passwordPending ? "Changing…" : "Change password"}</button>
         <Feedback state={passwordState} />
       </form>
     </section>

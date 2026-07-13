@@ -90,7 +90,7 @@ function ReplyContextPreview({ message, outgoing }: { message: Message; outgoing
       // Scrolls to the original when we ingested it; inert when we did not.
       href={r.localId ? `#msg-${r.localId}` : undefined}
       className={
-        "mb-1.5 block border-l-2 pl-2 text-[11px] leading-snug " +
+        "mb-1.5 block border-s-2 ps-2 text-[11px] leading-snug " +
         (outgoing ? "border-white/50 text-white/80" : "border-primary/40 text-ink-500") +
         (r.localId ? " cursor-pointer hover:opacity-80" : "")
       }
@@ -150,7 +150,7 @@ export function MessageThread({
           </p>
         </div>
         {chatLink && (
-          <a href={chatLink} target="_blank" rel="noreferrer" className="rounded-control bg-ink-900 px-3 py-2 text-[11px] font-bold text-white hover:bg-primary">
+          <a href={chatLink} target="_blank" rel="noreferrer" className="rounded-control bg-primary px-3 py-2 text-[11px] font-bold text-white hover:bg-primary-hover">
             Reply in channel ↗
           </a>
         )}

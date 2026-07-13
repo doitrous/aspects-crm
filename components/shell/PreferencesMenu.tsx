@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import {
   LOCALE_COOKIE,
   THEME_COOKIE,
@@ -23,8 +22,6 @@ function setCookie(name: string, value: string) {
  * the source of truth on the next request.
  */
 export function PreferencesMenu({ theme }: { theme: Theme }) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
   const [activeTheme, setActiveTheme] = useState(theme);
   const { locale, setLocale, t } = useI18n();
 
@@ -34,14 +31,12 @@ export function PreferencesMenu({ theme }: { theme: Theme }) {
     const root = document.documentElement;
     root.lang = next;
     root.dir = dirFor(next);
-    startTransition(() => router.refresh());
   }
 
   function applyTheme(next: Theme) {
     setActiveTheme(next);
     setCookie(THEME_COOKIE, next);
     document.documentElement.dataset.theme = next;
-    startTransition(() => router.refresh());
   }
 
   const segBtn = (active: boolean) =>
@@ -55,8 +50,8 @@ export function PreferencesMenu({ theme }: { theme: Theme }) {
           {t("pref.language")}
         </div>
         <div className="flex gap-1 rounded-control border border-line-soft bg-toolbar p-1">
-          <button onClick={() => applyLocale("en")} className={segBtn(locale === "en")}><span className="me-1 font-mono">EN</span> English</button>
-          <button onClick={() => applyLocale("ar")} className={segBtn(locale === "ar")}><span className="me-1 font-mono">AR</span> العربية</button>
+          <button type="button" aria-pressed={locale === "en"} onClick={() => applyLocale("en")} className={segBtn(locale === "en")}><span className="me-1 font-mono">EN</span> English</button>
+          <button type="button" aria-pressed={locale === "ar"} onClick={() => applyLocale("ar")} className={segBtn(locale === "ar")}><span className="me-1 font-mono">AR</span> العربية</button>
         </div>
       </div>
       <div>
@@ -64,8 +59,8 @@ export function PreferencesMenu({ theme }: { theme: Theme }) {
           {t("pref.theme")}
         </div>
         <div className="flex gap-1 rounded-control border border-line-soft bg-toolbar p-1">
-          <button onClick={() => applyTheme("light")} className={segBtn(activeTheme === "light")}>☀ {t("pref.light")}</button>
-          <button onClick={() => applyTheme("dark")} className={segBtn(activeTheme === "dark")}>☾ {t("pref.dark")}</button>
+          <button type="button" aria-pressed={activeTheme === "light"} onClick={() => applyTheme("light")} className={segBtn(activeTheme === "light")}>☀ {t("pref.light")}</button>
+          <button type="button" aria-pressed={activeTheme === "dark"} onClick={() => applyTheme("dark")} className={segBtn(activeTheme === "dark")}>☾ {t("pref.dark")}</button>
         </div>
       </div>
     </div>

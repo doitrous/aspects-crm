@@ -82,7 +82,7 @@ function Breakdown({ title, rows }: { title: string; rows: RevenueBreakdownRow[]
           {top.map((r) => (
             <div key={r.key} className="flex items-center justify-between text-[12px]">
               <span className="truncate text-ink-700">{r.label}</span>
-              <span className="ml-2 whitespace-nowrap font-semibold text-ink-900">
+              <span className="ms-2 whitespace-nowrap font-semibold text-ink-900">
                 {egp(r.recognizedRevenue)} <span className="text-ink-400">· {r.recordCount}</span>
               </span>
             </div>
@@ -146,7 +146,7 @@ export default async function FinancialPage({
     <>
       <Topbar title="Financial Dashboard" />
       <div className="flex-1 overflow-auto px-[18px] py-4">
-        <div className="mb-4 rounded-xl bg-ink-900 p-5 text-white"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Clinic economics</div><h1 className="mt-1 text-[24px] font-black">Financial performance</h1><p className="mt-1 text-[12px] text-white/60">Collections use transaction dates; profitability uses service dates. Every visual responds to the selected range.</p></div>
+        <div className="section-hero mb-4 rounded-xl p-5"><div className="section-hero-eyebrow text-[10px] font-black uppercase tracking-[0.16em]">Clinic economics</div><h1 className="mt-1 text-[24px] font-black text-ink-950">Financial performance</h1><p className="section-hero-muted mt-1 text-[12px]">Collections use transaction dates; profitability uses service dates. Every visual responds to the selected range.</p></div>
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-panel p-3">
           <form method="get" action="/financial" className="flex flex-wrap items-center gap-2">
             <input type="hidden" name="tab" value={tab} />
@@ -157,7 +157,7 @@ export default async function FinancialPage({
             <input type="date" name="to" defaultValue={range.to} className={fieldCls} />
             <button type="submit" className="h-8 rounded-control border border-line-soft px-3 text-[12px] font-semibold text-ink-700 hover:bg-line-faint/60">Apply</button>
           </form>
-          <div className="ml-auto flex gap-1 rounded-lg bg-line-faint/60 p-0.5">
+          <div className="ms-auto flex gap-1 rounded-lg bg-line-faint/60 p-0.5">
             <Link href={`/financial?from=${range.from}&to=${range.to}`} className={"rounded-md px-3 py-1 text-[12px] font-semibold " + (tab === "overview" ? "bg-primary text-white" : "text-ink-600")}>Overview</Link>
             <Link href={`/financial?from=${range.from}&to=${range.to}&tab=exceptions`} className={"rounded-md px-3 py-1 text-[12px] font-semibold " + (tab === "exceptions" ? "bg-primary text-white" : "text-ink-600")}>Exceptional pricing</Link>
           </div>

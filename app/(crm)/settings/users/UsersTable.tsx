@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import type { Role } from "@/lib/types";
 import { ASSIGNABLE_ROLES } from "@/lib/auth/roles";
-import { changeRoleAction, resetPasswordAction, setActiveAction, type UserActionState } from "./actions";
+import { changeRoleAction, resetPasswordAction, setActiveAction, updateDisplayNameAction, type UserActionState } from "./actions";
 
 const IDLE: UserActionState = { error: null, ok: null };
 
@@ -103,15 +103,18 @@ function UserCard({
   isSelf,
   canMutate,
   canReset,
+  canRename,
 }: {
   user: UserRow;
   isSelf: boolean;
   canMutate: boolean;
   canReset: boolean;
+  canRename: boolean;
 }) {
   const [roleState, roleAction] = useActionState(changeRoleAction, IDLE);
   const [activeState, activeAction] = useActionState(setActiveAction, IDLE);
   const [resetState, resetAction, resetPending] = useActionState(resetPasswordAction, IDLE);
+  const [nameState, nameAction, namePending] = useActionState(updateDisplayNameAction, IDLE);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [confirmingActive, setConfirmingActive] = useState(false);
 
@@ -194,6 +197,18 @@ function UserCard({
         </div>
       </div>
 
+      {canRename && (
+        <details className="mt-2 rounded-control border border-line-soft bg-toolbar/50 px-3 py-2">
+          <summary className="cursor-pointer text-[11px] font-bold text-ink-700">Change display name</summary>
+          <form action={nameAction} className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end">
+            <input type="hidden" name="userId" value={user.id} />
+            <label className="min-w-0 flex-1 text-[10.5px] font-semibold text-ink-500">Display name<input name="displayName" defaultValue={user.name} minLength={2} maxLength={80} required className="mt-1 h-8 w-full rounded-control border border-line bg-panel px-2 text-[12px] text-ink-900" /></label>
+            <button disabled={namePending} className="h-8 rounded-control bg-primary px-3 text-[11px] font-bold text-white hover:bg-primary-hover disabled:opacity-50">{namePending ? "Saving…" : "Save name"}</button>
+          </form>
+          <Feedback error={nameState.error} ok={nameState.ok} />
+        </details>
+      )}
+
       {canReset && user.linkedToAuth && (
         <details className="mt-2 rounded-control border border-line-soft bg-slate-50/60 px-3 py-2">
           <summary className="cursor-pointer text-[11px] font-bold text-ink-700">Reset login password</summary>
@@ -201,7 +216,7 @@ function UserCard({
             <input type="hidden" name="userId" value={user.id} />
             <label className="text-[10.5px] font-semibold text-ink-500">Temporary password<input name="password" type="password" minLength={8} required className="mt-1 h-8 w-full rounded-control border border-line bg-white px-2 text-[12px]" /></label>
             <label className="text-[10.5px] font-semibold text-ink-500">Confirm password<input name="confirmation" type="password" minLength={8} required className="mt-1 h-8 w-full rounded-control border border-line bg-white px-2 text-[12px]" /></label>
-            <button disabled={resetPending} className="h-8 rounded-control bg-ink-900 px-3 text-[11px] font-bold text-white disabled:opacity-50">{resetPending ? "Resetting…" : "Reset password"}</button>
+            <button disabled={resetPending} className="h-8 rounded-control bg-primary px-3 text-[11px] font-bold text-white hover:bg-primary-hover disabled:opacity-50">{resetPending ? "Resetting…" : "Reset password"}</button>
           </form>
           <Feedback error={resetState.error} ok={resetState.ok} />
         </details>
@@ -246,11 +261,13 @@ export function UsersTable({
   currentUserId,
   canMutate,
   canReset,
+  canRename,
 }: {
   users: UserRow[];
   currentUserId: string;
   canMutate: boolean;
   canReset: boolean;
+  canRename: boolean;
 }) {
   if (users.length === 0) {
     return <p className="px-4 py-6 text-[12.5px] text-ink-500">No users match these filters.</p>;
@@ -264,6 +281,7 @@ export function UsersTable({
           isSelf={u.id === currentUserId}
           canMutate={canMutate}
           canReset={canReset}
+          canRename={canRename}
         />
       ))}
     </ul>

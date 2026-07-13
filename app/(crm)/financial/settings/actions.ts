@@ -19,6 +19,9 @@ import {
   addBundleComponent,
   upsertPaymentMethod,
   upsertStaffCommission,
+  duplicateServiceConsumableDefault,
+  duplicateDiscountRule,
+  duplicateDoctorCompRule,
 } from "@/lib/data/financialSettingsMutations";
 import type { ExternalCostCategory } from "@/lib/data/financials";
 
@@ -40,6 +43,15 @@ function serviceRef(fd: FormData): { serviceId: string | null; serviceName: stri
   if (!raw) return { serviceId: str(fd, "serviceId") || null, serviceName: str(fd, "serviceName") };
   const [id, ...rest] = raw.split("::");
   return { serviceId: id || null, serviceName: rest.join("::") || str(fd, "serviceName") };
+}
+function refs(fd: FormData, key: string): Array<{ id: string | null; name: string }> {
+  return fd.getAll(key).map(String).map((raw) => {
+    const [id, ...name] = raw.split("::");
+    return { id: id || null, name: name.join("::").trim() };
+  }).filter((item) => item.id || item.name);
+}
+function identityRefs(fd: FormData, key: string): Array<{ id: string; name: string }> {
+  return refs(fd, key).filter((item): item is { id: string; name: string } => Boolean(item.id));
 }
 function fail(err: unknown): FinancialSettingsActionState {
   if (err instanceof FinancialSettingsError || err instanceof ActorError) return { error: err.message };
@@ -255,4 +267,25 @@ export async function setFinancialSettingActiveAction(_prev: FinancialSettingsAc
   try { await setFinancialSettingActive(table as Parameters<typeof setFinancialSettingActive>[0], str(fd, "id"), bool(fd, "active")); }
   catch (err) { return fail(err); }
   return done("Setting updated.");
+}
+
+export async function duplicateConsumableRuleAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  try {
+    const result = await duplicateServiceConsumableDefault(str(fd, "sourceId"), refs(fd, "targetServiceRef"));
+    return done(`Duplicated to ${result.created} service${result.created === 1 ? "" : "s"}${result.skipped ? `; ${result.skipped} existing or unchanged destination${result.skipped === 1 ? " was" : "s were"} skipped` : ""}.`);
+  } catch (err) { return fail(err); }
+}
+
+export async function duplicateDiscountRuleAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  try {
+    const result = await duplicateDiscountRule({ sourceId: str(fd, "sourceId"), moderators: identityRefs(fd, "targetModeratorRef"), services: refs(fd, "targetServiceRef") });
+    return done(`Created ${result.created} discount rule${result.created === 1 ? "" : "s"}${result.skipped ? `; skipped ${result.skipped} duplicate destination${result.skipped === 1 ? "" : "s"}` : ""}.`);
+  } catch (err) { return fail(err); }
+}
+
+export async function duplicateDoctorCompRuleAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  try {
+    const result = await duplicateDoctorCompRule({ sourceId: str(fd, "sourceId"), doctors: identityRefs(fd, "targetDoctorRef"), services: refs(fd, "targetServiceRef") });
+    return done(`Created ${result.created} compensation rule${result.created === 1 ? "" : "s"}${result.skipped ? `; skipped ${result.skipped} duplicate destination${result.skipped === 1 ? "" : "s"}` : ""}.`);
+  } catch (err) { return fail(err); }
 }

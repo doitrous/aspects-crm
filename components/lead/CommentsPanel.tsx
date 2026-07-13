@@ -46,7 +46,7 @@ function CommentCard({ comment, depth }: { comment: Comment; depth: number }) {
     <div style={depth > 0 ? { marginLeft: Math.min(depth, 4) * 20 } : undefined}>
       <div
         className={
-          "rounded-xl border border-l-4 p-3.5 shadow-sm " + (business ? "border-primary/30 border-l-primary bg-primary-soft/40" : comment.platform === "instagram" ? "border-line border-l-pink-500 bg-panel" : "border-line border-l-blue-500 bg-panel")
+          "rounded-xl border border-s-4 p-3.5 shadow-sm " + (business ? "border-primary/30 border-s-primary bg-primary-soft/40" : comment.platform === "instagram" ? "border-line border-s-pink-500 bg-panel" : "border-line border-s-blue-500 bg-panel")
         }
       >
         <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
@@ -116,7 +116,7 @@ function CommentCard({ comment, depth }: { comment: Comment; depth: number }) {
       </div>
 
       {comment.replies && comment.replies.length > 0 && (
-        <div className="mt-2 flex flex-col gap-2 border-l border-line-soft pl-2">
+        <div className="mt-2 flex flex-col gap-2 border-l border-line-soft ps-2">
           {comment.replies.map((r) => (
             <CommentCard key={r.id} comment={r} depth={depth + 1} />
           ))}

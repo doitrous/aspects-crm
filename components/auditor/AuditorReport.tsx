@@ -226,9 +226,9 @@ function AuditorTrendChart({ rows }: { rows: AuditorTrendPoint[] }) {
           <p className="mt-0.5 text-[12px] text-ink-500">Ends on the selected day and follows the active doctor or specialty filter.</p>
         </div>
         <div className="flex flex-wrap gap-3 text-[11px] font-semibold text-ink-600">
-          <span><i className="mr-1 inline-block size-2 rounded-full bg-slate-800" />Leads</span>
-          <span><i className="mr-1 inline-block size-2 rounded-full bg-emerald-500" />Booked</span>
-          <span><i className="mr-1 inline-block size-2 rounded-full bg-red-500" />Dropped</span>
+          <span><i className="me-1 inline-block size-2 rounded-full bg-slate-800" />Leads</span>
+          <span><i className="me-1 inline-block size-2 rounded-full bg-emerald-500" />Booked</span>
+          <span><i className="me-1 inline-block size-2 rounded-full bg-red-500" />Dropped</span>
         </div>
       </div>
       <div className="overflow-x-auto px-3 pb-2 pt-3">
@@ -287,18 +287,18 @@ export function AuditorReport({
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="rounded-card bg-slate-950 px-5 py-5 text-white shadow-sm sm:px-6">
+      <section className="section-hero rounded-card px-5 py-5 sm:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
-            <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-300">Daily control room</div>
-            <h1 className="mt-2 text-[26px] font-bold tracking-tight sm:text-[32px]">Review the facts. Explain changes. Lock the day.</h1>
-            <p className="mt-2 text-[13px] leading-5 text-slate-300">The CRM builds the snapshot. Auditors only adjust a value when there is evidence, record why, and finalize one clinic-wide source of truth.</p>
+            <div className="section-hero-eyebrow text-[11px] font-bold uppercase tracking-[0.18em]">Daily control room</div>
+            <h1 className="mt-2 text-[26px] font-bold tracking-tight text-ink-950 sm:text-[32px]">Review the facts. Explain changes. Lock the day.</h1>
+            <p className="section-hero-muted mt-2 text-[13px] leading-5">The CRM builds the snapshot. Auditors only adjust a value when there is evidence, record why, and finalize one clinic-wide source of truth.</p>
           </div>
           <div className="flex items-center gap-2">
             {detail && <StatusBadge status={detail.status} />}
-            <div className="rounded-control border border-white/15 bg-white/10 px-3 py-2 text-right">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Report day</div>
-              <div className="mt-0.5 text-[15px] font-bold">{date}</div>
+            <div className="section-hero-stat rounded-control px-3 py-2 text-right">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-ink-500">Report day</div>
+              <div className="mt-0.5 text-[15px] font-bold text-ink-950">{date}</div>
             </div>
           </div>
         </div>
@@ -333,7 +333,7 @@ export function AuditorReport({
             Apply view
           </button>
         </form>
-        <div className="ml-auto text-[11px] text-ink-500">{selectedDoctorId || selectedSpecialtyId ? `Filtered: ${scopeLabel(options, selectedDoctorId, selectedSpecialtyId)}` : "Clinic-wide view"}</div>
+        <div className="ms-auto text-[11px] text-ink-500">{selectedDoctorId || selectedSpecialtyId ? `Filtered: ${scopeLabel(options, selectedDoctorId, selectedSpecialtyId)}` : "Clinic-wide view"}</div>
       </Card>
 
       <Card className="p-3 sm:p-4">

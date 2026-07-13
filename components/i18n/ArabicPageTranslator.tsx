@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useLayoutEffect } from "react";
 import { useI18n } from "@/lib/i18n/context";
 import { ARABIC_PATTERNS, ARABIC_UI } from "@/lib/i18n/uiArabic";
 
@@ -85,35 +85,25 @@ function restoreEnglish(): void {
 /** Translates shared CRM UI copy while preserving all patient-entered content. */
 export function ArabicPageTranslator() {
   const { locale } = useI18n();
-  const initialized = useRef(false);
 
-  useEffect(() => {
-    const firstRun = !initialized.current;
-    initialized.current = true;
+  useLayoutEffect(() => {
     if (locale !== "ar") {
       restoreEnglish();
       return;
     }
-    let observer: MutationObserver | null = null;
-    // Initial Arabic SSR gets a brief hydration cushion. User-triggered locale
-    // changes translate on the next task and feel immediate.
-    const timer = window.setTimeout(() => {
-      translateTree(document.body);
-      observer = new MutationObserver((records) => {
-        for (const record of records) {
-          if (record.type === "characterData") translateTree(record.target);
-          for (const node of Array.from(record.addedNodes)) translateTree(node);
-          // Navigation can replace large page subtrees while Arabic mode stays
-          // active. Release their original strings so detached DOM is not kept
-          // alive for the rest of the browser session.
-          for (const node of Array.from(record.removedNodes)) releaseTree(node);
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-    }, firstRun ? 100 : 0);
+    // Translate before paint. Locale switching no longer waits for a server
+    // refresh, and newly streamed/navigation content is translated as it lands.
+    translateTree(document.body);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "characterData") translateTree(record.target);
+        for (const node of Array.from(record.addedNodes)) translateTree(node);
+        for (const node of Array.from(record.removedNodes)) releaseTree(node);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     return () => {
-      window.clearTimeout(timer);
-      observer?.disconnect();
+      observer.disconnect();
     };
   }, [locale]);
 

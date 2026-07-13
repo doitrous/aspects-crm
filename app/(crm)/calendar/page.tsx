@@ -311,7 +311,7 @@ export default async function CalendarPage({
                               <span className="font-mono text-ink-500">{r.date.slice(5)}</span>
                               <span className="font-semibold" style={{ color: meta.fg }}>{formatClock(r.startTime)}</span>
                               <span>
-                                {leadId && <span className="mr-1 font-mono text-ink-400">{leadId}</span>}
+                                {leadId && <span className="me-1 font-mono text-ink-400">{leadId}</span>}
                                 <span className="font-medium text-ink-800">{r.patientName}</span>
                               </span>
                             </div>

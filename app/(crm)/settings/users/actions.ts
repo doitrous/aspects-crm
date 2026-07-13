@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { PermissionError } from "@/lib/auth/permissions";
 import { isAssignableRole } from "@/lib/auth/roles";
 import { ActorError } from "@/lib/data/actor";
-import { changeUserRole, linkAuthUser, resetUserPassword, setUserActive, UserAdminError } from "@/lib/data/users";
+import { changeUserRole, linkAuthUser, resetUserPassword, setUserActive, updateUserDisplayName, UserAdminError } from "@/lib/data/users";
 import type { Role } from "@/lib/types";
 
 export interface UserActionState {
@@ -85,6 +85,23 @@ export async function resetPasswordAction(
     return toState(err);
   }
   return { error: null, ok: "Login password reset." };
+}
+
+export async function updateDisplayNameAction(
+  _prev: UserActionState,
+  formData: FormData,
+): Promise<UserActionState> {
+  const userId = String(formData.get("userId") ?? "");
+  const name = String(formData.get("displayName") ?? "");
+  if (!userId) return { error: "Missing user.", ok: null };
+  try {
+    await updateUserDisplayName(userId, name);
+  } catch (err) {
+    return toState(err);
+  }
+  revalidatePath("/settings/users");
+  revalidatePath("/settings/account");
+  return { error: null, ok: "Display name updated." };
 }
 
 /** Create + link a CRM profile for an existing Supabase Auth user (admin only). */

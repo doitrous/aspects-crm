@@ -433,7 +433,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 ↗ <span className="hidden lg:inline">Open chat</span>
               </a>
             )}
-            <button onClick={() => setTab("Booking")} className="rounded-control bg-ink-900 px-2.5 py-2 text-[11px] font-bold text-white hover:bg-ink-800">
+            <button onClick={() => setTab("Booking")} className="rounded-control bg-primary px-2.5 py-2 text-[11px] font-bold text-white hover:bg-primary-hover">
               + <span className="hidden md:inline">Book</span>
             </button>
             <button onClick={() => setTab("Payments")} className="rounded-control border border-line px-2.5 py-2 text-[11px] font-bold text-ink-700 hover:border-primary hover:text-primary">
@@ -513,11 +513,11 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
         {tab === "Overview" && (
           <div className="flex flex-col gap-4 bg-slate-50/60 p-3 sm:p-5">
             <section className="overflow-hidden rounded-xl border border-line bg-panel shadow-sm">
-              <div className="border-b border-line bg-ink-900 px-4 py-3 text-white">
-                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Lead at a glance</div>
+              <div className="section-hero border-b border-line px-4 py-3">
+                <div className="section-hero-eyebrow text-[10px] font-black uppercase tracking-[0.16em]">Lead at a glance</div>
                 <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-[18px] font-black">{lead.patientName}</div>
-                  <div className="text-[11px] font-semibold text-white/65">Created {formatDate(lead.createdAt)}</div>
+                  <div className="text-[18px] font-black text-ink-950">{lead.patientName}</div>
+                  <div className="text-[11px] font-semibold text-ink-500">Created {formatDate(lead.createdAt)}</div>
                 </div>
               </div>
               <div className="grid divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
@@ -1079,29 +1079,29 @@ function FollowUpPanel({
 
   return (
     <div className="flex flex-col gap-4 bg-slate-50/70 p-3 sm:p-5">
-      <section className="overflow-hidden rounded-xl bg-ink-900 p-5 text-white shadow-sm">
+      <section className="section-hero overflow-hidden rounded-xl p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Next required action</div>
-            <div className="mt-2 text-[22px] font-black">{currentStep?.name ?? f.reason ?? "Schedule the first follow-up"}</div>
-            <div className={"mt-1 text-[12px] font-semibold " + (missed || currentStep?.state === "overdue" ? "text-red-300" : "text-white/60")}>
+            <div className="section-hero-eyebrow text-[10px] font-black uppercase tracking-[0.16em]">Next required action</div>
+            <div className="mt-2 text-[22px] font-black text-ink-950">{currentStep?.name ?? f.reason ?? "Schedule the first follow-up"}</div>
+            <div className={"mt-1 text-[12px] font-semibold " + (missed || currentStep?.state === "overdue" ? "text-red-600" : "text-ink-500")}>
               {currentStep?.dueAt ? `${currentStep.state === "overdue" ? "Overdue · " : "Due · "}${formatDateTime(currentStep.dueAt)}` : dueText}
             </div>
           </div>
-          <div className="rounded-xl bg-white/10 px-4 py-3 text-right">
-            <div className="text-[10px] uppercase tracking-wide text-white/50">Journey progress</div>
-            <div className="mt-1 text-[20px] font-black">{doneCount}<span className="text-[12px] text-white/50"> / {steps.length || "—"}</span></div>
+          <div className="section-hero-stat rounded-xl px-4 py-3 text-right">
+            <div className="text-[10px] uppercase tracking-wide text-ink-500">Journey progress</div>
+            <div className="mt-1 text-[20px] font-black text-ink-950">{doneCount}<span className="text-[12px] text-ink-500"> / {steps.length || "—"}</span></div>
           </div>
         </div>
-        {currentStep?.moderatorInstruction && <div className="mt-4 border-l-2 border-primary pl-3 text-[12px] leading-relaxed text-white/75">{currentStep.moderatorInstruction}</div>}
+        {currentStep?.moderatorInstruction && <div className="mt-4 border-s-2 border-primary ps-3 text-[12px] leading-relaxed text-ink-700">{currentStep.moderatorInstruction}</div>}
       </section>
       {plan && plan.steps.length > 0 && (
         <section className="rounded-xl border border-line bg-panel p-4 shadow-sm">
           <SectionLabel>{plan.workflowType === "post_op" ? "Post-op follow-up journey" : "Regular lead follow-up journey"}</SectionLabel>
           <div className="flex flex-col gap-2.5">
             {plan.steps.map((step) => (
-              <div key={step.id ?? step.sequence} className={"relative rounded-xl border p-3.5 pl-12 " + (step.state === "overdue" ? "border-danger/35 bg-danger-bg/40" : step.state === "done" ? "border-emerald-200 bg-emerald-50/50" : step === currentStep ? "border-primary/35 bg-primary-soft/35" : "border-line bg-white")}>
-                <span className={"absolute left-3.5 top-3.5 flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-black " + (step.state === "done" ? "bg-success text-white" : step.state === "overdue" ? "bg-danger text-white" : step === currentStep ? "bg-primary text-white" : "bg-line-faint text-ink-500")}>
+              <div key={step.id ?? step.sequence} className={"relative rounded-xl border p-3.5 ps-12 " + (step.state === "overdue" ? "border-danger/35 bg-danger-bg/40" : step.state === "done" ? "border-emerald-200 bg-emerald-50/50" : step === currentStep ? "border-primary/35 bg-primary-soft/35" : "border-line bg-white")}>
+                <span className={"absolute start-3.5 top-3.5 flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-black " + (step.state === "done" ? "bg-success text-white" : step.state === "overdue" ? "bg-danger text-white" : step === currentStep ? "bg-primary text-white" : "bg-line-faint text-ink-500")}>
                   {step.state === "done" ? "✓" : step.sequence}
                 </span>
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1312,11 +1312,11 @@ function TimelinePanel({ events, embedded }: { events: TimelineEvent[]; embedded
         <div className="border-r border-line px-2 py-3"><div className="text-[18px] font-black text-primary">{workflowChanges}</div><div className="text-[9.5px] font-bold uppercase text-ink-400">Workflow</div></div>
         <div className="px-2 py-3"><div className="text-[18px] font-black text-emerald-600">{conversations}</div><div className="text-[9.5px] font-bold uppercase text-ink-400">Messages</div></div>
       </div>
-      <div className="relative ml-2 border-l-2 border-line-soft pl-6">
+      <div className="relative ms-2 border-s-2 border-line-soft ps-6">
         {events.map((e) => (
           <article key={e.id} className="relative pb-4 last:pb-0">
             <span
-              className="absolute -left-[31px] top-4 h-3 w-3 rounded-full ring-4 ring-slate-50"
+              className="absolute -start-[31px] top-4 h-3 w-3 rounded-full ring-4 ring-slate-50"
               style={{ backgroundColor: eventDotColor(e) }}
             />
             <div className="rounded-xl border border-line bg-panel px-4 py-3 shadow-sm">
@@ -1441,7 +1441,7 @@ function EscalationsPanel({ escalations, embedded }: { escalations: Escalation[]
             <span className="text-[13px] font-semibold text-ink-900">{e.reason}</span>
             <span
               className={
-                "ml-auto rounded-pill px-2 py-0.5 text-[11px] font-semibold capitalize " +
+                "ms-auto rounded-pill px-2 py-0.5 text-[11px] font-semibold capitalize " +
                 (e.status === "resolved"
                   ? "bg-[#ecfdf3] text-success"
                   : e.status === "assigned"

@@ -71,7 +71,7 @@ export default async function UserHistoryPage({
             <dd className="capitalize text-ink-600">
               {user.role}
               {user.dbRole === "owner_admin" && (
-                <span className="ml-2 rounded-pill bg-badge-indigo/10 px-1.5 py-0.5 text-[10px] font-semibold text-badge-indigo">
+                <span className="ms-2 rounded-pill bg-badge-indigo/10 px-1.5 py-0.5 text-[10px] font-semibold text-badge-indigo">
                   owner
                 </span>
               )}
@@ -101,7 +101,7 @@ export default async function UserHistoryPage({
                 >
                   <span className="text-[12.5px] font-semibold text-ink-900">{describe(e)}</span>
                   <span className="text-[11.5px] text-ink-500">by {e.changedByName}</span>
-                  <span className="ml-auto text-[11.5px] tabular-nums text-ink-400">
+                  <span className="ms-auto text-[11.5px] tabular-nums text-ink-400">
                     {when(e.createdAt)}
                   </span>
                   {e.reason && (

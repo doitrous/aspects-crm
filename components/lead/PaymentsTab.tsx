@@ -133,7 +133,7 @@ function Feedback({ state }: { state: { error: string | null; ok: string | null 
 
 function LineControls({ type, id, amount, description, quantity, occurredOn, onChanged }: { type:"consumable"|"doctor_payment"|"external_cost";id:string;amount:number;description?:string;quantity?:number;occurredOn?:string;onChanged?:()=>void }) {
   const [editState,edit,editing]=useActionState(updateFinancialLineAction,IDLE); const [deleteState,remove,deleting]=useActionState(deleteFinancialLineAction,IDLE); useNotifyChanged(editState,onChanged); useNotifyChanged(deleteState,onChanged);
-  return <div className="ml-2 flex items-center gap-1"><details><summary className="cursor-pointer list-none text-[10.5px] font-bold text-primary">Modify</summary><form action={edit} className="absolute right-8 z-20 mt-1 grid w-56 gap-1 rounded-lg border border-line-soft bg-white p-3 shadow-xl"><input type="hidden" name="lineType" value={type}/><input type="hidden" name="lineId" value={id}/>{description!==undefined&&<input name="description" defaultValue={description} className={inputCls}/>}<input name="amount" type="number" min="0" step="0.01" defaultValue={amount} className={inputCls}/>{quantity!==undefined&&<input name="quantity" type="number" min="0.01" step="0.01" defaultValue={quantity} className={inputCls}/>} {occurredOn!==undefined&&<input name="occurredOn" type="date" defaultValue={occurredOn} className={inputCls}/>}<button disabled={editing} className={btnCls}>Save</button>{editState.error&&<span className="text-[10px] text-danger">{editState.error}</span>}</form></details><form action={remove}><input type="hidden" name="lineType" value={type}/><input type="hidden" name="lineId" value={id}/><button disabled={deleting} className="text-[10.5px] font-bold text-danger">Delete</button></form>{deleteState.error&&<span className="text-[10px] text-danger">{deleteState.error}</span>}</div>;
+  return <div className="ms-2 flex items-center gap-1"><details><summary className="cursor-pointer list-none text-[10.5px] font-bold text-primary">Modify</summary><form action={edit} className="absolute end-8 z-20 mt-1 grid w-56 gap-1 rounded-lg border border-line-soft bg-white p-3 shadow-xl"><input type="hidden" name="lineType" value={type}/><input type="hidden" name="lineId" value={id}/>{description!==undefined&&<input name="description" defaultValue={description} className={inputCls}/>}<input name="amount" type="number" min="0" step="0.01" defaultValue={amount} className={inputCls}/>{quantity!==undefined&&<input name="quantity" type="number" min="0.01" step="0.01" defaultValue={quantity} className={inputCls}/>} {occurredOn!==undefined&&<input name="occurredOn" type="date" defaultValue={occurredOn} className={inputCls}/>}<button disabled={editing} className={btnCls}>Save</button>{editState.error&&<span className="text-[10px] text-danger">{editState.error}</span>}</form></details><form action={remove}><input type="hidden" name="lineType" value={type}/><input type="hidden" name="lineId" value={id}/><button disabled={deleting} className="text-[10.5px] font-bold text-danger">Delete</button></form>{deleteState.error&&<span className="text-[10px] text-danger">{deleteState.error}</span>}</div>;
 }
 
 function useNotifyChanged(state: FinancialActionState, onChanged?: () => void) {
@@ -483,7 +483,7 @@ function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: (
                   <td className="px-3 py-2 text-ink-900">
                     {KIND_LABEL[p.kind] ?? p.kind}
                     {p.reversesTransactionId && (
-                      <span className="ml-1 text-[10px] text-ink-400">(reverses)</span>
+                      <span className="ms-1 text-[10px] text-ink-400">(reverses)</span>
                     )}
                   </td>
                   <td className="px-3 py-2 font-semibold tabular-nums text-ink-900">
@@ -509,7 +509,7 @@ function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: (
                     {/* Only a pending line may change; settled money is reversed, never edited. */}
                     {fin.canEdit && (
                       <div className="flex flex-wrap justify-end gap-1">
-                        <details className="text-left"><summary className={`${btnGhost} cursor-pointer list-none`}>Modify</summary><form action={edit} className="absolute right-8 z-20 mt-1 grid w-64 gap-1 rounded-lg border border-line-soft bg-white p-3 shadow-xl"><input type="hidden" name="transactionId" value={p.id}/><input name="amount" type="number" min="0.01" step="0.01" defaultValue={p.amount} className={inputCls}/><select name="method" defaultValue={p.method ?? "cash"} className={inputCls}>{Object.entries(METHOD_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select><input name="occurredOn" type="date" defaultValue={p.occurredOn} className={inputCls}/><input name="note" defaultValue={p.note ?? ""} placeholder="Note" className={inputCls}/><button disabled={editing} className={btnCls}>Save changes</button></form></details>
+                        <details className="text-left"><summary className={`${btnGhost} cursor-pointer list-none`}>Modify</summary><form action={edit} className="absolute end-8 z-20 mt-1 grid w-64 gap-1 rounded-lg border border-line-soft bg-white p-3 shadow-xl"><input type="hidden" name="transactionId" value={p.id}/><input name="amount" type="number" min="0.01" step="0.01" defaultValue={p.amount} className={inputCls}/><select name="method" defaultValue={p.method ?? "cash"} className={inputCls}>{Object.entries(METHOD_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select><input name="occurredOn" type="date" defaultValue={p.occurredOn} className={inputCls}/><input name="note" defaultValue={p.note ?? ""} placeholder="Note" className={inputCls}/><button disabled={editing} className={btnCls}>Save changes</button></form></details>
                         <form action={remove}><input type="hidden" name="transactionId" value={p.id}/><button type="submit" disabled={deleting} className="rounded-md border border-danger/30 bg-danger-bg px-2.5 py-1 text-[12px] font-medium text-danger">Delete</button></form>
                         {p.status === "pending" &&
                         (["completed", "failed", "cancelled"] as const).map((s) => (
@@ -758,7 +758,7 @@ function Consumables({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
                   × {c.quantity} @ {formatMoney(c.unitCost, fin.currency)}
                 </span>
                 {c.isOverride && (
-                  <Badge className="ml-2 bg-warn/10 text-warn">
+                  <Badge className="ms-2 bg-warn/10 text-warn">
                     Override{c.overrideReason ? `: ${c.overrideReason}` : ""}
                   </Badge>
                 )}
@@ -836,7 +836,7 @@ function ExternalCosts({ fin, onChanged }: { fin: LeadFinancials; onChanged?: ()
               className="flex items-center justify-between rounded-md border border-line-softer px-3 py-2 text-[12px]"
             >
               <span className="text-ink-900">
-                <Badge className="mr-2 bg-line-faint text-ink-600">{CATEGORY_LABEL[e.category]}</Badge>
+                <Badge className="me-2 bg-line-faint text-ink-600">{CATEGORY_LABEL[e.category]}</Badge>
                 {e.description}
                 {e.vendor && <span className="text-ink-400"> — {e.vendor}</span>}
               </span>
@@ -951,7 +951,7 @@ function Doctors({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => vo
                   {d.doctorName ?? d.doctorId}
                   <span className="text-ink-400"> — {formatDate(d.occurredOn)}</span>
                   {!d.reducesPatientBalance && (
-                    <Badge className="ml-2 bg-line-faint text-ink-500">Does not reduce balance</Badge>
+                    <Badge className="ms-2 bg-line-faint text-ink-500">Does not reduce balance</Badge>
                   )}
                 </span>
                 <span className="flex items-center font-semibold tabular-nums text-ink-900">
@@ -1094,36 +1094,36 @@ export function PaymentsTab({
 
   return (
     <div className="flex flex-col gap-4 bg-toolbar/30 p-3 sm:p-5 [&>section]:rounded-xl [&>section]:border [&>section]:border-line-soft [&>section]:bg-panel [&>section]:p-4 [&>section]:shadow-sm">
-      <section className="!border-ink-900 !bg-ink-900 !p-5 text-white">
+      <section className="section-hero !p-5">
         <div className="grid gap-5 sm:grid-cols-[1.25fr_1fr] sm:items-end">
           <div>
-            <div className="text-[10.5px] font-black uppercase tracking-[0.16em] text-white/55">Patient balance</div>
-            <div className={"mt-2 text-[30px] font-black tabular-nums sm:text-[36px] " + (s.outstanding > 0 ? "text-white" : "text-emerald-300")}>
+            <div className="section-hero-eyebrow text-[10.5px] font-black uppercase tracking-[0.16em]">Patient balance</div>
+            <div className={"mt-2 text-[30px] font-black tabular-nums sm:text-[36px] " + (s.outstanding > 0 ? "text-ink-950" : "text-emerald-600")}>
               {formatMoney(s.outstanding, cur)}
             </div>
-            <div className="mt-2 text-[12px] text-white/65">
+            <div className="section-hero-muted mt-2 text-[12px]">
               {s.outstanding > 0 ? "Still due from the patient" : "Account is settled"}
               {s.pendingTotal > 0 ? ` · ${formatMoney(s.pendingTotal, cur)} pending settlement` : ""}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-white/15 pt-4 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
-            <div><div className="text-[10px] uppercase text-white/45">Agreed price</div><div className="mt-1 text-[15px] font-bold">{s.hasQuote ? formatMoney(s.quotedPrice, cur) : "Not set"}</div></div>
-            <div><div className="text-[10px] uppercase text-white/45">Collected</div><div className="mt-1 text-[15px] font-bold text-emerald-300">{formatMoney(s.totalCollected, cur)}</div></div>
-            <div><div className="text-[10px] uppercase text-white/45">Discount</div><div className="mt-1 text-[15px] font-bold">{formatPct(s.effectiveDiscountPct)}</div></div>
-            <div><div className="text-[10px] uppercase text-white/45">Amount due</div><div className="mt-1 text-[15px] font-bold">{formatMoney(s.amountDue, cur)}</div></div>
+          <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-line pt-4 text-ink-950 sm:border-s sm:border-t-0 sm:ps-5 sm:pt-0">
+            <div><div className="text-[10px] uppercase text-ink-500">Agreed price</div><div className="mt-1 text-[15px] font-bold">{s.hasQuote ? formatMoney(s.quotedPrice, cur) : "Not set"}</div></div>
+            <div><div className="text-[10px] uppercase text-ink-500">Collected</div><div className="mt-1 text-[15px] font-bold text-emerald-600">{formatMoney(s.totalCollected, cur)}</div></div>
+            <div><div className="text-[10px] uppercase text-ink-500">Discount</div><div className="mt-1 text-[15px] font-bold">{formatPct(s.effectiveDiscountPct)}</div></div>
+            <div><div className="text-[10px] uppercase text-ink-500">Amount due</div><div className="mt-1 text-[15px] font-bold">{formatMoney(s.amountDue, cur)}</div></div>
           </div>
         </div>
       </section>
 
       <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-line bg-panel text-center text-[10.5px] font-bold text-ink-500">
-        <div className="border-r border-line px-2 py-2.5"><span className="mr-1 text-primary">1</span> Set price</div>
-        <div className="border-r border-line px-2 py-2.5"><span className="mr-1 text-primary">2</span> Record payment</div>
-        <div className="px-2 py-2.5"><span className="mr-1 text-primary">3</span> Verify balance</div>
+        <div className="border-r border-line px-2 py-2.5"><span className="me-1 text-primary">1</span> Set price</div>
+        <div className="border-r border-line px-2 py-2.5"><span className="me-1 text-primary">2</span> Record payment</div>
+        <div className="px-2 py-2.5"><span className="me-1 text-primary">3</span> Verify balance</div>
       </div>
 
       <QuoteEditor fin={fin} onChanged={onChanged} />
 
-      <section className="border-l-4 border-l-amber-500">
+      <section className="border-s-4 border-s-amber-500">
         <SectionLabel>How installments work</SectionLabel>
         <ol className="grid gap-2 text-[12px] text-ink-700 md:grid-cols-3">
           <li className="bg-amber-50 p-3"><strong className="block text-amber-800">1. Confirm the quote</strong>Save the full agreed service price first. Do not reduce the quote to the amount being paid today.</li>

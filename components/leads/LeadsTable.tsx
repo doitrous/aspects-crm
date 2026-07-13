@@ -50,8 +50,8 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
             <th className="px-3 py-2.5 font-semibold">Status</th>
             <th className="px-3 py-2.5 font-semibold">Booking</th>
             <th className="px-3 py-2.5 font-semibold">Coordinator</th>
-            <th className="px-3 py-2.5 pr-[18px] text-right font-semibold">SLA</th>
-            {canDelete&&<th className="px-3 py-2.5 pr-[18px] text-right font-semibold">Admin actions</th>}
+            <th className="px-3 py-2.5 pe-[18px] text-right font-semibold">SLA</th>
+            {canDelete&&<th className="px-3 py-2.5 pe-[18px] text-right font-semibold">Admin actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -146,7 +146,7 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
                 <td className="px-3 py-3 text-ink-600">
                   {lead.assignedModerator ?? "—"}
                 </td>
-                <td className="px-3 py-3 pr-[18px] text-right">
+                <td className="px-3 py-3 pe-[18px] text-right">
                   <span
                     className={
                       "font-mono text-[11px] font-semibold " +
@@ -157,12 +157,12 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
                     {lead.lastMessageAt ? formatAge(lead.lastMessageAt, nowDate) : "—"}
                   </span>
                   {lead.overdueReason && (
-                    <div className="ml-auto mt-1 max-w-[220px] rounded-md bg-danger-bg px-2 py-1 text-left text-[10px] font-semibold leading-snug text-danger">
+                    <div className="ms-auto mt-1 max-w-[220px] rounded-md bg-danger-bg px-2 py-1 text-left text-[10px] font-semibold leading-snug text-danger">
                       {lead.overdueReason}
                     </div>
                   )}
                 </td>
-                {canDelete&&<td className="px-3 py-3 pr-[18px] text-right"><DeleteLeadButton leadId={lead.id} patientName={lead.patientName}/></td>}
+                {canDelete&&<td className="px-3 py-3 pe-[18px] text-right"><DeleteLeadButton leadId={lead.id} patientName={lead.patientName}/></td>}
               </tr>
             );
           })}

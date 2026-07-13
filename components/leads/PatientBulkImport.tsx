@@ -274,7 +274,7 @@ export function PatientBulkImport() {
 
       <Card className="p-5">
         <StepLabel step={5}>Rows that will be skipped</StepLabel><h2 className="mt-1 text-lg font-black text-ink-900">{rowsToSkip.length ? `${rowsToSkip.length} rows will be skipped` : "No rows will be skipped for validation"}</h2><p className="mt-1 text-[12px] text-ink-500">Turn on “Import invalid rows too” in Step 6 to include rows listed here. Invalid values are preserved as import metadata when they cannot be placed in a validated CRM field.</p>
-        {rowsToSkip.length > 0 && <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-red-200 bg-red-50/40">{rowsToSkip.map((row) => <div key={row.rowIndex} className="border-b border-red-100 px-3 py-2 text-[11.5px]"><span className="font-mono font-bold text-red-700">Row {row.rowIndex + 1}</span><span className="ml-2 text-red-700">{row.errors.join(" · ")}</span></div>)}</div>}
+        {rowsToSkip.length > 0 && <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-red-200 bg-red-50/40">{rowsToSkip.map((row) => <div key={row.rowIndex} className="border-b border-red-100 px-3 py-2 text-[11.5px]"><span className="font-mono font-bold text-red-700">Row {row.rowIndex + 1}</span><span className="ms-2 text-red-700">{row.errors.join(" · ")}</span></div>)}</div>}
       </Card>
 
       <Card className="border-primary/20 p-5">

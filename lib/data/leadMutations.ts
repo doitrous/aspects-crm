@@ -403,6 +403,19 @@ export async function setLeadTagAssignments(leadId: string, tagIds: string[]): P
     if (error) throw new Error(`addLeadTags: ${error.message}`);
   }
 
+  // Never report success until the database confirms the exact assignment set.
+  // This catches partial writes, unexpected triggers, and stale-client races.
+  const { data: persisted, error: persistedError } = await supabaseAdmin()
+    .from("lead_tag_assignments")
+    .select("tag_id")
+    .eq("lead_id", lead.id);
+  if (persistedError) throw new Error(`verifyLeadTags: ${persistedError.message}`);
+  const persistedIds = ((persisted ?? []) as { tag_id: string }[]).map((row) => row.tag_id).sort();
+  const requestedIds = [...unique].sort();
+  if (persistedIds.length !== requestedIds.length || persistedIds.some((id, index) => id !== requestedIds[index])) {
+    throw new LeadMutationError("Tags could not be verified after saving. Refresh and try again.");
+  }
+
   await audit({
     actorId: actor.id,
     action: "lead.tags_updated",

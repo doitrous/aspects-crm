@@ -180,7 +180,7 @@ function DateGrid({
               className={
                 "h-10 rounded-control border text-[12px] font-semibold " +
                 (isSelected
-                  ? "border-primary bg-ink-900 text-white"
+                  ? "border-primary bg-primary text-white"
                   : disabled || !inMonth
                     ? "border-line-faint bg-line-faint/30 text-ink-300"
                     : "border-[#c7edf0] bg-[#f6fbfb] text-ink-700 hover:border-primary")

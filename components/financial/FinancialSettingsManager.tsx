@@ -16,16 +16,19 @@ import {
   addBundleComponentAction,
   upsertPaymentMethodAction,
   upsertStaffCommissionAction,
+  duplicateConsumableRuleAction,
+  duplicateDiscountRuleAction,
+  duplicateDoctorCompRuleAction,
   type FinancialSettingsActionState,
 } from "@/app/(crm)/financial/settings/actions";
 import { Card } from "@/components/ui/Card";
 import type { FinancialSettingsData, FinancialServiceSetting } from "@/lib/data/financialSettings";
 
 const IDLE: FinancialSettingsActionState = {};
-const field = "rounded-control border border-line-soft bg-panel px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary disabled:opacity-60";
+const field = "min-w-0 rounded-control border border-line-soft bg-panel px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary disabled:opacity-60";
 const label = "flex flex-col gap-1 text-[11px] font-semibold text-ink-500";
 
-type Tab =
+export type FinancialSettingsTab =
   | "overview"
   | "services"
   | "discounts"
@@ -38,7 +41,7 @@ type Tab =
   | "reports"
   | "general";
 
-const TABS: Array<{ key: Tab; label: string }> = [
+const TABS: Array<{ key: FinancialSettingsTab; label: string }> = [
   { key: "overview", label: "Overview" },
   { key: "services", label: "Service Pricing" },
   { key: "discounts", label: "Discount Rules" },
@@ -71,7 +74,11 @@ function money(n: number): string {
 }
 
 function SettingsHero({ eyebrow, title, description, stats }: { eyebrow: string; title: string; description: string; stats: Array<{ label: string; value: number | string }> }) {
-  return <div className="rounded-card bg-slate-950 p-5 text-white"><div className="text-[10px] font-black uppercase tracking-[0.17em] text-blue-300">{eyebrow}</div><div className="mt-2 text-[22px] font-black tracking-tight">{title}</div><p className="mt-1 max-w-2xl text-[12px] leading-5 text-slate-300">{description}</p><div className="mt-4 flex flex-wrap gap-2">{stats.map((stat) => <div key={stat.label} className="rounded-control border border-white/15 bg-white/10 px-3 py-2"><div className="text-[16px] font-black">{stat.value}</div><div className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{stat.label}</div></div>)}</div></div>;
+  return <div className="section-hero rounded-card p-5"><div className="section-hero-eyebrow text-[10px] font-black uppercase tracking-[0.17em]">{eyebrow}</div><div className="mt-2 text-[22px] font-black tracking-tight text-ink-950">{title}</div><p className="section-hero-muted mt-1 max-w-2xl text-[12px] leading-5">{description}</p><div className="mt-4 flex flex-wrap gap-2">{stats.map((stat) => <div key={stat.label} className="section-hero-stat rounded-control px-3 py-2"><div className="text-[16px] font-black text-ink-950">{stat.value}</div><div className="text-[9px] font-bold uppercase tracking-wide text-ink-500">{stat.label}</div></div>)}</div></div>;
+}
+
+function CheckboxPicker({ name, options }: { name: string; options: Array<{ value: string; label: string }> }) {
+  return <div className="max-h-48 space-y-1 overflow-y-auto rounded-control border border-line-soft bg-panel p-2">{options.map((option) => <label key={option.value} className="flex min-w-0 items-center gap-2 rounded px-2 py-1.5 text-[11.5px] text-ink-700 hover:bg-primary-soft"><input type="checkbox" name={name} value={option.value} /><span className="truncate">{option.label}</span></label>)}</div>;
 }
 
 function serviceRef(s: FinancialServiceSetting): string {
@@ -108,13 +115,12 @@ function ServicePriceForm({ service }: { service: FinancialServiceSetting }) {
         <div><div className="text-[13px] font-black text-ink-900">{service.serviceName}</div><div className="mt-0.5 text-[10.5px] text-ink-400">{service.specialtyName ? `Specific to ${service.specialtyName}` : "Available across all specialties"} {service.serviceCode ? `· ${service.serviceCode}` : ""}</div></div>
         <span className={"rounded-full px-2 py-1 text-[9.5px] font-black " + (complete ? "bg-emerald-50 text-emerald-700" : "bg-amber-100 text-amber-800")}>{complete ? "READY" : "NEEDS INFO"}</span>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[1fr_90px_1fr_1.2fr_auto_auto] xl:items-end">
-      <label className={label}>Base price<input name="basePrice" type="number" min={0} step="0.01" defaultValue={service.basePrice} className={field} /></label>
-      <label className={label}>Currency<input name="currency" defaultValue={service.currency} className={field} /></label>
-      <label className={label}>Consumables<input name="defaultConsumablesCost" type="number" min={0} step="0.01" defaultValue={service.defaultConsumablesCost} className={field} /></label>
-      <label className={label}>Effective from<input name="effectiveFrom" type="date" defaultValue={service.effectiveFrom ?? ""} className={field} /></label>
-      <label className="flex items-center gap-1.5 pb-2 text-[12px] text-ink-700"><input type="checkbox" name="active" defaultChecked={service.active} /> Active</label>
-      <div className="flex items-center gap-2"><Save pending={pending} /><Feedback state={state} /></div>
+      <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <label className={label}>Base price<input name="basePrice" type="number" min={0} step="0.01" defaultValue={service.basePrice} className={`${field} w-full`} /></label>
+      <label className={label}>Currency<input name="currency" defaultValue={service.currency} className={`${field} w-full`} /></label>
+      <label className={label}>Consumables<input name="defaultConsumablesCost" type="number" min={0} step="0.01" defaultValue={service.defaultConsumablesCost} className={`${field} w-full`} /></label>
+      <label className={label}>Effective from<input name="effectiveFrom" type="date" defaultValue={service.effectiveFrom ?? ""} className={`${field} w-full`} /></label>
+      <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-4"><label className="flex items-center gap-1.5 text-[12px] text-ink-700"><input type="checkbox" name="active" defaultChecked={service.active} /> Active</label><Save pending={pending} /><Feedback state={state} /></div>
       </div>
     </form>
   );
@@ -139,9 +145,9 @@ function Services({ data }: { data: FinancialSettingsData }) {
   }, [filtered]);
   const ready = data.services.filter((service) => service.id && service.basePrice > 0 && service.active).length;
   return <div className="space-y-4">
-    <div className="rounded-xl bg-ink-900 p-5 text-white"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Pricing coverage</div><div className="mt-2 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end"><div><h3 className="text-[22px] font-black">Service pricing</h3><p className="mt-1 max-w-2xl text-[12px] text-white/65">Every canonical service is grouped by specialty and clearly marked when pricing or activation is incomplete. Historical patient quotes remain frozen.</p></div><div className="flex gap-2"><div className="rounded-lg bg-white/10 px-3 py-2"><div className="text-[18px] font-black text-emerald-300">{ready}</div><div className="text-[9px] uppercase text-white/50">Ready</div></div><div className="rounded-lg bg-white/10 px-3 py-2"><div className="text-[18px] font-black text-amber-300">{data.services.length - ready}</div><div className="text-[9px] uppercase text-white/50">Needs info</div></div></div></div></div>
+    <div className="section-hero rounded-xl p-5"><div className="section-hero-eyebrow text-[10px] font-black uppercase tracking-[0.16em]">Pricing coverage</div><div className="mt-2 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end"><div><h3 className="text-[22px] font-black text-ink-950">Service pricing</h3><p className="section-hero-muted mt-1 max-w-2xl text-[12px]">Every canonical service is grouped by specialty and clearly marked when pricing or activation is incomplete. Historical patient quotes remain frozen.</p></div><div className="flex gap-2"><div className="section-hero-stat rounded-lg px-3 py-2"><div className="text-[18px] font-black text-emerald-600">{ready}</div><div className="text-[9px] uppercase text-ink-500">Ready</div></div><div className="section-hero-stat rounded-lg px-3 py-2"><div className="text-[18px] font-black text-amber-600">{data.services.length - ready}</div><div className="text-[9px] uppercase text-ink-500">Needs info</div></div></div></div></div>
     <Card className="p-4"><div className="grid gap-2 sm:grid-cols-[1fr_180px]"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search service or specialty…" className={field} /><select value={status} onChange={(event) => setStatus(event.target.value as typeof status)} className={field}><option value="all">All services</option><option value="missing">Needs information</option><option value="ready">Ready</option></select></div></Card>
-    {groups.map(([specialty, services]) => <Card key={specialty} className="p-4"><div className="mb-3 flex items-center justify-between border-b border-line pb-3"><div><h4 className="text-[15px] font-black text-ink-900">{specialty}</h4><p className="mt-0.5 text-[10.5px] text-ink-400">{specialty === "All specialties" ? "Clinic-wide services" : "Services currently assigned to this specialty"}</p></div><span className="rounded-full bg-line-faint px-2.5 py-1 text-[10px] font-black text-ink-500">{services.length}</span></div><div className="grid gap-3 2xl:grid-cols-2">{services.map((service) => <ServicePriceForm key={`${service.serviceId ?? service.serviceName}-${service.id ?? ""}`} service={service} />)}</div></Card>)}
+    {groups.map(([specialty, services]) => <Card key={specialty} className="min-w-0 p-4"><div className="mb-3 flex items-center justify-between border-b border-line pb-3"><div><h4 className="text-[15px] font-black text-ink-900">{specialty}</h4><p className="mt-0.5 text-[10.5px] text-ink-400">{specialty === "All specialties" ? "Clinic-wide services" : "Services currently assigned to this specialty"}</p></div><span className="rounded-full bg-line-faint px-2.5 py-1 text-[10px] font-black text-ink-500">{services.length}</span></div><div className="grid min-w-0 gap-3">{services.map((service) => <ServicePriceForm key={`${service.serviceId ?? service.serviceName}-${service.id ?? ""}`} service={service} />)}</div></Card>)}
     {groups.length === 0 && <Card className="p-8 text-center text-[12px] text-ink-400">No services match this filter.</Card>}
   </div>;
 }
@@ -176,27 +182,35 @@ function Discounts({ data }: { data: FinancialSettingsData }) {
       </form>
       <ClientPager page={page} pages={pages} setPage={setPage} />
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-[12px]"><thead><tr className="border-b border-line-soft text-left text-[10px] uppercase text-ink-400"><th className="py-1.5">Scope</th><th>Moderator</th><th>Service</th><th>Max</th><th>Window</th><th>State</th><th>Actions</th></tr></thead><tbody>{data.discountRules.slice((page - 1) * 30, page * 30).map((r) => <DiscountRuleRow key={r.id} rule={r} />)}</tbody></table>
+        <table className="w-full min-w-[860px] text-[12px]"><thead><tr className="border-b border-line-soft text-left text-[10px] uppercase text-ink-400"><th className="py-1.5">Scope</th><th>Moderator</th><th>Service</th><th>Max</th><th>Window</th><th>State</th><th>Actions</th></tr></thead><tbody>{data.discountRules.slice((page - 1) * 30, page * 30).map((r) => <DiscountRuleRow key={r.id} rule={r} data={data} />)}</tbody></table>
       </div>
       <ClientPager page={page} pages={pages} setPage={setPage} />
     </Card>
   );
 }
 
-function DiscountRuleRow({ rule: r }: { rule: FinancialSettingsData["discountRules"][number] }) {
-  const [editing, setEditing] = useState(false);
+function DiscountRuleRow({ rule: r, data }: { rule: FinancialSettingsData["discountRules"][number]; data: FinancialSettingsData }) {
+  const [mode, setMode] = useState<"view" | "edit" | "duplicate">("view");
   const [state, action, pending] = useActionState(upsertDiscountRuleAction, IDLE);
   const [delState, delAction, delPending] = useActionState(deleteDiscountRuleAction, IDLE);
-  if (editing) return <tr className="border-b border-line-faint"><td colSpan={7} className="py-2"><form action={action} className="flex flex-wrap items-end gap-2">
+  const [duplicateState, duplicateAction, duplicatePending] = useActionState(duplicateDiscountRuleAction, IDLE);
+  if (mode === "edit") return <tr className="border-b border-line-faint"><td colSpan={7} className="py-2"><form action={action} className="flex flex-wrap items-end gap-2">
     <input type="hidden" name="id" value={r.id} /><input type="hidden" name="scope" value={r.scope} />
     <input type="hidden" name="moderatorId" value={r.moderatorId ?? ""} /><input type="hidden" name="serviceId" value={r.serviceId ?? ""} /><input type="hidden" name="serviceName" value={r.serviceName ?? ""} />
     <label className={label}>Maximum discount %<input className={field} name="maxDiscountPct" type="number" min={0} max={100} step="0.01" defaultValue={r.maxDiscountPct} /></label>
     <label className={label}>Effective from<input className={field} name="effectiveFrom" type="date" defaultValue={r.effectiveFrom ?? ""} /></label>
     <label className={label}>Effective to<input className={field} name="effectiveTo" type="date" defaultValue={r.effectiveTo ?? ""} /></label>
     <label className="pb-2 text-[12px]"><input name="active" type="checkbox" defaultChecked={r.active} /> Active</label>
-    <Save pending={pending} /><button type="button" onClick={() => setEditing(false)} className="h-8 px-2 text-[12px]">Cancel</button><Feedback state={state} />
+    <Save pending={pending} /><button type="button" onClick={() => setMode("view")} className="h-8 px-2 text-[12px]">Cancel</button><Feedback state={state} />
   </form></td></tr>;
-  return <tr className="border-b border-line-faint"><td className="py-1.5">{r.scope}</td><td>{r.moderatorName ?? "-"}</td><td>{r.serviceName ?? r.serviceId ?? "-"}</td><td>{r.maxDiscountPct}%</td><td>{r.effectiveFrom ?? "now"} - {r.effectiveTo ?? "open"}</td><td>{r.active ? "Active" : "Off"}</td><td className="flex gap-2 py-1.5"><button onClick={() => setEditing(true)} className="font-semibold text-primary">Edit</button><form action={delAction}><input type="hidden" name="id" value={r.id} /><button disabled={delPending} className="font-semibold text-red-600">{delPending ? "Deleting..." : "Delete"}</button></form><Feedback state={delState} /></td></tr>;
+  if (mode === "duplicate") return <tr className="border-b border-line-faint"><td colSpan={7} className="py-3"><form action={duplicateAction} className="rounded-control border border-primary/20 bg-primary-soft/20 p-3"><input type="hidden" name="sourceId" value={r.id} /><div className="mb-3"><div className="text-[13px] font-black text-ink-900">Duplicate this {r.maxDiscountPct}% privilege</div><p className="text-[11px] text-ink-500">Choose moderators, services, or both. Selecting both creates every selected combination.</p></div><div className="grid gap-3 md:grid-cols-2"><label className={label}>Moderators<CheckboxPicker name="targetModeratorRef" options={data.moderators.map((m) => ({ value: `${m.id}::${m.name}`, label: m.name }))} /></label><label className={label}>Services<CheckboxPicker name="targetServiceRef" options={data.services.map((s) => ({ value: serviceRef(s), label: s.serviceName }))} /></label></div><div className="mt-3 flex flex-wrap items-center gap-2"><Save pending={duplicatePending}>Duplicate to selected</Save><button type="button" onClick={() => setMode("view")} className="h-8 px-2 text-[12px]">Cancel</button><Feedback state={duplicateState} /></div></form></td></tr>;
+  return <tr className="border-b border-line-faint"><td className="py-1.5">{r.scope}</td><td>{r.moderatorName ?? "-"}</td><td>{r.serviceName ?? r.serviceId ?? "-"}</td><td>{r.maxDiscountPct}%</td><td>{r.effectiveFrom ?? "now"} - {r.effectiveTo ?? "open"}</td><td>{r.active ? "Active" : "Off"}</td><td className="flex gap-2 py-1.5"><button type="button" onClick={() => setMode("edit")} className="font-semibold text-primary">Edit</button><button type="button" onClick={() => setMode("duplicate")} className="font-semibold text-primary">Duplicate</button><form action={delAction}><input type="hidden" name="id" value={r.id} /><button disabled={delPending} className="font-semibold text-red-600">{delPending ? "Deleting..." : "Delete"}</button></form><Feedback state={delState} /></td></tr>;
+}
+
+function ConsumableDefaultRow({ item, data }: { item: FinancialSettingsData["serviceConsumableDefaults"][number]; data: FinancialSettingsData }) {
+  const [open, setOpen] = useState(false);
+  const [state, action, pending] = useActionState(duplicateConsumableRuleAction, IDLE);
+  return <div className="mt-1 rounded-control border border-line-faint bg-panel/70 px-2.5 py-2 text-[11.5px] text-ink-600"><div className="flex flex-wrap items-center justify-between gap-2"><span>{item.description} · <b>{money(item.totalCost)} EGP</b> {item.active ? "" : "(inactive)"}</span><button type="button" onClick={() => setOpen((value) => !value)} className="font-bold text-primary">Duplicate</button></div>{open && <form action={action} className="mt-2 border-t border-line-faint pt-2"><input type="hidden" name="sourceId" value={item.id} /><p className="mb-2 text-[10.5px] text-ink-500">Copy quantity, unit cost and active state to one or more services.</p><CheckboxPicker name="targetServiceRef" options={data.services.map((service) => ({ value: serviceRef(service), label: service.serviceName }))} /><div className="mt-2 flex flex-wrap items-center gap-2"><Save pending={pending}>Duplicate to services</Save><button type="button" onClick={() => setOpen(false)} className="h-8 px-2 text-[11px]">Cancel</button><Feedback state={state} /></div></form>}</div>;
 }
 
 function Consumables({ data }: { data: FinancialSettingsData }) {
@@ -228,13 +242,13 @@ function Consumables({ data }: { data: FinancialSettingsData }) {
         </div>
       </form>
       </div>
-      <Card className="p-4"><div className="mb-4"><h4 className="mb-2 text-[14px] font-black text-ink-900">Component catalog</h4><div className="flex flex-wrap gap-2">{data.consumableComponents.map((c) => <div key={c.id} className="rounded-control border border-line-soft bg-panel px-3 py-2 text-[12px]"><span className="font-bold text-ink-900">{c.name}</span><span className="ml-2 text-ink-500">{money(c.unitCost)} EGP {c.active ? "" : "· off"}</span></div>)}</div></div>
+      <Card className="p-4"><div className="mb-4"><h4 className="mb-2 text-[14px] font-black text-ink-900">Component catalog</h4><div className="flex flex-wrap gap-2">{data.consumableComponents.map((c) => <div key={c.id} className="rounded-control border border-line-soft bg-panel px-3 py-2 text-[12px]"><span className="font-bold text-ink-900">{c.name}</span><span className="ms-2 text-ink-500">{money(c.unitCost)} EGP {c.active ? "" : "· off"}</span></div>)}</div></div>
       <div className="mb-2 flex items-end justify-between gap-2"><div><h4 className="text-[14px] font-black text-ink-900">Service coverage</h4><p className="text-[11px] text-ink-500">Amber services still need a cost setup.</p></div><span className="rounded-pill bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-800">{servicesMissing} missing</span></div>
       <ClientPager page={page} pages={Math.ceil(data.services.length / 30)} setPage={setPage} />
       <div className="grid gap-2 md:grid-cols-2">
         {data.services.slice((page - 1) * 30, page * 30).map((service) => {
           const defaults = data.serviceConsumableDefaults.filter((item) => item.serviceId ? item.serviceId === service.serviceId : item.serviceName === service.serviceName);
-          return <div key={serviceRef(service)} className={`rounded-control border p-3 ${defaults.length ? "border-line-soft bg-white" : "border-amber-200 bg-amber-50"}`}><div className="text-[12px] font-black text-ink-900">{service.serviceName}</div>{defaults.length ? defaults.map((item) => <div key={item.id} className="mt-1 text-[11.5px] text-ink-600">{item.description} · <b>{money(item.totalCost)} EGP</b> {item.active ? "" : "(inactive)"}</div>) : <div className="mt-1 text-[11.5px] font-bold text-amber-700">Needs consumables setup</div>}</div>;
+          return <div key={serviceRef(service)} className={`min-w-0 rounded-control border p-3 ${defaults.length ? "border-line-soft bg-white" : "border-amber-200 bg-amber-50"}`}><div className="text-[12px] font-black text-ink-900">{service.serviceName}</div>{defaults.length ? defaults.map((item) => <ConsumableDefaultRow key={item.id} item={item} data={data} />) : <div className="mt-1 text-[11.5px] font-bold text-amber-700">Needs consumables setup</div>}</div>;
         })}
       </div>
       <ClientPager page={page} pages={Math.ceil(data.services.length / 30)} setPage={setPage} />
@@ -272,6 +286,12 @@ function PaymentMethodForm({ method, data }: { method?: FinancialSettingsData["p
   return <form action={action} className="flex flex-wrap items-end gap-2 border-b py-2">{method && <input type="hidden" name="id" value={method.id} />}<label className={label}>Key<input name="methodKey" required readOnly={Boolean(method)} defaultValue={method?.methodKey ?? ""} className={field} /></label><label className={label}>Display name<input name="displayName" required defaultValue={method?.displayName ?? ""} className={field} /></label><label className={label}>Ledger method<select name="ledgerMethod" defaultValue={method?.ledgerMethod ?? "other"} className={field}>{data.paymentMethods.map((m) => <option key={m} value={m}>{m}</option>)}</select></label><label className={label}>Order<input name="displayOrder" type="number" defaultValue={method?.displayOrder ?? data.paymentMethodSettings.length * 10 + 10} className={`${field} w-20`} /></label><label className="pb-2 text-[12px]"><input name="active" type="checkbox" defaultChecked={method?.active ?? true} /> Active</label><Save pending={pending}>{method ? "Save" : "Add method"}</Save><Feedback state={state} /></form>;
 }
 
+function DoctorCompRuleCard({ rule, data }: { rule: FinancialSettingsData["doctorCompRules"][number]; data: FinancialSettingsData }) {
+  const [open, setOpen] = useState(false);
+  const [state, action, pending] = useActionState(duplicateDoctorCompRuleAction, IDLE);
+  return <div className="rounded-control border border-line-soft bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[12px] font-black text-ink-900">{rule.serviceName ?? rule.serviceId ?? "All services"}</div><div className="mt-1 text-[11px] text-ink-500">{rule.kind === "fixed" ? `${money(rule.value)} EGP fixed` : `${rule.value}%`} · based on {rule.basis.replaceAll("_", " ")}</div></div><div className="flex items-center gap-2"><span className={`text-[10px] font-bold ${rule.active ? "text-emerald-700" : "text-ink-400"}`}>{rule.active ? "Active" : "Off"}</span><button type="button" onClick={() => setOpen((value) => !value)} className="text-[11px] font-bold text-primary">Duplicate</button></div></div>{open && <form action={action} className="mt-3 border-t border-line-faint pt-3"><input type="hidden" name="sourceId" value={rule.id} /><p className="mb-2 text-[10.5px] text-ink-500">Choose doctors, services, or both. A blank group keeps that dimension from the original rule.</p><div className="grid gap-3 md:grid-cols-2"><label className={label}>Doctors<CheckboxPicker name="targetDoctorRef" options={data.doctors.doctors.map((doctor) => ({ value: `${doctor.id}::${doctor.nameEn}`, label: doctor.nameEn }))} /></label><label className={label}>Services<CheckboxPicker name="targetServiceRef" options={data.services.map((service) => ({ value: serviceRef(service), label: service.serviceName }))} /></label></div><div className="mt-3 flex flex-wrap items-center gap-2"><Save pending={pending}>Duplicate to selected</Save><button type="button" onClick={() => setOpen(false)} className="h-8 px-2 text-[11px]">Cancel</button><Feedback state={state} /></div></form>}</div>;
+}
+
 function Doctors({ data }: { data: FinancialSettingsData }) {
   const [ruleState, ruleAction, rulePending] = useActionState(upsertDoctorCompRuleAction, IDLE);
   const [doctorState, doctorAction, doctorPending] = useActionState(addFinancialDoctorAction, IDLE);
@@ -301,7 +321,7 @@ function Doctors({ data }: { data: FinancialSettingsData }) {
         <div className="flex items-center gap-2"><Save pending={rulePending}>Add rule</Save><Feedback state={ruleState} /></div>
       </form></details>
     </Card>
-      <div className="grid gap-3 xl:grid-cols-2">{doctorsWithRules.map(({ doctor, rules }) => <Card key={doctor.id} className={`p-4 ${rules.length ? "" : "border-amber-200 bg-amber-50/40"}`}><div className="flex items-start justify-between gap-3"><div><h3 className="text-[16px] font-black text-ink-950">{doctor.nameEn}</h3><div className="mt-1 text-[11px] text-ink-500">{doctor.active ? "Active in booking catalog" : "Inactive / not bookable"}</div></div><span className={`rounded-pill px-2 py-1 text-[10px] font-black ${rules.length ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>{rules.length ? `${rules.length} rule${rules.length === 1 ? "" : "s"}` : "Needs payout rule"}</span></div><div className="mt-3 space-y-2">{rules.map((rule) => <div key={rule.id} className="rounded-control border border-line-soft bg-white p-3"><div className="flex items-center justify-between gap-3"><div><div className="text-[12px] font-black text-ink-900">{rule.serviceName ?? rule.serviceId ?? "All services"}</div><div className="mt-1 text-[11px] text-ink-500">{rule.kind === "fixed" ? `${money(rule.value)} EGP fixed` : `${rule.value}%`} · based on {rule.basis.replaceAll("_", " ")}</div></div><span className={`text-[10px] font-bold ${rule.active ? "text-emerald-700" : "text-ink-400"}`}>{rule.active ? "Active" : "Off"}</span></div></div>)}</div></Card>)}</div>
+      <div className="grid gap-3 xl:grid-cols-2">{doctorsWithRules.map(({ doctor, rules }) => <Card key={doctor.id} className={`min-w-0 p-4 ${rules.length ? "" : "border-amber-200 bg-amber-50/40"}`}><div className="flex items-start justify-between gap-3"><div><h3 className="text-[16px] font-black text-ink-950">{doctor.nameEn}</h3><div className="mt-1 text-[11px] text-ink-500">{doctor.active ? "Active in booking catalog" : "Inactive / not bookable"}</div></div><span className={`rounded-pill px-2 py-1 text-[10px] font-black ${rules.length ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>{rules.length ? `${rules.length} rule${rules.length === 1 ? "" : "s"}` : "Needs payout rule"}</span></div><div className="mt-3 space-y-2">{rules.map((rule) => <DoctorCompRuleCard key={rule.id} rule={rule} data={data} />)}</div></Card>)}</div>
     </div>
   );
 }
@@ -325,14 +345,22 @@ function ExternalDefaults({ data }: { data: FinancialSettingsData }) {
   );
 }
 
-export function FinancialSettingsManager({ data }: { data: FinancialSettingsData }) {
-  const [tab, setTab] = useState<Tab>("overview");
+export function FinancialSettingsManager({ data, initialTab }: { data: FinancialSettingsData; initialTab?: string }) {
+  const validInitial = TABS.some((item) => item.key === initialTab) ? initialTab as FinancialSettingsTab : "overview";
+  const [tab, setTab] = useState<FinancialSettingsTab>(validInitial);
+  function selectTab(next: FinancialSettingsTab) {
+    setTab(next);
+    const url = new URL(window.location.href);
+    if (next === "overview") url.searchParams.delete("financeTab");
+    else url.searchParams.set("financeTab", next);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-line bg-panel p-4"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-primary">Financial control center</div><div className="mt-1 text-[20px] font-black text-ink-900">Pricing, privileges and cost rules</div><p className="mt-1 text-[11.5px] text-ink-500">Configure the inputs once; lead payments, dashboards and finalized reports all use the same rules.</p></div>
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_1fr]">
-      <aside className="flex flex-row flex-wrap gap-1 rounded-xl border border-line bg-panel p-2 lg:sticky lg:top-3 lg:h-fit lg:flex-col">
-        {TABS.map((t) => <button key={t.key} onClick={() => setTab(t.key)} className={"rounded-control px-3 py-2 text-left text-[12.5px] font-semibold " + (tab === t.key ? "bg-primary-soft text-primary" : "text-ink-600 hover:bg-line-faint/60")}>{t.label}</button>)}
+      <aside className="flex flex-row flex-nowrap gap-1 overflow-x-auto rounded-xl border border-line bg-panel p-2 lg:sticky lg:top-3 lg:h-fit lg:flex-col lg:overflow-visible">
+        {TABS.map((t) => <button type="button" aria-pressed={tab === t.key} key={t.key} onClick={() => selectTab(t.key)} className={"shrink-0 rounded-control px-3 py-2 text-left text-[12.5px] font-semibold lg:shrink " + (tab === t.key ? "bg-primary-soft text-primary" : "text-ink-600 hover:bg-line-faint/60")}>{t.label}</button>)}
       </aside>
       <div className="min-w-0">
         {tab === "overview" && <Card className="p-4"><h3 className="mb-2 text-[13px] font-bold text-ink-900">Financial Settings Overview</h3><div className="grid gap-2 sm:grid-cols-3"><Stat label="Canonical services" value={String(data.services.length)} /><Stat label="Pricing rows" value={String(data.services.filter((s) => s.id).length)} /><Stat label="Discount rules" value={String(data.discountRules.length)} /><Stat label="Admin doctors" value={String(data.doctors.doctors.length)} /><Stat label="Doctor comp rules" value={String(data.doctorCompRules.length)} /><Stat label="Default cost templates" value={String(data.serviceConsumableDefaults.length + data.externalCostDefaults.length)} /></div></Card>}

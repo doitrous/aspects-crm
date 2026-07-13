@@ -34,17 +34,17 @@ export function Sidebar({
   const pathname = usePathname();
   const nav = visibleNav(user.role);
   const current = activeHref(pathname, nav);
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
 
   return (
-    <aside id="crm-navigation" role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen || undefined} aria-hidden={!navigationActive || undefined} inert={!navigationActive || undefined} aria-label="Main navigation" className={cn("fixed inset-y-0 left-0 z-50 flex w-[min(86vw,280px)] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4 shadow-2xl transition-transform duration-100 md:static md:z-auto md:w-[210px] md:translate-x-0 md:shadow-none", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
+    <aside id="crm-navigation" role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen || undefined} aria-hidden={!navigationActive || undefined} inert={!navigationActive || undefined} aria-label="Main navigation" className={cn("fixed inset-y-0 start-0 z-50 flex w-[min(86vw,280px)] flex-none flex-col gap-0.5 border-e border-line-soft bg-sidebar px-3 py-4 shadow-2xl transition-transform duration-100 md:static md:z-auto md:w-[210px] md:translate-x-0 md:shadow-none", mobileOpen ? "translate-x-0" : locale === "ar" ? "translate-x-full" : "-translate-x-full")}>
       <div className="flex items-center justify-center px-2 pb-5 pt-1">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/aspects-clinica-logo.png" alt="Aspects Clinica" className="h-20 w-full object-contain" />
-        <button data-mobile-nav-close type="button" onClick={onMobileClose} aria-label="Close menu" className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full border border-line-soft bg-panel text-lg text-ink-600 md:hidden">×</button>
+        <button data-mobile-nav-close type="button" onClick={onMobileClose} aria-label="Close menu" className="absolute end-3 top-3 flex h-11 w-11 items-center justify-center rounded-full border border-line-soft bg-panel text-lg text-ink-600 md:hidden">×</button>
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+      <nav className="min-h-0 flex-1 overflow-y-auto pe-0.5">
       {nav.map((n, index) => {
         const active = current === n.href;
         const booked = n.href === "/booked";
@@ -52,7 +52,7 @@ export function Sidebar({
         const count = n.countKey ? counts[n.countKey] : undefined;
         const startsSection = index === 0 || nav[index - 1].section !== n.section;
         return (<div key={n.href} className={startsSection && index > 0 ? "mt-2 border-t border-line-faint pt-2" : ""}>
-          {startsSection && <div className="mb-1 px-2.5 text-[9px] font-bold uppercase tracking-[0.14em] text-ink-300">{NAV_SECTION_LABELS[n.section]}</div>}
+          {startsSection && <div className="mb-1 px-2.5 text-[9px] font-bold uppercase tracking-[0.14em] text-ink-300">{t(`nav.section.${n.section}`) || NAV_SECTION_LABELS[n.section]}</div>}
           <Link
             href={n.href}
             onClick={onMobileClose}
@@ -76,7 +76,7 @@ export function Sidebar({
             {count ? (
               <span
                 className={cn(
-                  "ml-auto font-mono text-[10.5px] font-semibold",
+                  "ms-auto font-mono text-[10.5px] font-semibold",
                   active ? "text-white/80" : "text-ink-400",
                 )}
               >

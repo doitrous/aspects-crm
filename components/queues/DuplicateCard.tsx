@@ -150,7 +150,7 @@ export function DuplicateCard({
         )}
         {resolved && rm && (
           <span
-            className="ml-auto rounded-pill px-2.5 py-1 text-[11px] font-semibold"
+            className="ms-auto rounded-pill px-2.5 py-1 text-[11px] font-semibold"
             style={{ background: rm.bg, color: rm.fg }}
           >
             {rm.label}
