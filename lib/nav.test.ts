@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { activeHref, visibleNav, type NavItem } from "./nav";
+import { activeHref, NAV, visibleNav, type NavItem } from "./nav";
 
 const ITEMS: NavItem[] = [
   { label: "Calendar", i18nKey: "nav.calendar", href: "/calendar", icon: "", section: "workspace" },
@@ -68,4 +68,17 @@ test("a moderator never sees the emails nav", () => {
 test("an admin sees every nav item", () => {
   assert.equal(visibleNav("admin").length >= visibleNav("auditor").length, true);
   assert.equal(visibleNav("admin").map((n) => n.href).includes("/settings"), true);
+});
+
+test("database workflows share one drawer section in the requested order", () => {
+  const databaseWorkflows = NAV.filter((item) => ["/database", "/duplicates", "/escalations"].includes(item.href));
+  assert.deepEqual(databaseWorkflows.map((item) => item.href), ["/database", "/duplicates", "/escalations"]);
+  assert.deepEqual(new Set(databaseWorkflows.map((item) => item.section)), new Set(["data"]));
+});
+
+test("bulk import appears directly below settings in administration", () => {
+  const settingsIndex = NAV.findIndex((item) => item.href === "/settings");
+  assert.equal(NAV[settingsIndex]?.section, "administration");
+  assert.equal(NAV[settingsIndex + 1]?.href, "/bulk-import");
+  assert.equal(NAV[settingsIndex + 1]?.section, "administration");
 });

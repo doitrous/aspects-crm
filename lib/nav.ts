@@ -28,15 +28,15 @@ export const NAV: NavItem[] = [
   { label: "Follow-Up", i18nKey: "nav.followUp", href: "/follow-up", icon: "↻", countKey: "followUp", section: "care" },
   { label: "Post-Op F/U", i18nKey: "nav.postOp", href: "/post-op", icon: "◌", section: "care" },
   { label: "Database", i18nKey: "nav.database", href: "/database", icon: "▤", section: "data" },
-  { label: "Bulk Import", i18nKey: "nav.bulkImport", href: "/bulk-import", icon: "⇪", roles: ["auditor", "admin"], section: "data" },
-  { label: "Duplicates", i18nKey: "nav.duplicates", href: "/duplicates", icon: "⧉", countKey: "duplicates", section: "operations" },
-  { label: "Escalations", i18nKey: "nav.escalations", href: "/escalations", icon: "⚑", countKey: "escalations", section: "operations" },
+  { label: "Duplicates", i18nKey: "nav.duplicates", href: "/duplicates", icon: "⧉", countKey: "duplicates", section: "data" },
+  { label: "Escalations", i18nKey: "nav.escalations", href: "/escalations", icon: "⚑", countKey: "escalations", section: "data" },
   { label: "Financial", i18nKey: "nav.financial", href: "/financial", icon: "₤", roles: ["auditor", "admin"], section: "finance" },
   { label: "Auditor", i18nKey: "nav.auditor", href: "/auditor", icon: "✓", roles: ["auditor", "admin"], section: "quality" },
   { label: "Reports", i18nKey: "nav.reports", href: "/reports", icon: "▦", roles: ["moderator", "auditor", "admin"], section: "quality" },
   { label: "Emails", i18nKey: "nav.emails", href: "/emails", icon: "✉", roles: ["admin", "auditor"], section: "administration" },
   // Auditors own operational configuration (§C); admins additionally manage users.
   { label: "Settings", i18nKey: "nav.settings", href: "/settings", icon: "⚙", roles: ["admin", "auditor"], section: "administration" },
+  { label: "Bulk Import", i18nKey: "nav.bulkImport", href: "/bulk-import", icon: "⇪", roles: ["auditor", "admin"], section: "administration" },
 ];
 
 /** Does `pathname` sit at or beneath `href`? `/settings` does not match `/settingsx`. */
