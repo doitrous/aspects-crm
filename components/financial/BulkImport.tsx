@@ -36,7 +36,7 @@ export function BulkImport() {
   function openPreview() {
     setPreviewOpen(true);
     setConfirmed(false);
-    setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "auto", block: "start" }), 0);
   }
 
   function setParsedSheet(sheet: ParsedSheet, openPreviewAfterParse = false) {
@@ -46,7 +46,7 @@ export function BulkImport() {
     setConfirmed(false);
     setPreviewOpen(openPreviewAfterParse);
     setParseError("");
-    if (openPreviewAfterParse) setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    if (openPreviewAfterParse) setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "auto", block: "start" }), 0);
   }
 
   function doParse(raw: string) {

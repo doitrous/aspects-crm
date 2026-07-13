@@ -57,7 +57,7 @@ export function MobileShell({ children, modal, counts, user, accounts, canImpers
 
   return <MobileMenuContext.Provider value={{ open, toggle: () => setOpen((value) => !value) }}>
     <div className="flex h-[100dvh] overflow-hidden bg-panel">
-      {open && <button type="button" aria-label="Close navigation" onClick={() => setOpen(false)} className="fixed inset-0 z-40 bg-ink-900/45 backdrop-blur-[1px] md:hidden" />}
+      {open && <button type="button" aria-label="Close navigation" onClick={() => setOpen(false)} className="fixed inset-0 z-40 bg-ink-900/45 md:hidden" />}
       <Sidebar counts={counts} user={user} accounts={accounts} canImpersonate={canImpersonate} impersonating={impersonating} theme={theme} mobileOpen={open} navigationActive={desktop || open} onMobileClose={() => setOpen(false)} />
       <main aria-hidden={open || undefined} className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</main>
       {modal}

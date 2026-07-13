@@ -9,6 +9,20 @@ set search_path = public, extensions;
 alter table public.lead_duplicate_flags
   drop constraint if exists lead_duplicate_flags_duplicate_type_check;
 
+-- Make this migration safe to run directly on legacy databases where 0024
+-- was previously attempted but its stricter constraint rolled back.
+delete from public.lead_duplicate_flags
+where status = 'pending'
+  and duplicate_type in ('mrn_similarity', 'name_similarity');
+
+update public.lead_duplicate_flags
+set duplicate_type = case duplicate_type
+  when 'mrn_similarity' then 'mrn'
+  when 'name_similarity' then 'name'
+  else duplicate_type
+end
+where duplicate_type in ('mrn_similarity', 'name_similarity');
+
 alter table public.lead_duplicate_flags
   add constraint lead_duplicate_flags_duplicate_type_check
   check (duplicate_type in (
@@ -240,18 +254,80 @@ after insert or update of mrn, lead_id, patient_id, metadata
 on public.leads
 for each row execute function public.crm_flag_priority_identifiers_trigger();
 
--- Backfill the new identity rules for existing active records.
-do $$
-declare
-  lead_record record;
-begin
-  for lead_record in
-    select id from public.leads where merged_into_lead_id is null
-  loop
-    perform public.crm_flag_priority_identifiers(lead_record.id);
-  end loop;
-end;
-$$;
+-- Backfill existing records set-wise. This stays fast for large patient
+-- databases while the trigger above handles one changed lead at a time.
+insert into public.lead_duplicate_flags (
+  lead_id, duplicate_lead_id, duplicate_type, identifier_value, confidence_score
+)
+select
+  first_lead.id,
+  second_lead.id,
+  'mrn',
+  lower(btrim(first_lead.mrn)),
+  1
+from public.leads as first_lead
+join public.leads as second_lead
+  on second_lead.id > first_lead.id
+ and lower(btrim(second_lead.mrn)) = lower(btrim(first_lead.mrn))
+where first_lead.merged_into_lead_id is null
+  and second_lead.merged_into_lead_id is null
+  and nullif(btrim(first_lead.mrn), '') is not null
+on conflict do nothing;
+
+insert into public.lead_duplicate_flags (
+  lead_id, duplicate_lead_id, duplicate_type, identifier_value, confidence_score
+)
+select
+  first_lead.id,
+  second_lead.id,
+  'lead_id',
+  lower(btrim(first_lead.lead_id)),
+  1
+from public.leads as first_lead
+join public.leads as second_lead
+  on second_lead.id > first_lead.id
+ and lower(btrim(second_lead.lead_id)) = lower(btrim(first_lead.lead_id))
+where first_lead.merged_into_lead_id is null
+  and second_lead.merged_into_lead_id is null
+  and nullif(btrim(first_lead.lead_id), '') is not null
+on conflict do nothing;
+
+insert into public.lead_duplicate_flags (
+  lead_id, duplicate_lead_id, duplicate_type, identifier_value, confidence_score
+)
+select
+  first_lead.id,
+  second_lead.id,
+  'unique_id',
+  'patient:' || first_lead.patient_id::text,
+  1
+from public.leads as first_lead
+join public.leads as second_lead
+  on second_lead.id > first_lead.id
+ and second_lead.patient_id = first_lead.patient_id
+where first_lead.patient_id is not null
+  and first_lead.merged_into_lead_id is null
+  and second_lead.merged_into_lead_id is null
+on conflict do nothing;
+
+insert into public.lead_duplicate_flags (
+  lead_id, duplicate_lead_id, duplicate_type, identifier_value, confidence_score
+)
+select
+  first_lead.id,
+  second_lead.id,
+  'unique_id',
+  public.crm_lead_external_unique_id(first_lead.metadata),
+  1
+from public.leads as first_lead
+join public.leads as second_lead
+  on second_lead.id > first_lead.id
+ and public.crm_lead_external_unique_id(second_lead.metadata)
+    = public.crm_lead_external_unique_id(first_lead.metadata)
+where public.crm_lead_external_unique_id(first_lead.metadata) is not null
+  and first_lead.merged_into_lead_id is null
+  and second_lead.merged_into_lead_id is null
+on conflict do nothing;
 
 revoke all on function public.crm_validate_duplicate_evidence() from public, anon, authenticated;
 revoke all on function public.crm_lead_external_unique_id(jsonb) from public, anon, authenticated;

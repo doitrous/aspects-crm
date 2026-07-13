@@ -40,9 +40,24 @@ $$;
 alter table public.lead_duplicate_flags
   drop constraint if exists lead_duplicate_flags_duplicate_type_check;
 
+-- Older CRM installations used broad similarity labels. Rebuild unresolved
+-- candidates under the stricter rules below, while keeping reviewed history
+-- readable under the corresponding canonical type.
+delete from public.lead_duplicate_flags
+where status = 'pending'
+  and duplicate_type in ('mrn_similarity', 'name_similarity');
+
+update public.lead_duplicate_flags
+set duplicate_type = case duplicate_type
+  when 'mrn_similarity' then 'mrn'
+  when 'name_similarity' then 'name'
+  else duplicate_type
+end
+where duplicate_type in ('mrn_similarity', 'name_similarity');
+
 alter table public.lead_duplicate_flags
   add constraint lead_duplicate_flags_duplicate_type_check
-  check (duplicate_type in ('phone', 'chat_link', 'platform_id', 'name'));
+  check (duplicate_type in ('mrn', 'phone', 'chat_link', 'platform_id', 'name'));
 
 -- Remove only unresolved false-positive name flags. Reviewed history is retained.
 delete from public.lead_duplicate_flags as flag

@@ -8,7 +8,7 @@ import {
   withRevisitingMetadata,
   type RevisitingMatch,
 } from "@/lib/booking/revisiting";
-import { matchablePhoneDigits } from "@/lib/phoneMatching";
+import { phoneDuplicateKey } from "@/lib/phoneMatching";
 
 function normalizePhone(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
@@ -98,7 +98,7 @@ async function loadExistingReservations(reservations: Reservation[]): Promise<{
             !linkedLeadIdByAppointment.has(reservation.id) &&
             !legacyByAppointment.has(reservation.id),
         )
-        .map((reservation) => matchablePhoneDigits(reservation.patientPhone))
+        .map((reservation) => phoneDuplicateKey(reservation.patientPhone))
         .filter((phone): phone is string => Boolean(phone)),
     ),
   ];
@@ -129,16 +129,22 @@ async function loadExistingReservations(reservations: Reservation[]): Promise<{
   }
   const leadsByPhone = new Map<string, ExistingLeadRow>();
   for (const group of chunks(unresolvedPhones)) {
+    const phoneFilters = group.map((phone) =>
+      phone.length >= 7
+        ? `normalized_phone.ilike.%${phone}`
+        : `normalized_phone.eq.${phone}`,
+    );
     const { data, error } = await db
       .from("leads")
       .select("id,lead_id,metadata,booking_appointment_id,status,normalized_phone,created_at")
-      .in("normalized_phone", group)
+      .or(phoneFilters.join(","))
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false });
     if (error) throw new Error(`syncReservation(find phones): ${error.message}`);
     for (const row of (data ?? []) as ExistingLeadRow[]) {
-      if (row.normalized_phone && !leadsByPhone.has(row.normalized_phone)) {
-        leadsByPhone.set(row.normalized_phone, row);
+      const phoneKey = phoneDuplicateKey(row.normalized_phone);
+      if (phoneKey && !leadsByPhone.has(phoneKey)) {
+        leadsByPhone.set(phoneKey, row);
       }
     }
   }
@@ -246,7 +252,7 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
     }
 
     const byMrn = patientMrn ? leadsByMrn.get(patientMrn) : undefined;
-    const matchablePhone = matchablePhoneDigits(reservation.patientPhone);
+    const matchablePhone = phoneDuplicateKey(reservation.patientPhone);
     const byPhone = matchablePhone ? leadsByPhone.get(matchablePhone) : undefined;
     const matchedLead = byMrn ?? byPhone;
     const matchedBy: RevisitingMatch | null = byMrn ? "mrn" : byPhone ? "phone" : null;
@@ -316,8 +322,9 @@ export async function syncReservationsToLeads(reservations: Reservation[]): Prom
       body: `${reservation.date} ${reservation.startTime}`,
       newValues: { lead_id: created.lead_id, booking_appointment_id: reservation.id, booking_status: reservation.status },
     });
-    if (normalizedPhone) {
-      leadsByPhone.set(normalizedPhone, {
+    const createdPhoneKey = phoneDuplicateKey(normalizedPhone);
+    if (createdPhoneKey) {
+      leadsByPhone.set(createdPhoneKey, {
         id: created.id as string,
         lead_id: created.lead_id as string,
         metadata: meta,

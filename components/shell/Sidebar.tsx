@@ -37,7 +37,7 @@ export function Sidebar({
   const { t } = useI18n();
 
   return (
-    <aside id="crm-navigation" role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen || undefined} aria-hidden={!navigationActive || undefined} inert={!navigationActive || undefined} aria-label="Main navigation" className={cn("fixed inset-y-0 left-0 z-50 flex w-[min(86vw,280px)] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4 shadow-2xl transition-transform duration-200 md:static md:z-auto md:w-[210px] md:translate-x-0 md:shadow-none", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
+    <aside id="crm-navigation" role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen || undefined} aria-hidden={!navigationActive || undefined} inert={!navigationActive || undefined} aria-label="Main navigation" className={cn("fixed inset-y-0 left-0 z-50 flex w-[min(86vw,280px)] flex-none flex-col gap-0.5 border-r border-line-soft bg-sidebar px-3 py-4 shadow-2xl transition-transform duration-100 md:static md:z-auto md:w-[210px] md:translate-x-0 md:shadow-none", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
       <div className="flex items-center justify-center px-2 pb-5 pt-1">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/aspects-clinica-logo.png" alt="Aspects Clinica" className="h-20 w-full object-contain" />

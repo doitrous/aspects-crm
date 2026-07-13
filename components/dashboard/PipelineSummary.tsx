@@ -26,7 +26,7 @@ export function PipelineSummary({ counts, websiteBookings = 0, unconfirmedAppoin
             <Link
               key={stage}
               href={STAGE_PATH[stage]}
-              className="rounded-card border border-line bg-panel p-4 shadow-card transition-all hover:-translate-y-0.5 hover:border-primary/40"
+              className="rounded-card border border-line bg-panel p-4 shadow-card hover:border-primary/40"
             >
               <span className="inline-flex rounded-pill px-2 py-0.5 text-[10.5px] font-semibold" style={{ background: meta.bg, color: meta.fg }}>
                 {meta.label}
@@ -35,7 +35,7 @@ export function PipelineSummary({ counts, websiteBookings = 0, unconfirmedAppoin
             </Link>
           );
         })}
-        {supplemental.map((item) => <Link key={item.key} href={item.href} className="rounded-card border border-line bg-panel p-4 shadow-card transition-all hover:-translate-y-0.5 hover:border-primary/40"><span className="inline-flex rounded-pill px-2 py-0.5 text-[10.5px] font-semibold" style={{background:item.bg,color:item.fg}}>{item.label}</span><div className="mt-2 text-[24px] font-bold text-ink-900">{item.value}</div></Link>)}
+        {supplemental.map((item) => <Link key={item.key} href={item.href} className="rounded-card border border-line bg-panel p-4 shadow-card hover:border-primary/40"><span className="inline-flex rounded-pill px-2 py-0.5 text-[10.5px] font-semibold" style={{background:item.bg,color:item.fg}}>{item.label}</span><div className="mt-2 text-[24px] font-bold text-ink-900">{item.value}</div></Link>)}
       </div>
     </section>
   );

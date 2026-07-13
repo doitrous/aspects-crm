@@ -7,7 +7,7 @@ import { ActorError, writeActor } from "@/lib/data/actor";
 import { logActivity } from "@/lib/audit/log";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { forcedLeadName } from "@/lib/import/leadImportMapping";
-import { matchablePhoneDigits, phoneDigits } from "@/lib/phoneMatching";
+import { phoneDigits, phoneDuplicateKey } from "@/lib/phoneMatching";
 
 export interface LeadImportRowInput {
   rowIndex: number;
@@ -69,11 +69,11 @@ async function existingLead(row: LeadImportRowInput, importId?: string): Promise
     if (error) throw error;
     if (data?.lead_id) return { match: "mrn", lead: data as ExistingMatch["lead"] };
   }
-  const phone = matchablePhoneDigits(row.phone);
+  const phone = phoneDuplicateKey(row.phone);
   if (phone) {
     const phoneQuery = db.from("leads").select(EXISTING_COLUMNS).is("merged_into_lead_id", null).limit(1);
     const { data, error } = await (phone.length >= 7
-      ? phoneQuery.ilike("normalized_phone", `%${phone.slice(-9)}`)
+      ? phoneQuery.ilike("normalized_phone", `%${phone}`)
       : phoneQuery.or(`normalized_phone.eq.${phone},normalized_phone.eq.20${phone}`)).maybeSingle();
     if (error) throw error;
     if (data?.lead_id) return { match: "phone", lead: data as ExistingMatch["lead"] };
@@ -175,6 +175,9 @@ async function createImportedLead(
     service_name: row.serviceName?.trim() || null,
     gender: row.gender ?? null,
     notes: row.notes?.trim() || null,
+    // The schema requires a pipeline status. `record_source=database` is the
+    // authoritative queue gate, so this record is visible only in Database
+    // until a later reservation marks it as a revisiting patient.
     status: "new_lead",
     has_unread: false,
     escalation_status: "none",
@@ -251,7 +254,7 @@ export async function importLeadRows(rows: LeadImportRowInput[], options: LeadIm
       // both operations for every spreadsheet row.
       const created = await createImportedLead(row, actor.id, errors, sourceCache, importId);
       timelineRows.push({ lead_id: created.uid, event_type: "lead_created", title: "Lead created by bulk import", actor_user_id: actor.id, metadata: { import_row: row.rowIndex + 1, forced_invalid_import: errors.length > 0, bulk_import_id: importId ?? null } });
-      results.push({ rowIndex: row.rowIndex, status: "imported", leadId: created.leadId, message: `Created regular lead ${created.leadId}.` });
+      results.push({ rowIndex: row.rowIndex, status: "imported", leadId: created.leadId, message: `Created database patient ${created.leadId}.` });
     } catch (error) {
       console.error("Bulk lead import row failed", {
         row: row.rowIndex + 1,

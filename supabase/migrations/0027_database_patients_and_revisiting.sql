@@ -15,12 +15,24 @@ insert into public.lead_tags (name, color)
 values ('Revisiting Patient', '#7c3aed')
 on conflict (name) do update set color = excluded.color, updated_at = now();
 
-update public.leads
-set source_id = (select id from public.lead_sources where key = 'database'),
-    metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('record_source', 'database'),
-    updated_at = now()
-where metadata->>'imported_via' = 'patient_bulk_import'
-  and metadata->>'bulk_merged_by' is null;
+-- This backfill may touch thousands of historical patients. Their identity
+-- fields do not change, so avoid running the fuzzy duplicate detector once per
+-- row; later identity migrations rebuild the queue set-wise.
+do $$
+begin
+  alter table public.leads disable trigger leads_duplicate_check;
+  update public.leads
+  set source_id = (select id from public.lead_sources where key = 'database'),
+      metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object('record_source', 'database'),
+      updated_at = now()
+  where metadata->>'imported_via' = 'patient_bulk_import'
+    and metadata->>'bulk_merged_by' is null;
+  alter table public.leads enable trigger leads_duplicate_check;
+exception when others then
+  alter table public.leads enable trigger leads_duplicate_check;
+  raise;
+end;
+$$;
 
 create index if not exists leads_record_source_pipeline_idx
   on public.leads ((metadata->>'record_source'), (metadata->>'revisiting_patient'), status)

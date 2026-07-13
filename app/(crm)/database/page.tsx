@@ -10,7 +10,7 @@ import { DeleteAllLeadsButton } from "@/components/leads/LeadDeletionControls";
 import { requireSession } from "@/lib/data/session";
 import { can } from "@/lib/auth/permissions";
 import { bookingConfigured } from "@/lib/booking/client";
-import { getReservations } from "@/lib/booking/reservations";
+import { getReservationsPage } from "@/lib/booking/reservations";
 import { syncReservationsToLeads } from "@/lib/booking/sync";
 
 export const dynamic = "force-dynamic";
@@ -31,8 +31,11 @@ async function syncWebsiteReservationsIntoDatabase(): Promise<void> {
   try {
     const from = new Date();
     from.setUTCDate(from.getUTCDate() - 90);
-    const reservations = await getReservations({ from: from.toISOString().slice(0, 10) });
-    await syncReservationsToLeads(reservations);
+    // Bound the opportunistic sync so Database remains fast as booking history
+    // grows. Reservation ingest and the reservations/calendar pages cover the
+    // remaining records without making every Database visit scan 90 days.
+    const recent = await getReservationsPage(1, 100, { from: from.toISOString().slice(0, 10) });
+    await syncReservationsToLeads(recent.reservations);
   } catch (error) {
     // The local patient database must remain usable during a booking-platform
     // outage. The next Database/Calendar/Reservations request will retry.

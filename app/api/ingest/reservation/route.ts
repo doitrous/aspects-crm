@@ -9,15 +9,16 @@ import {
   withRevisitingMetadata,
   type RevisitingMatch,
 } from "@/lib/booking/revisiting";
-import { matchablePhoneDigits } from "@/lib/phoneMatching";
+import { phoneDuplicateKey } from "@/lib/phoneMatching";
 
 /**
  * Booking → CRM ingest receiver.
  *
  * The public booking site (directly, or via an n8n workflow) POSTs every new
  * patient reservation here. The reservation is turned into / linked to a CRM
- * lead so it surfaces under "New Leads" as **unread**, in addition to appearing
- * live under "Website Reservations" (which reads the booking DB directly).
+ * lead so a new patient surfaces under "New Leads" as **unread**, in addition
+ * to appearing live under "Website Reservations". A matching database patient
+ * re-enters the queue with the explicit "Revisiting Patient" marker.
  *
  * Auth: shared secret in `CRM_INGEST_API_KEY`, sent as either
  *   Authorization: Bearer <key>   or   x-api-key: <key>
@@ -172,7 +173,7 @@ export async function POST(req: Request) {
   const db = supabaseAdmin();
   const now = new Date().toISOString();
   const normalizedPhone = normalizePhone(body.phoneCountryCode, body.phoneNumber);
-  const matchablePhone = matchablePhoneDigits(normalizedPhone);
+  const matchablePhone = phoneDuplicateKey(normalizedPhone);
 
   const channelMeta = {
     channel: "website_booking",
@@ -250,14 +251,16 @@ export async function POST(req: Request) {
     }
   }
   if (!matchedLead && matchablePhone) {
-    const { data } = await db
+    let phoneQuery = db
       .from(LEADS)
       .select("id, lead_id, metadata")
-      .eq("normalized_phone", matchablePhone)
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+    phoneQuery = matchablePhone.length >= 7
+      ? phoneQuery.ilike("normalized_phone", `%${matchablePhone}`)
+      : phoneQuery.eq("normalized_phone", matchablePhone);
+    const { data } = await phoneQuery.maybeSingle();
     if (data) {
       matchedLead = {
         id: String(data.id),

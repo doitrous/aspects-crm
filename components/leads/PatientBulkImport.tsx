@@ -86,7 +86,7 @@ export function PatientBulkImport() {
       setSheetIndex(0);
       setMapping(autoMapLeadHeaders(parsed.sheets[0].headers));
       setFileName(file.name);
-      setTimeout(() => mappingRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+      setTimeout(() => mappingRef.current?.scrollIntoView({ behavior: "auto", block: "start" }), 0);
     } catch (error) {
       setWorkbook(null);
       setMapping({});
