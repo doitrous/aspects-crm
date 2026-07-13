@@ -141,27 +141,28 @@ export async function loadFollowUpPlan(leadId: string): Promise<FollowUpPlan | n
   const lead = await leadContext(leadId);
   if (!lead) return null;
   const workflowType = DB_TO_WORKFLOW[lead.status];
-  if (!workflowType) return null;
-  await ensurePlanRows(lead.uid, workflowType, lead.status, lead.updatedAt ?? lead.createdAt);
+  if (workflowType) await ensurePlanRows(lead.uid, workflowType, lead.status, lead.updatedAt ?? lead.createdAt);
 
   const { data, error } = await supabaseAdmin()
     .from("lead_follow_up_stages")
     .select("id,workflow_type,stage_number,due_at,notes,status,outcome,completed_at,completed_by,assigned_to,template_stage_id,template_version,step_name,snoozed_at")
     .eq("lead_id", lead.uid)
-    .eq("workflow_type", workflowType)
-    .order("stage_number", { ascending: true });
+    .order("created_at", { ascending: true });
   if (error) throw new Error(`followUpPlan(rows): ${error.message}`);
   const rows = (data ?? []) as Row[];
   const users = await userNames(rows.flatMap((row) => [row.completed_by as string, row.assigned_to as string]));
+  if (rows.length === 0) return null;
+  const representedWorkflows = new Set(rows.map((row) => row.workflow_type as string));
+  const displayedWorkflow = (workflowType ?? rows.at(-1)?.workflow_type ?? "follow_up") as FollowUpWorkflowType;
   return {
-    workflowType,
+    workflowType: displayedWorkflow,
     source: rows.some((row) => row.template_stage_id || row.step_name) ? "snapshot" : "settings",
     steps: rows.map((row) => ({
       id: row.id as string,
       templateStageId: (row.template_stage_id as string | null) ?? undefined,
       templateVersion: (row.template_version as number | null) ?? undefined,
       sequence: (row.stage_number as number | null) ?? 0,
-      name: (row.step_name as string | null) || `F/U ${(row.stage_number as number | null) ?? ""}`.trim(),
+      name: `${representedWorkflows.size > 1 ? row.workflow_type === "post_op" ? "Post-op · " : "Regular · " : ""}${(row.step_name as string | null) || `F/U ${(row.stage_number as number | null) ?? ""}`.trim()}`,
       dueAt: (row.due_at as string | null) ?? undefined,
       state: stepState(row),
       notes: (row.notes as string | null) ?? undefined,
@@ -172,4 +173,45 @@ export async function loadFollowUpPlan(leadId: string): Promise<FollowUpPlan | n
       assignedTo: row.assigned_to ? users.get(row.assigned_to as string) : undefined,
     })),
   };
+}
+
+/** Start another configured journey without changing the lead's pipeline status. */
+export async function createFollowUpProgramForLead(
+  leadId: string,
+  workflowType: FollowUpWorkflowType,
+  actorId: string,
+): Promise<void> {
+  const lead = await leadContext(leadId);
+  if (!lead) return;
+  const steps = await configuredSteps(lead.uid, workflowType, lead.status);
+  if (steps.length === 0) throw new Error("This follow-up template has no active steps.");
+  const db = supabaseAdmin();
+  const { data: program, error: programError } = await db.from("crm_followup_programs").insert({
+    lead_id: lead.uid,
+    workflow_type: workflowType,
+    name: workflowType === "post_op" ? "Post-op follow-up" : "Regular follow-up",
+    created_by: actorId,
+  }).select("id").single();
+  if (programError) throw new Error(`followUpProgram(create): ${programError.message}`);
+  const { data: latest, error: latestError } = await db.from("lead_follow_up_stages")
+    .select("stage_number").eq("lead_id", lead.uid).eq("workflow_type", workflowType)
+    .order("stage_number", { ascending: false }).limit(1).maybeSingle();
+  if (latestError) throw new Error(`followUpProgram(latest): ${latestError.message}`);
+  const offset = Number(latest?.stage_number ?? 0);
+  const anchor = new Date();
+  const rows = steps.map((step, index) => ({
+    lead_id: lead.uid,
+    program_id: program.id,
+    workflow_type: workflowType,
+    stage_number: offset + index + 1,
+    due_at: addDelay(anchor, Number(step.due_after_amount ?? 1), String(step.due_after_unit ?? "days")).toISOString(),
+    status: "not_started",
+    template_stage_id: step.id,
+    template_version: Number(step.plan_version ?? 1),
+    step_name: step.name,
+    anchor: step.anchor ?? "program_start",
+    assigned_to: actorId,
+  }));
+  const { error } = await db.from("lead_follow_up_stages").insert(rows);
+  if (error) throw new Error(`followUpProgram(steps): ${error.message}`);
 }

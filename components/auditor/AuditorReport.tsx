@@ -287,22 +287,10 @@ export function AuditorReport({
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="section-hero rounded-card px-5 py-5 sm:px-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-2xl">
-            <div className="section-hero-eyebrow text-[11px] font-bold uppercase tracking-[0.18em]">Daily control room</div>
-            <h1 className="mt-2 text-[26px] font-bold tracking-tight text-ink-950 sm:text-[32px]">Review the facts. Explain changes. Lock the day.</h1>
-            <p className="section-hero-muted mt-2 text-[13px] leading-5">The CRM builds the snapshot. Auditors only adjust a value when there is evidence, record why, and finalize one clinic-wide source of truth.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {detail && <StatusBadge status={detail.status} />}
-            <div className="section-hero-stat rounded-control px-3 py-2 text-right">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-ink-500">Report day</div>
-              <div className="mt-0.5 text-[15px] font-bold text-ink-950">{date}</div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-3">
+        <div><h1 className="text-[24px] font-bold text-ink-950">Daily audit</h1><p className="mt-0.5 text-[12px] text-ink-500">Review evidence, explain overrides and lock one source of truth.</p></div>
+        <div className="flex items-center gap-2">{detail && <StatusBadge status={detail.status} />}<span className="text-[12px] font-bold text-ink-700">{date}</span></div>
+      </div>
 
       <Card className="flex flex-wrap items-center gap-3 p-3">
         <form method="get" action="/auditor" className="flex flex-wrap items-center gap-2">

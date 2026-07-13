@@ -100,7 +100,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
   if (error) throw new Error(`loadLeadShell: ${error.message}`);
   if (!row) return null;
 
-  const [tagsRes, userRes, lostReasonRes] = await Promise.all([
+  const [tagsRes, userRes, lostReasonRes, phonesRes] = await Promise.all([
     supabaseAdmin()
       .from("lead_tag_assignments")
       .select("lead_tags(name,color)")
@@ -111,6 +111,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     row.lost_reason_id
       ? supabaseAdmin().from("lost_reasons").select("label").eq("id", row.lost_reason_id).maybeSingle()
       : Promise.resolve({ data: null }),
+    supabaseAdmin().from("crm_lead_phones").select("id,country_code,phone_number,label,is_primary").eq("lead_id", row.id).order("is_primary", { ascending: false }),
   ]);
   if (tagsRes.error) throw new Error(`loadLeadShell(tags): ${tagsRes.error.message}`);
 
@@ -133,6 +134,12 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     mrn: row.mrn ?? undefined,
     patientName: row.name?.trim() || "Unnamed lead",
     phone: buildPhone(row),
+    phones: ((phonesRes.data ?? []) as Array<{ id: string; country_code: string | null; phone_number: string; label: string; is_primary: boolean }>).map((phone) => ({
+      id: phone.id,
+      number: [phone.country_code, phone.phone_number].filter(Boolean).join(" "),
+      label: phone.label,
+      primary: phone.is_primary,
+    })),
     gender: row.gender === "male" || row.gender === "female" ? row.gender : undefined,
     platform: toUiPlatform(row.platform),
     platformId: row.platform_id ?? undefined,
@@ -176,6 +183,50 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     },
     followUp: { status: "none" },
   };
+}
+
+async function patientConnectionsFor(leadUid: string): Promise<Pick<Lead, "linkedLeads" | "familyMembers">> {
+  const db = supabaseAdmin();
+  const [{ data: links, error: linksError }, { data: ownPhones, error: phonesError }] = await Promise.all([
+    db.from("crm_lead_links").select("lead_a_id,lead_b_id,relationship").or(`lead_a_id.eq.${leadUid},lead_b_id.eq.${leadUid}`),
+    db.from("crm_lead_phones").select("normalized_phone").eq("lead_id", leadUid),
+  ]);
+  if (linksError) throw new Error(`patientConnections(links): ${linksError.message}`);
+  if (phonesError) throw new Error(`patientConnections(phones): ${phonesError.message}`);
+  const linkedIds = (links ?? []).map((link) => link.lead_a_id === leadUid ? link.lead_b_id : link.lead_a_id) as string[];
+  const normalized = (ownPhones ?? []).map((phone) => phone.normalized_phone as string).filter(Boolean);
+  const familyPhoneRows = normalized.length ? await db.from("crm_lead_phones").select("lead_id,normalized_phone").in("normalized_phone", normalized).neq("lead_id", leadUid) : { data: [], error: null };
+  if (familyPhoneRows.error) throw new Error(`patientConnections(family): ${familyPhoneRows.error.message}`);
+  const familyIds = [...new Set((familyPhoneRows.data ?? []).map((row) => row.lead_id as string).filter((id) => !linkedIds.includes(id)))];
+  const allIds = [...new Set([...linkedIds, ...familyIds])];
+  if (!allIds.length) return { linkedLeads: [], familyMembers: [] };
+  const { data: members, error } = await db.from("leads").select("id,lead_id,name,phone_country_code,phone_number,normalized_phone").in("id", allIds);
+  if (error) throw new Error(`patientConnections(members): ${error.message}`);
+  const byId = new Map((members ?? []).map((member) => [member.id as string, member]));
+  return {
+    linkedLeads: (links ?? []).map((link) => {
+      const uid = (link.lead_a_id === leadUid ? link.lead_b_id : link.lead_a_id) as string;
+      const member = byId.get(uid);
+      return member ? { id: member.lead_id as string, name: (member.name as string | null) || "Unnamed", phone: buildPhone(member as never), relationship: link.relationship as "same_patient" | "family" } : null;
+    }).filter((member): member is NonNullable<typeof member> => Boolean(member)),
+    familyMembers: (familyPhoneRows.data ?? []).map((phoneRow) => {
+      const member = byId.get(phoneRow.lead_id as string);
+      return member ? { id: member.lead_id as string, name: (member.name as string | null) || "Unnamed", phone: buildPhone(member as never), sharedPhone: phoneRow.normalized_phone as string } : null;
+    }).filter((member): member is NonNullable<typeof member> => Boolean(member)),
+  };
+}
+
+async function linkedHumanLeadIds(leadUid: string, currentId: string): Promise<string[]> {
+  const db = supabaseAdmin();
+  const { data: links, error } = await db.from("crm_lead_links")
+    .select("lead_a_id,lead_b_id").eq("relationship", "same_patient")
+    .or(`lead_a_id.eq.${leadUid},lead_b_id.eq.${leadUid}`);
+  if (error) throw new Error(`linkedHumanLeadIds: ${error.message}`);
+  const uids = (links ?? []).map((link) => link.lead_a_id === leadUid ? link.lead_b_id : link.lead_a_id) as string[];
+  if (!uids.length) return [currentId];
+  const { data: rows, error: leadError } = await db.from("leads").select("lead_id").in("id", uids);
+  if (leadError) throw new Error(`linkedHumanLeadIds(leads): ${leadError.message}`);
+  return [...new Set([currentId, ...(rows ?? []).map((row) => row.lead_id as string)])];
 }
 
 async function treatingDoctorsFor(leadUid: string): Promise<TreatingDoctorAssignment[]> {
@@ -305,20 +356,24 @@ export async function loadLeadTab(
     .maybeSingle();
   if (error) throw new Error(`loadLeadTab: ${error.message}`);
   if (!lead) return null;
+  const relatedIds = await linkedHumanLeadIds(lead.id as string, id);
 
   if (tab === "Overview") {
-    const [attribution, messages, catalog, treatingDoctors] = await Promise.all([
+    const currentLead = await loadLeadShell(id);
+    if (!currentLead) return null;
+    const [attribution, messages, catalog, treatingDoctors, connections] = await Promise.all([
       attributionFor(id),
-      messagesFor(id),
+      Promise.all(relatedIds.map((relatedId) => messagesFor(relatedId))).then((groups) => groups.flat().sort((a, b) => a.createdAt.localeCompare(b.createdAt))),
       bookingCatalog(),
       treatingDoctorsFor(lead.id as string),
+      patientConnectionsFor(lead.id as string),
     ]);
-    return { attribution, messages: messages.slice(-1), bookingCatalog: catalog, treatingDoctors };
+    return { attribution, messages: messages.slice(-1), bookingCatalog: catalog, treatingDoctors, lead: { ...currentLead, ...connections } };
   }
 
-  if (tab === "Messenger" || tab === "Messenger / IG DM") return { messages: await messagesFor(id, ["facebook", "instagram"]) };
-  if (tab === "WhatsApp") return { messages: await messagesFor(id, ["whatsapp"]), whatsappConfigured: whatsappConfigured() };
-  if (tab === "Comments") return { comments: await commentsFor(id) };
+  if (tab === "Messenger" || tab === "Messenger / IG DM") return { messages: (await Promise.all(relatedIds.map((relatedId) => messagesFor(relatedId, ["facebook", "instagram"])))).flat().sort((a,b)=>a.createdAt.localeCompare(b.createdAt)) };
+  if (tab === "WhatsApp") return { messages: (await Promise.all(relatedIds.map((relatedId) => messagesFor(relatedId, ["whatsapp"])))).flat().sort((a,b)=>a.createdAt.localeCompare(b.createdAt)), whatsappConfigured: whatsappConfigured() };
+  if (tab === "Comments") return { comments: (await Promise.all(relatedIds.map((relatedId) => commentsFor(relatedId)))).flat().sort((a,b)=>a.createdAt.localeCompare(b.createdAt)) };
   if (tab === "Follow-Up") return { followUpPlan: await loadFollowUpPlan(id) };
   if (tab === "Booking") {
     const [bookings, catalog] = await Promise.all([bookingsFor(id), bookingCatalog()]);
@@ -330,8 +385,8 @@ export async function loadLeadTab(
   }
   if (tab === "Log" || tab === "Timeline") {
     const [timeline, escalations, duplicateGroups] = await Promise.all([
-      leadTimeline(id),
-      escalationsFor(id),
+      Promise.all(relatedIds.map((relatedId) => leadTimeline(relatedId))).then((groups) => groups.flat().sort((a,b)=>b.at.localeCompare(a.at))),
+      Promise.all(relatedIds.map((relatedId) => escalationsFor(relatedId))).then((groups) => groups.flat().sort((a,b)=>b.createdAt.localeCompare(a.createdAt))),
       duplicateGroupsWithMembers(id),
     ]);
     return { timeline, escalations, duplicateGroups };
@@ -343,6 +398,7 @@ export async function loadLeadTab(
 export async function loadFullLeadDetail(id: string): Promise<LeadDetailData | null> {
   const shell = await loadLeadDetail(id);
   if (!shell) return null;
+  const relatedIds = await linkedHumanLeadIds(shell.lead.uid!, id);
   const [
     messages,
     comments,
@@ -356,12 +412,12 @@ export async function loadFullLeadDetail(id: string): Promise<LeadDetailData | n
     followUpPlan,
   ] =
     await Promise.all([
-      messagesFor(id),
-      commentsFor(id),
+      Promise.all(relatedIds.map((relatedId) => messagesFor(relatedId))).then((groups) => groups.flat().sort((a,b)=>a.createdAt.localeCompare(b.createdAt))),
+      Promise.all(relatedIds.map((relatedId) => commentsFor(relatedId))).then((groups) => groups.flat().sort((a,b)=>a.createdAt.localeCompare(b.createdAt))),
       attributionFor(id),
-      leadTimeline(id),
+      Promise.all(relatedIds.map((relatedId) => leadTimeline(relatedId))).then((groups) => groups.flat().sort((a,b)=>b.at.localeCompare(a.at))),
       bookingsFor(id),
-      escalationsFor(id),
+      Promise.all(relatedIds.map((relatedId) => escalationsFor(relatedId))).then((groups) => groups.flat().sort((a,b)=>b.createdAt.localeCompare(a.createdAt))),
       duplicateGroupsWithMembers(id),
       loadFinancials(id),
       bookingCatalog(),

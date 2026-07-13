@@ -85,6 +85,29 @@ body {
   background: rgb(var(--c-panel) / 0.74);
 }
 
+/* Calm, square-edged fields shared by search and patient workflows. */
+.calm-field,
+input[type="search"],
+input[type="text"],
+input:not([type]),
+textarea {
+  border: 1px solid rgb(var(--c-line));
+  border-radius: 6px;
+  background: #fbfaf7;
+  color: rgb(var(--c-ink-900));
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+:root[data-theme="dark"] .calm-field,
+:root[data-theme="dark"] input[type="search"],
+:root[data-theme="dark"] input[type="text"],
+:root[data-theme="dark"] input:not([type]),
+:root[data-theme="dark"] textarea {
+  border-color: rgb(var(--c-line));
+  background: rgb(var(--c-toolbar));
+  color: rgb(var(--c-ink-900));
+}
+
 :root[data-theme="dark"] .section-hero {
   border-color: rgb(var(--c-primary) / 0.28);
   background:

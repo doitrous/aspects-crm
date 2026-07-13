@@ -196,11 +196,9 @@ export function EmailAutomationManager({ rules, canManage }: { rules: EmailRuleS
   const active = rules.filter((rule) => rule.isActive).length;
   return (
     <section className="mb-5 space-y-4">
-      <div className="section-hero rounded-card p-5 sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="max-w-2xl"><div className="section-hero-eyebrow text-[11px] font-bold uppercase tracking-[0.18em]">Message automation</div><h1 className="mt-2 text-[25px] font-bold tracking-tight text-ink-950 sm:text-[30px]">Send the right email when the work changes.</h1><p className="section-hero-muted mt-2 text-[13px] leading-5">Choose an event, narrow its conditions, select recipients, and write the exact message. Every attempt is visible in the delivery log below.</p></div>
-          <div className="flex gap-2"><div className="section-hero-stat rounded-control px-3 py-2 text-center"><div className="text-[20px] font-bold text-ink-950">{active}</div><div className="text-[10px] uppercase tracking-wide text-ink-500">Active</div></div><div className="section-hero-stat rounded-control px-3 py-2 text-center"><div className="text-[20px] font-bold text-ink-950">{rules.length}</div><div className="text-[10px] uppercase tracking-wide text-ink-500">Total</div></div></div>
-        </div>
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-3">
+        <div><h1 className="text-[24px] font-bold text-ink-950">Email automations</h1><p className="mt-0.5 text-[12px] text-ink-500">Trigger messages from lead, booking and follow-up events.</p></div>
+        <div className="text-[11px] font-bold text-ink-500"><span className="text-primary">{active} active</span> · {rules.length} total</div>
       </div>
       <div className="flex items-center justify-between gap-3"><div><h2 className="text-[18px] font-bold text-ink-950">Automations</h2><p className="text-[12px] text-ink-500">Changes take effect immediately; turn a rule off without deleting its setup.</p></div>{canManage && <button type="button" onClick={() => setCreating((value) => !value)} className="h-10 rounded-control bg-primary px-4 text-[13px] font-bold text-white hover:bg-primary-hover">{creating ? "Close builder" : "+ New automation"}</button>}</div>
       {creating && <AutomationEditor canManage={canManage} onClose={() => setCreating(false)} />}

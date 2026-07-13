@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import {
   clearLeadEscalation,
+  addFollowUpProgram,
   completeFollowUp,
   createManualLead,
   escalateLead,
@@ -67,6 +68,7 @@ export async function updateLeadProfileAction(leadId: string, formData: FormData
       leadId,
       name: String(formData.get("name") ?? ""),
       phone: String(formData.get("phone") ?? ""),
+      additionalPhone: String(formData.get("additionalPhone") ?? "").trim() || null,
       mrn: String(formData.get("mrn") ?? "").trim() || null,
       gender: ["male", "female"].includes(String(formData.get("gender"))) ? String(formData.get("gender")) as "male" | "female" : null,
       specialtyId: String(formData.get("specialtyId") ?? "") || null,
@@ -151,6 +153,17 @@ export async function scheduleFollowUpAction(
   revalidatePath("/follow-up", "page");
   revalidatePath("/post-op", "page");
   return { ok: "Follow-up scheduled.", error: null };
+}
+
+export async function addFollowUpProgramAction(leadId: string, workflowType: string): Promise<LeadActionState> {
+  try {
+    await addFollowUpProgram(leadId, workflowType);
+  } catch (err) {
+    return toState(err);
+  }
+  revalidatePath("/follow-up", "page");
+  revalidatePath("/post-op", "page");
+  return { ok: "Follow-up program added from template.", error: null };
 }
 
 export async function completeFollowUpAction(

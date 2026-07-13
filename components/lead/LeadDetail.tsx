@@ -39,6 +39,7 @@ import {
 import { formatDate, formatDateTime } from "@/lib/format";
 import {
   clearLeadEscalationAction,
+  addFollowUpProgramAction,
   completeFollowUpAction,
   escalateLeadAction,
   scheduleFollowUpAction,
@@ -444,7 +445,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               aria-label={lead.escalated ? "Clear escalation" : "Escalate lead"}
               disabled={pending}
               onClick={() => lead.escalated ? run(() => clearLeadEscalationAction(lead.id)) : setEscalateModal(true)}
-              className={"rounded-control border px-2.5 py-2 text-[11px] font-bold disabled:opacity-60 " + (lead.escalated ? "border-danger bg-danger text-white" : "border-danger/30 bg-danger-bg text-danger")}
+              className={"min-h-10 min-w-11 rounded-md border px-3 py-2.5 text-[17px] font-black leading-none disabled:opacity-60 " + (lead.escalated ? "border-danger bg-danger text-white" : "border-danger/35 bg-danger-bg text-danger")}
             >
               ⚑
             </button>
@@ -520,13 +521,10 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                   <div className="text-[11px] font-semibold text-ink-500">Created {formatDate(lead.createdAt)}</div>
                 </div>
               </div>
-              <div className="grid divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <div className="grid divide-y divide-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
                 <div className="p-4">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Patient record</div>
                   <div className="mt-2 text-[13px] font-bold text-ink-900">{lead.phone || "No phone"}</div>
-                  <div className={"mt-1 font-mono text-[11px] font-bold " + (lead.mrn ? "text-ink-500" : "text-danger")}>
-                    {lead.mrn ? `MRN ${lead.mrn}` : "MRN · Missing"}
-                  </div>
                 </div>
                 <div className="p-4">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Care plan</div>
@@ -539,6 +537,13 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                     {lead.overdue ? "Reply is overdue" : lead.incomingUnanswered ? "Patient is waiting" : "No urgent action"}
                   </div>
                   <div className="mt-1 text-[11px] text-ink-500">{lead.bookingContext ?? (lead.followUp.nextDate ? `Follow-up ${formatDate(lead.followUp.nextDate)}` : "Review the latest conversation")}</div>
+                </div>
+                <div className="bg-slate-100/80 p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-ink-400">MRN</div>
+                  <div className={"mt-2 font-mono text-[16px] font-black " + (lead.mrn ? "text-ink-800" : "text-danger")}>
+                    {lead.mrn || "Missing"}
+                  </div>
+                  <div className="mt-1 text-[10.5px] text-ink-500">Clinic record identifier</div>
                 </div>
               </div>
             </section>
@@ -553,9 +558,9 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 <span className="mt-1 block text-[11px] text-primary">Open admin / auditor message →</span>
               </button>
             )}
-            <details className="group rounded-xl border border-line bg-panel shadow-sm">
+            <details open className="group rounded-xl border border-line bg-panel shadow-sm">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
-                <div><div className="text-[12.5px] font-black text-ink-900">Edit patient record & care plan</div><div className="mt-0.5 text-[10.5px] text-ink-400">Identity, MRN, services, specialties and treating doctors</div></div>
+                <div><div className="text-[15px] font-black text-ink-900">Patient Info</div><div className="mt-0.5 text-[10.5px] text-ink-400">Identity, phones, MRN and care team · expanded for quick editing</div></div>
                 <span className="text-[18px] text-ink-400 transition group-open:rotate-45">+</span>
               </summary>
               <form
@@ -573,18 +578,27 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                     invalidateTab("Overview");
                   });
                 }}
-                className="grid gap-3 border-t border-line-soft bg-slate-50/60 p-4 md:grid-cols-2 xl:grid-cols-3"
+                className="grid gap-4 border-t border-line-soft bg-slate-50/60 p-4 md:grid-cols-2 xl:grid-cols-3"
               >
-                <label className="text-[11.5px] font-semibold text-ink-500">Name<input data-patient-content name="name" required defaultValue={lead.patientName} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]" /></label>
-                <label className="text-[11.5px] font-semibold text-ink-500">Phone<input data-patient-content name="phone" required defaultValue={lead.phone} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]" /></label>
-                <label className="text-[11.5px] font-semibold text-ink-500">MRN <span className="font-normal text-ink-400">(local clinic record number)</span><input name="mrn" inputMode="numeric" pattern="\d{1,9}" minLength={1} maxLength={9} defaultValue={lead.mrn ?? ""} placeholder="1–9 digits" className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 font-mono text-[12.5px]" /><span className="mt-1 block text-[10px] font-normal text-ink-400">From 1 to 9 digits. Used to match bulk imports.</span></label>
+                <label className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500">Name<input data-patient-content name="name" required defaultValue={lead.patientName} className="calm-field mt-1.5 h-10 w-full px-3 text-[12.5px]" /></label>
+                <div className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500"><label>Primary phone<input data-patient-content name="phone" required defaultValue={lead.phone} className="calm-field mt-1.5 h-10 w-full px-3 text-[12.5px]" /></label>{lead.phones && lead.phones.length > 1 && <div className="mt-2 flex flex-wrap gap-1">{lead.phones.filter((phone) => !phone.primary).map((phone) => <span key={phone.id} className="rounded-md bg-line-faint px-2 py-1 text-[10.5px] text-ink-700">{phone.label}: {phone.number}</span>)}</div>}<label className="mt-2 block text-[10.5px] text-ink-500">+ Add another phone<input name="additionalPhone" placeholder="Optional additional number" className="calm-field mt-1 h-9 w-full px-3 text-[11.5px]" /></label></div>
+                <label className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500">MRN <span className="font-normal text-ink-400">(clinic record)</span><input name="mrn" inputMode="numeric" pattern="\d{1,9}" minLength={1} maxLength={9} defaultValue={lead.mrn ?? ""} placeholder="1–9 digits" className="calm-field mt-1.5 h-10 w-full px-3 font-mono text-[12.5px]" /><span className="mt-1.5 block text-[10px] font-normal text-ink-400">A repeated MRN opens the identity-link review.</span></label>
                 <label className="text-[11.5px] font-semibold text-ink-500">Gender<select name="gender" defaultValue={lead.gender ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Not specified</option><option value="female">Female</option><option value="male">Male</option></select></label>
                 <div className="text-[11.5px] font-semibold text-ink-500"><span>Main specialty + add-ons</span><select name="specialtyId" defaultValue={lead.specialtyId ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Choose main specialty</option>{data.bookingCatalog.specialties.map((row) => <option key={row.id} value={row.id}>{row.nameEn}</option>)}</select><div className="mt-1 max-h-20 overflow-auto rounded-control border border-line-soft bg-white p-1.5">{data.bookingCatalog.specialties.map((row)=><label key={row.id} className="flex items-center gap-2 py-0.5 text-[10.5px] font-medium"><input type="checkbox" name="specialtyIds" value={row.id} defaultChecked={data.treatingDoctors.some((d)=>d.specialtyId===row.id && row.id!==lead.specialtyId)}/>Add-on · {row.nameEn}</label>)}</div></div>
-                <div className="text-[11.5px] font-semibold text-ink-500"><span>Services</span><input value={serviceSearch} onChange={(e)=>setServiceSearch(e.target.value)} placeholder="Search services…" className="mt-1 h-8 w-full rounded-control border border-line bg-white px-2 text-[11.5px] outline-none focus:border-primary"/><div className="mt-1 max-h-28 overflow-auto rounded-control border border-line bg-panel p-2">{data.bookingCatalog.services.filter((service)=>service.nameEn.toLowerCase().includes(serviceSearch.toLowerCase())).map((service) => <label key={service.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="serviceIds" value={service.id} defaultChecked={lead.serviceIds?.includes(service.id) || (!lead.serviceIds?.length && lead.serviceName === service.nameEn)} />{service.nameEn}</label>)}</div></div>
-                <div className="text-[11.5px] font-semibold text-ink-500"><span>Treating doctors</span><input value={doctorSearch} onChange={(e)=>setDoctorSearch(e.target.value)} placeholder="Search doctors…" className="mt-1 h-8 w-full rounded-control border border-line bg-white px-2 text-[11.5px] outline-none focus:border-primary"/><div className="mt-1 max-h-28 overflow-auto rounded-control border border-line bg-panel p-2">{data.bookingCatalog.doctors.filter((doctor)=>doctor.nameEn.toLowerCase().includes(doctorSearch.toLowerCase())).map((doctor) => <label key={doctor.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="doctorIds" value={doctor.id} defaultChecked={data.treatingDoctors.some((row) => row.doctorId === doctor.id) || (!data.treatingDoctors.length && lead.doctorId === doctor.id)} />{doctor.nameEn}</label>)}</div></div>
+                <div className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500"><span>Services</span><input type="search" value={serviceSearch} onChange={(e)=>setServiceSearch(e.target.value)} placeholder="Type to filter services…" className="calm-field mt-1.5 h-9 w-full px-2.5 text-[11.5px]"/><div className="mt-1.5 max-h-32 overflow-auto border border-line bg-panel p-2">{data.bookingCatalog.services.filter((service)=>service.nameEn.toLowerCase().includes(serviceSearch.trim().toLowerCase())).map((service) => <label key={service.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="serviceIds" value={service.id} defaultChecked={lead.serviceIds?.includes(service.id) || (!lead.serviceIds?.length && lead.serviceName === service.nameEn)} />{service.nameEn}</label>)}</div></div>
+                <div className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500"><span>Treating doctors</span><input type="search" value={doctorSearch} onChange={(e)=>setDoctorSearch(e.target.value)} placeholder="Type to filter doctors…" className="calm-field mt-1.5 h-9 w-full px-2.5 text-[11.5px]"/><div className="mt-1.5 max-h-32 overflow-auto border border-line bg-panel p-2">{data.bookingCatalog.doctors.filter((doctor)=>doctor.nameEn.toLowerCase().includes(doctorSearch.trim().toLowerCase())).map((doctor) => <label key={doctor.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="doctorIds" value={doctor.id} defaultChecked={data.treatingDoctors.some((row) => row.doctorId === doctor.id) || (!data.treatingDoctors.length && lead.doctorId === doctor.id)} />{doctor.nameEn}</label>)}</div></div>
                 <div className="md:col-span-2 xl:col-span-3 flex justify-end"><button disabled={pending || !data.bookingCatalog.configured} className="rounded-control bg-primary px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-50">{pending ? "Saving..." : "Save patient information"}</button></div>
               </form>
             </details>
+            {(lead.linkedLeads?.length || lead.familyMembers?.length) ? (
+              <section className="rounded-xl border border-line bg-panel p-4 shadow-sm">
+                <SectionLabel>Family Tree & linked records</SectionLabel>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div><div className="mb-2 text-[10px] font-black uppercase tracking-wide text-primary">Same patient</div><div className="flex flex-col gap-2">{lead.linkedLeads?.filter((member) => member.relationship === "same_patient").map((member) => <Link key={member.id} href={`/leads/${member.id}`} className="border-s-4 border-primary bg-primary-soft/40 p-3 text-[12px]"><b className="text-ink-900">{member.name}</b><span className="ms-2 font-mono text-[10px] text-ink-400">{member.id}</span><div className="mt-0.5 text-ink-600">{member.phone}</div><div className="mt-1 text-[10.5px] font-semibold text-primary">Messages and history are retained across both records →</div></Link>)}{!lead.linkedLeads?.some((member) => member.relationship === "same_patient") && <div className="text-[11px] text-ink-400">No linked patient records.</div>}</div></div>
+                  <div><div className="mb-2 text-[10px] font-black uppercase tracking-wide text-teal-700">Shared phone · possible family</div><div className="flex flex-col gap-2">{lead.familyMembers?.map((member) => <Link key={`${member.id}-${member.sharedPhone}`} href={`/leads/${member.id}`} className="border-s-4 border-teal-500 bg-teal-50 p-3 text-[12px]"><b className="text-ink-900">{member.name}</b><span className="ms-2 font-mono text-[10px] text-ink-400">{member.id}</span><div className="mt-0.5 text-ink-600">{member.phone}</div></Link>)}{!lead.familyMembers?.length && <div className="text-[11px] text-ink-400">No other patient currently shares these phone numbers.</div>}</div></div>
+                </div>
+              </section>
+            ) : null}
             {/* Lead details */}
             <section className="rounded-xl border border-line bg-panel p-4 shadow-sm">
               <SectionLabel>Lead context</SectionLabel>
@@ -614,11 +628,11 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                         (active && s === "lost"
                           ? "border-danger/40 bg-danger-bg text-danger"
                           : active && s === "booked"
-                            ? "border-success-strong bg-success text-white"
+                            ? "border-primary bg-primary-soft text-primary ring-2 ring-primary/10"
                           : active
                           ? "border-success-strong bg-success/5 text-success"
                           : s === "booked"
-                            ? "border-success/35 bg-success/10 text-success hover:border-success hover:bg-success/15"
+                            ? "border-primary/25 bg-panel text-primary hover:border-primary hover:bg-primary-soft"
                           : s === "lost"
                             ? "border-danger/20 bg-panel text-danger hover:bg-danger-bg"
                           : "border-line bg-panel text-ink-600 hover:border-primary hover:text-primary")
@@ -760,6 +774,9 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
             onSchedule={(workflowType, dueAt, notes) =>
               run(() => scheduleFollowUpAction(lead.id, workflowType, dueAt, notes), () => invalidateTab("Follow-Up"))
             }
+            onAddProgram={(workflowType) =>
+              run(() => addFollowUpProgramAction(lead.id, workflowType), () => invalidateTab("Follow-Up"))
+            }
             onComplete={(followUpId, outcome) =>
               run(() => completeFollowUpAction(lead.id, followUpId, outcome), () => invalidateTab("Follow-Up"))
             }
@@ -809,13 +826,9 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
 
         {tab === "Timeline" && (
           <div className="flex flex-col gap-7 p-5">
-            <div>
-              <SectionLabel>Timeline</SectionLabel>
-              <TimelinePanel events={data.timeline} embedded />
-            </div>
             {data.escalations.length > 0 && (
               <div>
-                <SectionLabel>Escalations</SectionLabel>
+                <SectionLabel>Escalations & results</SectionLabel>
                 <EscalationsPanel escalations={data.escalations} embedded />
               </div>
             )}
@@ -825,6 +838,10 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 <DuplicatesPanel groups={data.duplicateGroups} leadId={lead.id} embedded />
               </div>
             )}
+            <div>
+              <SectionLabel>Timeline</SectionLabel>
+              <TimelinePanel events={data.timeline} embedded />
+            </div>
           </div>
         )}
       </div>
@@ -1048,6 +1065,7 @@ function FollowUpPanel({
   plan,
   pending,
   onSchedule,
+  onAddProgram,
   onComplete,
   onSnooze,
   onMarkLost,
@@ -1056,6 +1074,7 @@ function FollowUpPanel({
   plan: FollowUpPlan | null;
   pending: boolean;
   onSchedule: (workflowType: string, dueAt: string, notes?: string) => void;
+  onAddProgram: (workflowType: string) => void;
   onComplete: (followUpId?: string, outcome?: string) => void;
   onSnooze: (followUpId?: string) => void;
   onMarkLost: () => void;
@@ -1079,6 +1098,15 @@ function FollowUpPanel({
 
   return (
     <div className="flex flex-col gap-4 bg-slate-50/70 p-3 sm:p-5">
+      <section className="rounded-xl border border-line bg-panel p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><div className="text-[13px] font-black text-ink-900">Follow-up programs</div><p className="mt-0.5 text-[11px] text-ink-500">Programs are independent from pipeline status. Existing history is never removed.</p></div>
+          <div className="flex gap-2">
+            <button type="button" disabled={pending} onClick={() => onAddProgram("follow_up")} className="rounded-md border border-primary/30 bg-primary-soft px-3 py-2 text-[11.5px] font-bold text-primary disabled:opacity-50">+ Regular template</button>
+            <button type="button" disabled={pending} onClick={() => onAddProgram("post_op")} className="rounded-md border border-teal-300 bg-teal-50 px-3 py-2 text-[11.5px] font-bold text-teal-800 disabled:opacity-50">+ Post-op template</button>
+          </div>
+        </div>
+      </section>
       <section className="section-hero overflow-hidden rounded-xl p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -1435,10 +1463,12 @@ function EscalationsPanel({ escalations, embedded }: { escalations: Escalation[]
   return (
     <div className={"flex flex-col gap-3 " + (embedded ? "" : "p-4")}>
       {escalations.map((e) => (
-        <div key={e.id} className="rounded-card border border-line p-3">
-          <div className="mb-2 flex items-center gap-2">
+        <article key={e.id} className={"overflow-hidden rounded-xl border bg-panel shadow-sm " + (e.status === "resolved" ? "border-emerald-300" : "border-red-300")}>
+          <div className={"h-1.5 " + (e.status === "resolved" ? "bg-emerald-500" : e.severity === "critical" ? "bg-red-600" : "bg-amber-500")} />
+          <div className="p-4">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
             <Badge style={SEVERITY_META[e.severity]} />
-            <span className="text-[13px] font-semibold text-ink-900">{e.reason}</span>
+            <span className="text-[14px] font-black text-ink-900">{e.reason}</span>
             <span
               className={
                 "ms-auto rounded-pill px-2 py-0.5 text-[11px] font-semibold capitalize " +
@@ -1456,6 +1486,13 @@ function EscalationsPanel({ escalations, embedded }: { escalations: Escalation[]
             Raised by {e.raisedBy} · {formatDateTime(e.createdAt)}
             {e.assignedTo ? ` · assigned to ${e.assignedTo}` : ""}
           </div>
+          {e.status === "resolved" && (
+            <div className="mt-3 border-s-4 border-emerald-500 bg-emerald-50 p-3">
+              <div className="text-[10px] font-black uppercase tracking-wide text-emerald-800">Resolution</div>
+              <p data-patient-content className="mt-1 whitespace-pre-wrap text-[12.5px] font-medium text-ink-800">{e.resolutionNote || "Resolved without a written result."}</p>
+              <div className="mt-1 text-[10.5px] text-ink-500">{e.resolvedBy ? `By ${e.resolvedBy}` : ""}{e.resolvedAt ? ` · ${formatDateTime(e.resolvedAt)}` : ""}</div>
+            </div>
+          )}
           {e.status !== "resolved" && (
             <div className="mt-2.5 flex justify-end">
               <EscalationResolutionControls
@@ -1464,7 +1501,8 @@ function EscalationsPanel({ escalations, embedded }: { escalations: Escalation[]
               />
             </div>
           )}
-        </div>
+          </div>
+        </article>
       ))}
     </div>
   );

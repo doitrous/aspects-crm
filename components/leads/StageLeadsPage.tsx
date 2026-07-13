@@ -34,7 +34,6 @@ export async function StageLeadsPage({
   const filters: LeadFilters = {
     q: first(sp.q),
     stage,
-    excludeDatabaseOnly: true,
     platform: channel?.startsWith("platform:") ? channel.slice(9) : first(sp.platform),
     sourceId: channel?.startsWith("source:") ? channel.slice(7) : first(sp.source),
     campaignId: first(sp.campaign),

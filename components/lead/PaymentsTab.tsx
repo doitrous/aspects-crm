@@ -5,6 +5,7 @@ import {
   addConsumableAction,
   addDoctorFundedAction,
   addExternalCostAction,
+  addFinancialServicesAction,
   addTransactionAction,
   clearQuoteAction,
   deleteTransactionAction,
@@ -121,6 +122,10 @@ const btnCls =
 const btnGhost =
   "rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-700 hover:bg-line-faint disabled:opacity-50";
 
+function PaymentModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/45 p-4" role="dialog" aria-modal="true"><div className="w-full max-w-md rounded-xl border border-line bg-panel shadow-2xl"><div className="flex items-center justify-between border-b border-line px-4 py-3"><h3 className="text-[15px] font-black text-ink-900">{title}</h3><button type="button" onClick={onClose} className="h-9 w-9 rounded-md border border-line text-ink-600">×</button></div><div className="max-h-[75vh] overflow-auto p-4">{children}</div></div></div>;
+}
+
 function Feedback({ state }: { state: { error: string | null; ok: string | null } }) {
   if (state.error) {
     return <p className="mt-2 text-[12px] font-medium text-danger">{state.error}</p>;
@@ -133,7 +138,8 @@ function Feedback({ state }: { state: { error: string | null; ok: string | null 
 
 function LineControls({ type, id, amount, description, quantity, occurredOn, onChanged }: { type:"consumable"|"doctor_payment"|"external_cost";id:string;amount:number;description?:string;quantity?:number;occurredOn?:string;onChanged?:()=>void }) {
   const [editState,edit,editing]=useActionState(updateFinancialLineAction,IDLE); const [deleteState,remove,deleting]=useActionState(deleteFinancialLineAction,IDLE); useNotifyChanged(editState,onChanged); useNotifyChanged(deleteState,onChanged);
-  return <div className="ms-2 flex items-center gap-1"><details><summary className="cursor-pointer list-none text-[10.5px] font-bold text-primary">Modify</summary><form action={edit} className="absolute end-8 z-20 mt-1 grid w-56 gap-1 rounded-lg border border-line-soft bg-white p-3 shadow-xl"><input type="hidden" name="lineType" value={type}/><input type="hidden" name="lineId" value={id}/>{description!==undefined&&<input name="description" defaultValue={description} className={inputCls}/>}<input name="amount" type="number" min="0" step="0.01" defaultValue={amount} className={inputCls}/>{quantity!==undefined&&<input name="quantity" type="number" min="0.01" step="0.01" defaultValue={quantity} className={inputCls}/>} {occurredOn!==undefined&&<input name="occurredOn" type="date" defaultValue={occurredOn} className={inputCls}/>}<button disabled={editing} className={btnCls}>Save</button>{editState.error&&<span className="text-[10px] text-danger">{editState.error}</span>}</form></details><form action={remove}><input type="hidden" name="lineType" value={type}/><input type="hidden" name="lineId" value={id}/><button disabled={deleting} className="text-[10.5px] font-bold text-danger">Delete</button></form>{deleteState.error&&<span className="text-[10px] text-danger">{deleteState.error}</span>}</div>;
+  const [open,setOpen]=useState(false); useEffect(()=>{if(editState.ok)setOpen(false)},[editState.ok]);
+  return <div className="ms-2 flex items-center gap-1"><button type="button" onClick={()=>setOpen(true)} className="text-[10.5px] font-bold text-primary">Modify</button>{open&&<PaymentModal title="Modify financial line" onClose={()=>setOpen(false)}><form action={edit} className="grid gap-3"><input type="hidden" name="lineType" value={type}/><input type="hidden" name="lineId" value={id}/>{description!==undefined&&<input name="description" defaultValue={description} className={inputCls}/>}<input name="amount" type="number" min="0" step="0.01" defaultValue={amount} className={inputCls}/>{quantity!==undefined&&<input name="quantity" type="number" min="0.01" step="0.01" defaultValue={quantity} className={inputCls}/>} {occurredOn!==undefined&&<input name="occurredOn" type="date" defaultValue={occurredOn} className={inputCls}/>}<button disabled={editing} className={btnCls}>Save changes</button><Feedback state={editState}/></form></PaymentModal>}<form action={remove}><input type="hidden" name="lineType" value={type}/><input type="hidden" name="lineId" value={id}/><button disabled={deleting} className="text-[10.5px] font-bold text-danger">Delete</button></form>{deleteState.error&&<span className="text-[10px] text-danger">{deleteState.error}</span>}</div>;
 }
 
 function useNotifyChanged(state: FinancialActionState, onChanged?: () => void) {
@@ -171,6 +177,15 @@ function AddPanel({ label, children, tone = "default" }: { label: string; childr
   );
 }
 
+function FinancialServicePicker({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
+  const [state, action, pending] = useActionState(addFinancialServicesAction, IDLE);
+  const [query, setQuery] = useState("");
+  useNotifyChanged(state, onChanged);
+  const existing = new Set(fin.bundleItems.map((item) => item.serviceName));
+  const options = fin.serviceOptions.filter((option) => !existing.has(option.name) && option.name.toLowerCase().includes(query.trim().toLowerCase()));
+  return <section className="border-s-4 border-s-primary"><div className="flex flex-wrap items-end justify-between gap-3"><div><SectionLabel>Services on this bill</SectionLabel><p className="text-[11px] text-ink-500">Select one or more services first. Their live list prices build the base price above the patient quote.</p></div>{fin.bundleItems.length > 0 && <div className="flex flex-wrap gap-1.5">{fin.bundleItems.map((item) => <span key={item.id} className="rounded-md bg-primary-soft px-2 py-1 text-[10.5px] font-bold text-primary">{item.serviceName} · {formatMoney(item.basePrice, fin.currency)}</span>)}</div>}</div><form action={action} className="mt-3"><input type="hidden" name="leadId" value={fin.leadId}/><input type="search" value={query} onChange={(event)=>setQuery(event.target.value)} placeholder="Type to filter available services…" className="calm-field h-10 w-full px-3 text-[12px]"/><div className="mt-2 grid max-h-40 gap-1 overflow-auto border border-line bg-panel p-2 sm:grid-cols-2">{options.map((option)=><label key={option.id} className="flex items-center justify-between gap-2 p-2 text-[11.5px] hover:bg-line-faint"><span className="flex items-center gap-2"><input type="checkbox" name="serviceSettingIds" value={option.id}/><b className="text-ink-800">{option.name}</b></span><span className="tabular-nums text-ink-500">{formatMoney(option.basePrice, fin.currency)}</span></label>)}{options.length===0&&<div className="p-2 text-[11px] text-ink-400">No matching services remain.</div>}</div><div className="mt-2 flex items-center justify-between"><Feedback state={state}/><button disabled={pending || !fin.canEdit} className={btnCls}>{pending?"Adding…":"Add selected services"}</button></div></form></section>;
+}
+
 /* ── §5 quote editor ──────────────────────────────────────────── */
 
 /**
@@ -203,7 +218,8 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
 
   const below = verdict.status === "below_allowed";
   const cur = fin.currency;
-  const availableDiscounts = [...new Set([0, 5, 10, fin.summary.maxAllowedDiscountPct])]
+  const halfPrivilege = Math.round(fin.summary.maxAllowedDiscountPct / 2 * 10) / 10;
+  const availableDiscounts = [...new Set([0, halfPrivilege, fin.summary.maxAllowedDiscountPct])]
     .filter((value) => value >= 0 && value <= fin.summary.maxAllowedDiscountPct)
     .sort((a, b) => a - b);
   const chooseDiscount = (pct: number) => {
@@ -449,8 +465,10 @@ function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: (
   const [addState, add, adding] = useActionState(addTransactionAction, IDLE);
   const [statusState, setStatus, settingStatus] = useActionState(setTransactionStatusAction, IDLE);
   const [kind, setKind] = useState("payment");
+  const [editingPayment, setEditingPayment] = useState<PaymentLine | null>(null);
   useNotifyChanged(addState, onChanged);
   useNotifyChanged(statusState, onChanged);
+  useEffect(() => { if (editState.ok) setEditingPayment(null); }, [editState.ok]);
 
   const cur = fin.currency;
   const reversible = fin.payments.filter((p) => p.kind === "payment" && p.status === "completed");
@@ -509,7 +527,7 @@ function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: (
                     {/* Only a pending line may change; settled money is reversed, never edited. */}
                     {fin.canEdit && (
                       <div className="flex flex-wrap justify-end gap-1">
-                        <details className="text-left"><summary className={`${btnGhost} cursor-pointer list-none`}>Modify</summary><form action={edit} className="absolute end-8 z-20 mt-1 grid w-64 gap-1 rounded-lg border border-line-soft bg-white p-3 shadow-xl"><input type="hidden" name="transactionId" value={p.id}/><input name="amount" type="number" min="0.01" step="0.01" defaultValue={p.amount} className={inputCls}/><select name="method" defaultValue={p.method ?? "cash"} className={inputCls}>{Object.entries(METHOD_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select><input name="occurredOn" type="date" defaultValue={p.occurredOn} className={inputCls}/><input name="note" defaultValue={p.note ?? ""} placeholder="Note" className={inputCls}/><button disabled={editing} className={btnCls}>Save changes</button></form></details>
+                        <button type="button" onClick={() => setEditingPayment(p)} className={btnGhost}>Modify</button>
                         <form action={remove}><input type="hidden" name="transactionId" value={p.id}/><button type="submit" disabled={deleting} className="rounded-md border border-danger/30 bg-danger-bg px-2.5 py-1 text-[12px] font-medium text-danger">Delete</button></form>
                         {p.status === "pending" &&
                         (["completed", "failed", "cancelled"] as const).map((s) => (
@@ -531,6 +549,7 @@ function PaymentsLedger({ fin, onChanged }: { fin: LeadFinancials; onChanged?: (
           </table>
         </div>
       )}
+      {editingPayment && <PaymentModal title="Modify payment" onClose={() => setEditingPayment(null)}><form action={edit} className="grid gap-3"><input type="hidden" name="transactionId" value={editingPayment.id}/><label className="text-[11px] font-bold text-ink-500">Amount<input name="amount" type="number" min="0.01" step="0.01" defaultValue={editingPayment.amount} className={`${inputCls} mt-1`}/></label><label className="text-[11px] font-bold text-ink-500">Method<select name="method" defaultValue={editingPayment.method ?? "cash"} className={`${inputCls} mt-1`}>{Object.entries(METHOD_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label><label className="text-[11px] font-bold text-ink-500">Date<input name="occurredOn" type="date" defaultValue={editingPayment.occurredOn} className={`${inputCls} mt-1`}/></label><input name="note" defaultValue={editingPayment.note ?? ""} placeholder="Note" className={inputCls}/><button disabled={editing} className={btnCls}>Save changes</button><Feedback state={editState}/></form></PaymentModal>}
 
       <Feedback state={statusState} />
       <Feedback state={editState} />
@@ -1091,18 +1110,20 @@ export function PaymentsTab({
   const fin = financials;
   const s = fin.summary;
   const cur = fin.currency;
+  const isOverpaid = s.outstanding < 0;
+  const balanceValue = isOverpaid ? Math.abs(s.outstanding) : s.outstanding;
 
   return (
     <div className="flex flex-col gap-4 bg-toolbar/30 p-3 sm:p-5 [&>section]:rounded-xl [&>section]:border [&>section]:border-line-soft [&>section]:bg-panel [&>section]:p-4 [&>section]:shadow-sm">
       <section className="section-hero !p-5">
         <div className="grid gap-5 sm:grid-cols-[1.25fr_1fr] sm:items-end">
           <div>
-            <div className="section-hero-eyebrow text-[10.5px] font-black uppercase tracking-[0.16em]">Patient balance</div>
+            <div className="section-hero-eyebrow text-[10.5px] font-black uppercase tracking-[0.16em]">{isOverpaid ? "Patient credit" : "Patient balance"}</div>
             <div className={"mt-2 text-[30px] font-black tabular-nums sm:text-[36px] " + (s.outstanding > 0 ? "text-ink-950" : "text-emerald-600")}>
-              {formatMoney(s.outstanding, cur)}
+              {formatMoney(balanceValue, cur)}
             </div>
             <div className="section-hero-muted mt-2 text-[12px]">
-              {s.outstanding > 0 ? "Still due from the patient" : "Account is settled"}
+              {s.outstanding > 0 ? "Still due from the patient" : isOverpaid ? `Paid in advance · the patient paid ${formatMoney(Math.abs(s.outstanding), cur)} extra` : "Paid in full · no balance remains"}
               {s.pendingTotal > 0 ? ` · ${formatMoney(s.pendingTotal, cur)} pending settlement` : ""}
             </div>
           </div>
@@ -1110,7 +1131,7 @@ export function PaymentsTab({
             <div><div className="text-[10px] uppercase text-ink-500">Agreed price</div><div className="mt-1 text-[15px] font-bold">{s.hasQuote ? formatMoney(s.quotedPrice, cur) : "Not set"}</div></div>
             <div><div className="text-[10px] uppercase text-ink-500">Collected</div><div className="mt-1 text-[15px] font-bold text-emerald-600">{formatMoney(s.totalCollected, cur)}</div></div>
             <div><div className="text-[10px] uppercase text-ink-500">Discount</div><div className="mt-1 text-[15px] font-bold">{formatPct(s.effectiveDiscountPct)}</div></div>
-            <div><div className="text-[10px] uppercase text-ink-500">Amount due</div><div className="mt-1 text-[15px] font-bold">{formatMoney(s.amountDue, cur)}</div></div>
+            <div><div className="text-[10px] uppercase text-ink-500">Total bill</div><div className="mt-1 text-[15px] font-bold">{formatMoney(s.amountDue, cur)}</div></div>
           </div>
         </div>
       </section>
@@ -1121,6 +1142,7 @@ export function PaymentsTab({
         <div className="px-2 py-2.5"><span className="me-1 text-primary">3</span> Verify balance</div>
       </div>
 
+      <FinancialServicePicker fin={fin} onChanged={onChanged} />
       <QuoteEditor fin={fin} onChanged={onChanged} />
 
       <section className="border-s-4 border-s-amber-500">
@@ -1131,26 +1153,6 @@ export function PaymentsTab({
           <li className="bg-emerald-50 p-3"><strong className="block text-emerald-800">3. Verify the balance</strong>The remaining amount stays in Outstanding Balance. Record each later installment as a new transaction.</li>
         </ol>
       </section>
-
-      {fin.bundleItems.length > 0 && (
-        <section>
-          <SectionLabel>Bundle</SectionLabel>
-          <ul className="flex flex-col gap-1">
-            {fin.bundleItems.map((b) => (
-              <li
-                key={b.id}
-                className="flex items-center justify-between rounded-md border border-line-softer px-3 py-2 text-[12px]"
-              >
-                <span className="text-ink-900">{b.serviceName}</span>
-                <span className="tabular-nums text-ink-500">{formatMoney(b.basePrice, cur)}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-1 text-[11px] text-ink-400">
-            These are the services in the bundle. The bill is the quoted price above, not their sum.
-          </p>
-        </section>
-      )}
 
       <Approvals fin={fin} onChanged={onChanged} />
       <PaymentsLedger fin={fin} onChanged={onChanged} />

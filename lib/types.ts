@@ -311,6 +311,9 @@ export interface Lead {
   mrn?: string;
   patientName: string;
   phone: string;
+  phones?: Array<{ id: string; number: string; label: string; primary: boolean }>;
+  linkedLeads?: Array<{ id: string; name: string; phone: string; relationship: "same_patient" | "family" }>;
+  familyMembers?: Array<{ id: string; name: string; phone: string; sharedPhone: string }>;
   gender?: "male" | "female";
   platform: Platform;
   platformId?: string; // messenger/ig/whatsapp id

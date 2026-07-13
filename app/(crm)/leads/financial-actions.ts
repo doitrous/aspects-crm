@@ -8,6 +8,7 @@ import {
   addDoctorFundedPayment,
   addExternalCost,
   addTransaction,
+  addServicesToLeadFinancials,
   clearQuote,
   deleteTransaction,
   deleteFinancialLine,
@@ -31,6 +32,11 @@ export interface FinancialActionState {
 export async function clearQuoteAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
   try { await clearQuote(str(formData, "leadId")); } catch (err) { return toState(err); }
   return { error: null, ok: "Quoted price deleted." };
+}
+
+export async function addFinancialServicesAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
+  try { await addServicesToLeadFinancials(str(formData, "leadId"), formData.getAll("serviceSettingIds").map(String)); } catch (err) { return toState(err); }
+  return { error: null, ok: "Services added to this bill." };
 }
 
 export async function updateTransactionAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {

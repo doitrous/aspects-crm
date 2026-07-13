@@ -1,7 +1,7 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { writeActor } from "@/lib/data/actor";
-import { ensureFollowUpPlanForLead } from "@/lib/data/followupPlans";
+import { createFollowUpProgramForLead, ensureFollowUpPlanForLead } from "@/lib/data/followupPlans";
 import { assertCan } from "@/lib/auth/permissions";
 import type { PipelineStage, ReferenceOption } from "@/lib/types";
 import { bookingCatalog } from "@/lib/booking/service";
@@ -106,6 +106,7 @@ export async function updateLeadProfile(input: {
   leadId: string;
   name: string;
   phone: string;
+  additionalPhone?: string | null;
   mrn: string | null;
   gender: "male" | "female" | null;
   specialtyId: string | null;
@@ -137,7 +138,21 @@ export async function updateLeadProfile(input: {
   if (mrn) {
     const { data: duplicateMrn, error: duplicateError } = await db.from("leads").select("lead_id").eq("mrn", mrn).neq("id", lead.id).limit(1).maybeSingle();
     if (duplicateError) throw new Error(`updateLeadProfile(MRN check): ${duplicateError.message}`);
-    if (duplicateMrn) throw new LeadMutationError(`MRN ${mrn} is already assigned to lead ${duplicateMrn.lead_id}.`);
+    if (duplicateMrn) {
+      const { data: duplicateLead } = await db.from("leads").select("id").eq("lead_id", duplicateMrn.lead_id).single();
+      if (duplicateLead?.id) {
+        await db.from("lead_duplicate_flags").upsert({
+          lead_id: lead.id < duplicateLead.id ? lead.id : duplicateLead.id,
+          duplicate_lead_id: lead.id < duplicateLead.id ? duplicateLead.id : lead.id,
+          duplicate_type: "mrn",
+          identifier_value: mrn,
+          confidence_score: 1,
+          status: "pending",
+          notes: "Repeated MRN entered from Patient Info. Review side by side and link identities.",
+        }, { onConflict: "lead_id,duplicate_lead_id,duplicate_type,identifier_value" });
+      }
+      throw new LeadMutationError(`MRN ${mrn} belongs to ${duplicateMrn.lead_id}. A side-by-side identity review has been created in Timeline → Duplicates; link the records instead of overwriting either history.`);
+    }
   }
   const { data: before, error: beforeError } = await db.from("leads").select("name,mrn,phone_country_code,phone_number,gender,service_name,doctor_id,metadata").eq("id", lead.id).single();
   if (beforeError) throw new Error(`updateLeadProfile(read): ${beforeError.message}`);
@@ -163,6 +178,35 @@ export async function updateLeadProfile(input: {
   };
   const { error } = await db.from("leads").update(patch).eq("id", lead.id);
   if (error) throw new Error(`updateLeadProfile: ${error.message}`);
+  const primaryPhone = {
+    lead_id: lead.id,
+    country_code: ccMatch?.[1] ?? null,
+    phone_number: (ccMatch?.[2] ?? phone).replace(/\s+/g, " "),
+    normalized_phone: digits,
+    label: "Mobile",
+    is_primary: true,
+    updated_at: new Date().toISOString(),
+  };
+  const { error: clearPrimaryError } = await db.from("crm_lead_phones").update({ is_primary: false }).eq("lead_id", lead.id);
+  if (clearPrimaryError) throw new Error(`updateLeadProfile(phone primary): ${clearPrimaryError.message}`);
+  const { error: primaryPhoneError } = await db.from("crm_lead_phones").upsert(primaryPhone, { onConflict: "lead_id,normalized_phone" });
+  if (primaryPhoneError) throw new Error(`updateLeadProfile(phone): ${primaryPhoneError.message}`);
+  const additionalPhone = input.additionalPhone?.trim();
+  if (additionalPhone) {
+    const extraDigits = additionalPhone.replace(/\D/g, "");
+    if (extraDigits.length < 7) throw new LeadMutationError("The additional phone number is too short.");
+    const extraCc = additionalPhone.match(/^\s*(\+\d{1,4})[\s-]+(.+)$/);
+    const { error: extraError } = await db.from("crm_lead_phones").upsert({
+      lead_id: lead.id,
+      country_code: extraCc?.[1] ?? null,
+      phone_number: (extraCc?.[2] ?? additionalPhone).replace(/\s+/g, " "),
+      normalized_phone: extraDigits,
+      label: "Additional",
+      is_primary: false,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "lead_id,normalized_phone" });
+    if (extraError) throw new Error(`updateLeadProfile(additional phone): ${extraError.message}`);
+  }
   const { error: deactivateError } = await db.from("crm_lead_treating_doctors").update({ active: false, updated_at: new Date().toISOString() }).eq("lead_id", lead.id);
   if (deactivateError) throw new Error(`updateLeadProfile(doctors): ${deactivateError.message}`);
   if (selectedDoctors.length) {
@@ -579,7 +623,6 @@ export async function scheduleFollowUp(params: {
     .maybeSingle();
   if (latestError) throw new Error(`followUpLatestStage: ${latestError.message}`);
   const stageNumber = ((latest?.stage_number as number | undefined) ?? 0) + 1;
-  const nextStatus = workflowType === "post_op" ? "post_op_follow_up" : "follow_up";
 
   const { data: created, error } = await supabaseAdmin()
     .from("lead_follow_up_stages")
@@ -596,20 +639,13 @@ export async function scheduleFollowUp(params: {
     .single();
   if (error) throw new Error(`scheduleFollowUp: ${error.message}`);
 
-  const { error: leadError } = await supabaseAdmin()
-    .from("leads")
-    .update({ status: nextStatus })
-    .eq("id", lead.id);
-  if (leadError) throw new Error(`scheduleFollowUpLead: ${leadError.message}`);
-
   await audit({
     actorId: actor.id,
     action: "lead.follow_up_scheduled",
     entityType: "lead",
     entityId: lead.id,
-    oldValues: { status: lead.status },
+    oldValues: {},
     newValues: {
-      status: nextStatus,
       follow_up_stage_id: created.id,
       workflow_type: workflowType,
       stage_number: stageNumber,
@@ -626,6 +662,12 @@ export async function scheduleFollowUp(params: {
     body: params.notes?.trim() || null,
     metadata: { follow_up_stage_id: created.id, workflow_type: workflowType, stage_number: stageNumber },
   });
+}
+
+export async function addFollowUpProgram(leadId: string, workflowType: string): Promise<void> {
+  const actor = await writeLeadActor();
+  const normalized = normalizeWorkflowType(workflowType);
+  await createFollowUpProgramForLead(leadId, normalized, actor.id);
 }
 
 export async function completeFollowUp(params: {

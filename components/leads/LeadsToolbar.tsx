@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { STAGE_META, STAGE_ORDER } from "@/lib/badges";
 import type { LeadSourceInfo } from "@/lib/types";
 
@@ -22,6 +22,7 @@ export function LeadsToolbar({
 }) {
   const router = useRouter();
   const sp = useSearchParams();
+  const [query, setQuery] = useState(sp.get("q") ?? "");
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -35,29 +36,25 @@ export function LeadsToolbar({
   );
 
   const selCls =
-    "h-8 rounded-control border border-line bg-panel px-2 text-[12px] text-ink-600 focus:border-primary";
+    "calm-field h-9 px-2.5 text-[12px] text-ink-700";
+
+  useEffect(() => {
+    const current = sp.get("q") ?? "";
+    if (query === current) return;
+    const timer = window.setTimeout(() => setParam("q", query), 120);
+    return () => window.clearTimeout(timer);
+  }, [query, setParam, sp]);
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-line-softer bg-toolbar px-[18px] py-2.5">
       <input
         data-lead-search
-        defaultValue={sp.get("q") ?? ""}
-        placeholder="⌕  Lead ID, MRN, phone, name, chat link…"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") setParam("q", (e.target as HTMLInputElement).value);
-        }}
-        className="h-10 w-full rounded-control border border-line bg-panel px-3 text-[12.5px] text-ink-700 placeholder:text-ink-400 sm:h-8 sm:w-[280px]"
+        type="search"
+        value={query}
+        placeholder="Search lead ID, MRN, phone or name…"
+        onChange={(event) => setQuery(event.target.value)}
+        className="calm-field h-11 w-full px-3 text-[12.5px] text-ink-700 placeholder:text-ink-400 sm:h-9 sm:w-[320px]"
       />
-      <button
-        type="button"
-        onClick={() => {
-          const input = document.querySelector<HTMLInputElement>("input[data-lead-search]");
-          setParam("q", input?.value ?? "");
-        }}
-        className="h-8 rounded-control border border-line bg-panel px-2.5 text-[11.5px] font-medium text-ink-600 hover:border-primary hover:text-primary"
-      >
-        Search
-      </button>
 
       {!stageLocked && (
         <select className={selCls} value={sp.get("stage") ?? ""} onChange={(e) => setParam("stage", e.target.value)}>

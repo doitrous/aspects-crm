@@ -175,6 +175,13 @@ export interface BundleItem {
   basePrice: number;
 }
 
+export interface FinancialServiceOption {
+  id: string;
+  serviceId: string | null;
+  name: string;
+  basePrice: number;
+}
+
 export interface ApprovalRequest {
   id: string;
   status: "pending" | "approved" | "rejected" | "resolved";
@@ -230,6 +237,7 @@ export interface LeadFinancials {
   doctorFunded: DoctorFundedLine[];
   externalCosts: ExternalCostLine[];
   bundleItems: BundleItem[];
+  serviceOptions: FinancialServiceOption[];
   approvals: ApprovalRequest[];
   auditTrail: AuditEntry[];
   doctorOptions: FinancialDoctorOption[];
@@ -269,6 +277,13 @@ async function financialDoctorOptions(): Promise<FinancialDoctorOption[]> {
     name: doctor.nameEn || doctor.nameAr || doctor.id,
     active: doctor.active,
   }));
+}
+
+async function financialServiceOptions(): Promise<FinancialServiceOption[]> {
+  const { data, error } = await supabaseAdmin().from("crm_financial_service_settings")
+    .select("id,service_id,service_name,base_price").eq("active", true).order("service_name");
+  if (error) throw new FinancialError(`Could not load financial services: ${error.message}`);
+  return (data ?? []).map((row) => ({ id: row.id as string, serviceId: (row.service_id as string | null) ?? null, name: row.service_name as string, basePrice: num(row.base_price) }));
 }
 
 /** Look a lead up by the human id the route carries (`L0001`), never by uuid. */
@@ -463,6 +478,7 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
   const canForce = can(viewer.role, "financial.forceExceptionalPrice");
   const canEditRules = can(viewer.role, "financial.editRules");
   const doctorOptions = canEditRules ? await financialDoctorOptions() : [];
+  const serviceOptions = await financialServiceOptions();
 
   if (!record) {
     const { basePrice } = await lookupBasePrice(lead);
@@ -496,6 +512,7 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
       doctorFunded: [],
       externalCosts: [],
       bundleItems: [],
+      serviceOptions,
       approvals: [],
       auditTrail: [],
       doctorOptions,
@@ -756,6 +773,7 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
       const r = b as { id: string; service_name: string; base_price: number };
       return { id: r.id, serviceName: r.service_name, basePrice: num(r.base_price) };
     }),
+    serviceOptions,
     approvals: approvalRows.map((a) => ({
       id: a.id,
       status: a.status,
@@ -789,6 +807,40 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
     canApprove: can(viewer.role, "financial.approveDiscount"),
     canEditRules,
   };
+}
+
+export async function addServicesToLeadFinancials(leadId: string, serviceSettingIds: string[]): Promise<void> {
+  const actor = await writeActor();
+  assertCan(actor.role, "financial.editLeadRecord");
+  const lead = await leadRow(leadId);
+  const record = await ensureRecord(actor, lead);
+  const ids = [...new Set(serviceSettingIds.filter(Boolean))];
+  if (!ids.length) throw new FinancialError("Choose at least one service.");
+  const db = supabaseAdmin();
+  const { data: services, error } = await db.from("crm_financial_service_settings")
+    .select("id,service_id,service_name,base_price").in("id", ids).eq("active", true);
+  if (error) throw new FinancialError(`Could not load selected services: ${error.message}`);
+  if ((services ?? []).length !== ids.length) throw new FinancialError("One or more selected services are unavailable.");
+  const { data: existing, error: existingError } = await db.from("crm_lead_bundle_items")
+    .select("service_settings_id").eq("lead_financials_id", record.id);
+  if (existingError) throw new FinancialError(`Could not inspect existing services: ${existingError.message}`);
+  const present = new Set((existing ?? []).map((row) => row.service_settings_id as string));
+  const additions = (services ?? []).filter((service) => !present.has(service.id as string));
+  if (!additions.length) throw new FinancialError("Those services are already on this bill.");
+  const { error: insertError } = await db.from("crm_lead_bundle_items").insert(additions.map((service) => ({
+    lead_financials_id: record.id,
+    service_settings_id: service.id,
+    service_name: service.service_name,
+    base_price: service.base_price,
+    created_by: actor.id,
+  })));
+  if (insertError) throw new FinancialError(`Could not add services: ${insertError.message}`);
+  const { data: allItems, error: sumError } = await db.from("crm_lead_bundle_items").select("base_price").eq("lead_financials_id", record.id);
+  if (sumError) throw new FinancialError(`Could not total services: ${sumError.message}`);
+  const baseTotal = (allItems ?? []).reduce((sum, item) => sum + num(item.base_price), 0);
+  const { error: updateError } = await db.from("crm_lead_financials").update({ base_service_price: baseTotal, updated_at: new Date().toISOString() }).eq("id", record.id);
+  if (updateError) throw new FinancialError(`Could not update bill total: ${updateError.message}`);
+  await audit(actor, { entityType: "lead_financials", entityId: record.id, action: "services_added", field: "base_service_price", oldValue: record.base_service_price, newValue: baseTotal });
 }
 
 /* ── write ────────────────────────────────────────────────────── */
