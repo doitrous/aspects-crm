@@ -103,11 +103,14 @@ body {
 :root[data-theme="dark"] .text-slate-500,
 :root[data-theme="dark"] .text-slate-400 { color: rgb(var(--c-ink-400)); }
 :root[data-theme="dark"] [class*="bg-slate-50"] { background-color: rgb(var(--c-toolbar)); }
+:root[data-theme="dark"] [class*="bg-blue-50"] { background-color: rgb(28 49 81); }
 :root[data-theme="dark"] [class*="bg-amber-50"] { background-color: rgb(66 52 27); }
 :root[data-theme="dark"] [class*="bg-emerald-50"] { background-color: rgb(22 61 50); }
 :root[data-theme="dark"] [class*="bg-red-50"] { background-color: rgb(66 31 35); }
 :root[data-theme="dark"] .text-amber-800,
 :root[data-theme="dark"] .text-amber-700 { color: rgb(253 230 138); }
+:root[data-theme="dark"] .text-blue-800,
+:root[data-theme="dark"] .text-blue-700 { color: rgb(191 219 254); }
 :root[data-theme="dark"] .text-emerald-800,
 :root[data-theme="dark"] .text-emerald-700 { color: rgb(167 243 208); }
 :root[data-theme="dark"] input,

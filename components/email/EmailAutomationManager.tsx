@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { Fragment, useActionState, useState } from "react";
 import {
   upsertEmailRuleAction,
   toggleEmailRuleAction,
@@ -171,7 +171,7 @@ function AutomationCard({ rule, canManage }: { rule: EmailRuleSetting; canManage
         </div>
       </div>
       <div className="mt-4 grid gap-2 border-y border-line-faint py-3 sm:grid-cols-2">
-        <div><div className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Recipients</div><div className="mt-1 text-[12px] font-semibold text-ink-700">{recipients.join(", ") || "No recipients configured"}</div></div>
+        <div><div className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Recipients</div><div className="mt-1 text-[12px] font-semibold text-ink-700">{recipients.length ? recipients.map((recipient, index) => <Fragment key={`${recipient}-${index}`}>{index > 0 && ", "}<span>{recipient}</span></Fragment>) : "No recipients configured"}</div></div>
         <div><div className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Subject</div><div className="mt-1 truncate text-[12px] font-semibold text-ink-700">{rule.subjectTemplate || "No subject"}</div></div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-3">
