@@ -44,8 +44,8 @@ const MESSAGES = "crm_messages";
 const CONVERSATIONS = "crm_conversations";
 const COMMENTS = "crm_comments";
 
-/** Minutes an unanswered incoming message may sit before the lead is overdue. */
-const REPLY_SLA_MINUTES = 30;
+/** Compatibility fallback when a stage rule has not been configured. */
+const DEFAULT_REPLY_SLA_MINUTES = 30;
 
 /** Canonical pipeline platform → the value stored in the database. */
 function dbPlatform(platform: Platform): string {
@@ -216,7 +216,7 @@ export class SupabaseMetaStore implements MetaStore {
   async markLeadIncoming(leadId: string, at: string, messageId: string | null): Promise<void> {
     const { data: lead } = await this.db
       .from(LEADS)
-      .select("has_unread, unread_message_count, unread_since, last_incoming_at")
+      .select("has_unread, unread_message_count, unread_since, last_incoming_at, status")
       .eq("id", leadId)
       .maybeSingle();
     if (!lead) return;
@@ -228,6 +228,13 @@ export class SupabaseMetaStore implements MetaStore {
     // The SLA clock starts at the FIRST unanswered message. A patient sending
     // three messages in a row must not keep pushing their own deadline out.
     const unreadSince = wasUnread ? ((lead.unread_since as string | null) ?? at) : at;
+    const { data: rule } = await this.db
+      .from("crm_stage_reply_rules")
+      .select("reply_deadline_minutes")
+      .eq("stage_key", String(lead.status ?? "new_lead"))
+      .eq("is_active", true)
+      .maybeSingle();
+    const replyDeadlineMinutes = Math.max(1, Number(rule?.reply_deadline_minutes ?? DEFAULT_REPLY_SLA_MINUTES));
 
     await this.db
       .from(LEADS)
@@ -237,7 +244,7 @@ export class SupabaseMetaStore implements MetaStore {
         unread_message_count: count + 1,
         last_unread_message_id: messageId,
         last_incoming_at: !lastIncoming || at > lastIncoming ? at : lastIncoming,
-        reply_overdue_at: addMinutes(unreadSince, REPLY_SLA_MINUTES),
+        reply_overdue_at: addMinutes(unreadSince, replyDeadlineMinutes),
         is_reply_overdue: false,
         updated_at: new Date().toISOString(),
       })

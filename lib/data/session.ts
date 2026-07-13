@@ -16,7 +16,7 @@ export { USER_COOKIE };
 export type { SessionUser };
 
 /** `crm_users` columns this module reads. */
-const COLS = "id, email, full_name, role, is_active, auth_user_id";
+const COLS = "id, email, full_name, role, is_active, auth_user_id, avatar_url";
 
 /**
  * Dev-only impersonation switch. Off unless `CRM_DEV_IMPERSONATION=1`, and even

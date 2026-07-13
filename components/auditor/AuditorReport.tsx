@@ -9,7 +9,12 @@ import {
   reopenReportAction,
 } from "@/app/(crm)/auditor/actions";
 import { Card } from "@/components/ui/Card";
-import type { AuditReportDetail, DroppedLead, AuditorFilterOptions } from "@/lib/data/auditor";
+import type {
+  AuditReportDetail,
+  DroppedLead,
+  AuditorFilterOptions,
+  AuditorTrendPoint,
+} from "@/lib/data/auditor";
 import type { AuditorMetrics } from "@/lib/auditor/kpi";
 import { QuickCopy } from "@/components/reports/QuickCopy";
 
@@ -199,6 +204,60 @@ function scopeLabel(
   return "";
 }
 
+function AuditorTrendChart({ rows }: { rows: AuditorTrendPoint[] }) {
+  const max = Math.max(1, ...rows.flatMap((row) => [row.totalLeads, row.booked, row.dropped]));
+  const width = 700;
+  const height = 190;
+  const left = 24;
+  const top = 18;
+  const plotWidth = width - left * 2;
+  const plotHeight = 120;
+  const x = (index: number) => left + (plotWidth * index) / Math.max(1, rows.length - 1);
+  const y = (value: number) => top + plotHeight - (value / max) * plotHeight;
+  const points = (key: "totalLeads" | "booked" | "dropped") =>
+    rows.map((row, index) => `${x(index)},${y(row[key])}`).join(" ");
+
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="flex flex-col gap-2 border-b border-line-faint px-4 py-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-400">Live activity graph</div>
+          <h2 className="mt-0.5 text-[18px] font-bold text-ink-950">Seven-day lead movement</h2>
+          <p className="mt-0.5 text-[12px] text-ink-500">Ends on the selected day and follows the active doctor or specialty filter.</p>
+        </div>
+        <div className="flex flex-wrap gap-3 text-[11px] font-semibold text-ink-600">
+          <span><i className="mr-1 inline-block size-2 rounded-full bg-slate-800" />Leads</span>
+          <span><i className="mr-1 inline-block size-2 rounded-full bg-emerald-500" />Booked</span>
+          <span><i className="mr-1 inline-block size-2 rounded-full bg-red-500" />Dropped</span>
+        </div>
+      </div>
+      <div className="overflow-x-auto px-3 pb-2 pt-3">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[620px] w-full" role="img" aria-label="Seven-day auditor lead trend">
+          {[0, 0.5, 1].map((ratio) => (
+            <g key={ratio}>
+              <line x1={left} x2={width - left} y1={top + plotHeight * ratio} y2={top + plotHeight * ratio} stroke="#e5e7eb" strokeWidth="1" />
+              <text x={left} y={top + plotHeight * ratio - 5} fill="#94a3b8" fontSize="10">{Math.round(max * (1 - ratio))}</text>
+            </g>
+          ))}
+          <polyline fill="none" stroke="#1e293b" strokeWidth="3" strokeLinejoin="round" points={points("totalLeads")} />
+          <polyline fill="none" stroke="#10b981" strokeWidth="3" strokeLinejoin="round" points={points("booked")} />
+          <polyline fill="none" stroke="#ef4444" strokeWidth="3" strokeLinejoin="round" points={points("dropped")} />
+          {rows.map((row, index) => (
+            <g key={row.date}>
+              <circle cx={x(index)} cy={y(row.totalLeads)} r="3.5" fill="#1e293b" />
+              <circle cx={x(index)} cy={y(row.booked)} r="3.5" fill="#10b981" />
+              <circle cx={x(index)} cy={y(row.dropped)} r="3.5" fill="#ef4444" />
+              <text x={x(index)} y={height - 18} textAnchor="middle" fill="#64748b" fontSize="10">
+                {new Date(`${row.date}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    </Card>
+  );
+}
+
 export function AuditorReport({
   date,
   detail,
@@ -208,6 +267,7 @@ export function AuditorReport({
   selectedDoctorId,
   selectedSpecialtyId,
   scopedPreview,
+  trend,
 }: {
   date: string;
   detail: AuditReportDetail | null;
@@ -217,6 +277,7 @@ export function AuditorReport({
   selectedDoctorId: string;
   selectedSpecialtyId: string;
   scopedPreview: { metrics: AuditorMetrics; redFlags: Array<{ key: string; reason: string }> } | null;
+  trend: AuditorTrendPoint[];
 }) {
   const [showDropped, setShowDropped] = useState(false);
   const editable = canGenerate && detail !== null && !finalized(detail.status);
@@ -226,10 +287,26 @@ export function AuditorReport({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Controls */}
+      <section className="rounded-card bg-slate-950 px-5 py-5 text-white shadow-sm sm:px-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-300">Daily control room</div>
+            <h1 className="mt-2 text-[26px] font-bold tracking-tight sm:text-[32px]">Review the facts. Explain changes. Lock the day.</h1>
+            <p className="mt-2 text-[13px] leading-5 text-slate-300">The CRM builds the snapshot. Auditors only adjust a value when there is evidence, record why, and finalize one clinic-wide source of truth.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {detail && <StatusBadge status={detail.status} />}
+            <div className="rounded-control border border-white/15 bg-white/10 px-3 py-2 text-right">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Report day</div>
+              <div className="mt-0.5 text-[15px] font-bold">{date}</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <Card className="flex flex-wrap items-center gap-3 p-3">
         <form method="get" action="/auditor" className="flex flex-wrap items-center gap-2">
-          <label className="text-[11px] font-semibold text-ink-500">Report day</label>
+          <label className="w-full text-[11px] font-bold uppercase tracking-wide text-ink-400 sm:w-auto">View date and scope</label>
           <input
             type="date"
             name="date"
@@ -253,25 +330,51 @@ export function AuditorReport({
             </select>
           )}
           <button type="submit" className="h-8 rounded-control border border-line-soft px-3 text-[12px] font-semibold text-ink-700 hover:bg-line-faint/60">
-            View
+            Apply view
           </button>
         </form>
-        {detail && <StatusBadge status={detail.status} />}
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {detail && <QuickCopy text={shareText} />}
-          {canGenerate && (
-            <ActionForm action={generateReportAction} date={date} variant={detail ? "ghost" : "primary"}>
-              {detail ? "Regenerate" : "Generate report"}
-            </ActionForm>
-          )}
-          {canGenerate && detail && !finalized(detail.status) && (
-            <ActionForm action={finalizeReportAction} date={date}>Finalize</ActionForm>
-          )}
-          {canGenerate && detail && finalized(detail.status) && (
-            <ActionForm action={reopenReportAction} date={date} variant="ghost">Reopen</ActionForm>
-          )}
+        <div className="ml-auto text-[11px] text-ink-500">{selectedDoctorId || selectedSpecialtyId ? `Filtered: ${scopeLabel(options, selectedDoctorId, selectedSpecialtyId)}` : "Clinic-wide view"}</div>
+      </Card>
+
+      <Card className="p-3 sm:p-4">
+        <div className="grid gap-3 lg:grid-cols-3">
+          <div className={`rounded-control border p-3 ${detail ? "border-emerald-200 bg-emerald-50" : "border-primary/30 bg-primary-soft/30"}`}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-ink-500">1 · Snapshot</span>
+              <span className={`rounded-pill px-2 py-0.5 text-[10px] font-bold ${detail ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{detail ? "Ready" : "Needed"}</span>
+            </div>
+            <p className="my-2 text-[12px] leading-5 text-ink-600">Capture current CRM activity for this day. Refreshing keeps documented overrides intact.</p>
+            {canGenerate && (
+              <ActionForm action={generateReportAction} date={date} variant={detail ? "ghost" : "primary"}>
+                {detail ? "Refresh live snapshot" : "Create daily snapshot"}
+              </ActionForm>
+            )}
+          </div>
+          <div className={`rounded-control border p-3 ${editable ? "border-amber-200 bg-amber-50" : "border-line-soft bg-panel"}`}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-ink-500">2 · Review</span>
+              <span className="text-[10px] font-bold text-ink-500">{detail ? `${Object.keys(detail.overrides).length} override${Object.keys(detail.overrides).length === 1 ? "" : "s"}` : "Waiting"}</span>
+            </div>
+            <p className="my-2 text-[12px] leading-5 text-ink-600">Inspect flags and source metrics below. Override only a base value and always record the evidence.</p>
+            {detail && <QuickCopy text={shareText} />}
+          </div>
+          <div className={`rounded-control border p-3 ${detail && finalized(detail.status) ? "border-emerald-200 bg-emerald-50" : "border-line-soft bg-panel"}`}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-ink-500">3 · Finalize</span>
+              <span className="text-[10px] font-bold text-ink-500">{detail && finalized(detail.status) ? "Locked" : "Open"}</span>
+            </div>
+            <p className="my-2 text-[12px] leading-5 text-ink-600">Finalize publishes the report and locks edits. Reopen only when the audit record must change.</p>
+            {canGenerate && detail && !finalized(detail.status) && (
+              <ActionForm action={finalizeReportAction} date={date}>Finalize &amp; lock</ActionForm>
+            )}
+            {canGenerate && detail && finalized(detail.status) && (
+              <ActionForm action={reopenReportAction} date={date} variant="ghost">Reopen for correction</ActionForm>
+            )}
+          </div>
         </div>
       </Card>
+
+      <AuditorTrendChart rows={trend} />
 
       {scopedPreview && (
         <Card className="border-primary/30 bg-primary-soft/30 p-3">
@@ -315,11 +418,11 @@ export function AuditorReport({
 
       {!detail && (
         <Card className="p-8 text-center">
-          <div className="text-[14px] font-semibold text-ink-800">No report for {date}</div>
+          <div className="text-[18px] font-bold text-ink-900">This day has no saved snapshot yet</div>
           <p className="mx-auto mt-1 max-w-md text-[12px] text-ink-500">
             {canGenerate
-              ? "Generate the daily report to compute the metrics from that day's CRM activity. You can then override values and finalize."
-              : "This day has not been generated yet. Ask an auditor to generate it."}
+              ? "Use Create daily snapshot above. The system will load CRM facts, then unlock review and finalization."
+              : "Ask an auditor or administrator to create the daily snapshot."}
           </p>
         </Card>
       )}

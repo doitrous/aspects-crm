@@ -172,19 +172,22 @@ export function SchedulingSettings({ snapshot }: { snapshot: BookingSchedulingSn
 
   const doctorsById = new Map(snapshot.doctors.map((doctor) => [doctor.id, doctor]));
   const branchesById = new Map(snapshot.branches.map((branch) => [branch.id, branch]));
-  const schedules = snapshot.doctors.flatMap((doctor) =>
-    doctor.schedules.map((schedule) => ({ ...schedule, doctorName: doctor.nameEn })),
-  );
-  const sorted = schedules.sort(
-    (a, b) => DAY_ORDER.indexOf(a.dayOfWeek) - DAY_ORDER.indexOf(b.dayOfWeek) || a.startTime.localeCompare(b.startTime),
-  );
+  const doctorsWithSchedules = snapshot.doctors.map((doctor) => ({
+    ...doctor,
+    schedules: [...doctor.schedules].sort((a, b) => DAY_ORDER.indexOf(a.dayOfWeek) - DAY_ORDER.indexOf(b.dayOfWeek) || a.startTime.localeCompare(b.startTime)),
+  }));
+  const scheduleCount = doctorsWithSchedules.reduce((count, doctor) => count + doctor.schedules.length, 0);
 
   return (
-    <div className="space-y-3">
-      <Card className="p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <div className="space-y-4">
+      <div className="rounded-xl bg-ink-900 p-5 text-white">
+        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Live availability</div>
+        <div className="mt-1 flex flex-wrap items-end justify-between gap-4"><div><h3 className="text-[22px] font-black">Doctor schedules</h3><p className="mt-1 max-w-2xl text-[12px] text-white/65">Each doctor has one clear schedule card. Changes immediately control website and CRM booking availability.</p></div><div className="flex gap-2"><span className="rounded-lg bg-white/10 px-3 py-2 text-[11px] font-bold">{doctorsWithSchedules.length} doctors</span><span className="rounded-lg bg-white/10 px-3 py-2 text-[11px] font-bold">{scheduleCount} sessions</span></div></div>
+      </div>
+      <Card className="p-4 sm:p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-4">
           <div>
-            <h3 className="text-[13px] font-bold text-ink-900">Live booking rules</h3>
+            <h3 className="text-[15px] font-black text-ink-900">Clinic-wide booking rules</h3>
             <p className="text-[11.5px] text-ink-500">
               Public booking, lead Booking, Website Reservations, Calendar, and Scheduling all read these same booking-platform rows.
             </p>
@@ -195,17 +198,22 @@ export function SchedulingSettings({ snapshot }: { snapshot: BookingSchedulingSn
             <span className="rounded-pill bg-line-faint px-2 py-0.5">Default {snapshot.settings.defaultDurationMinutes}m</span>
           </div>
         </div>
-        {sorted.length === 0 ? (
+        {scheduleCount === 0 ? (
           <EmptyState title="No schedule templates" hint="Add schedules in the booking admin database before slots can be offered." />
         ) : (
-          sorted.map((schedule) => (
-            <ScheduleForm
-              key={schedule.id}
-              schedule={schedule}
-              doctorName={schedule.doctorName}
-              branchName={branchesById.get(schedule.branchId)?.nameEn ?? "Unknown branch"}
-            />
-          ))
+          <div className="grid gap-4 xl:grid-cols-2">
+            {doctorsWithSchedules.map((doctor) => (
+              <section key={doctor.id} className="overflow-hidden rounded-xl border border-line bg-slate-50/60">
+                <div className="flex items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
+                  <div><div className="text-[14px] font-black text-ink-900">{doctor.nameEn}</div><div className="mt-0.5 text-[10.5px] text-ink-400">{doctor.schedules.filter((schedule) => schedule.active).length} active weekly sessions</div></div>
+                  <span className={"h-2.5 w-2.5 rounded-full " + (doctor.schedules.some((schedule) => schedule.active) ? "bg-emerald-500" : "bg-slate-300")} />
+                </div>
+                <div className="px-4">
+                  {doctor.schedules.map((schedule) => <ScheduleForm key={schedule.id} schedule={schedule} doctorName={doctor.nameEn} branchName={branchesById.get(schedule.branchId)?.nameEn ?? "Unknown branch"} />)}
+                </div>
+              </section>
+            ))}
+          </div>
         )}
       </Card>
 

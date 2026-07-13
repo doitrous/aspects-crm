@@ -15,6 +15,8 @@ import { listEscalationReasons } from "@/lib/data/settingsData";
 import { bookingCatalog } from "@/lib/booking/service";
 import { loadFollowUpPlan } from "@/lib/data/followupPlans";
 import { whatsappConfigured } from "@/lib/whatsapp/config";
+import { deriveLeadBookingSummary } from "@/lib/booking/leadSummary";
+import { refreshReplyOverdueFlags } from "@/lib/data/replySla";
 import type { Lead, PipelineStage, Platform, TreatingDoctorAssignment } from "@/lib/types";
 
 const DB_TO_UI_STAGE: Record<string, PipelineStage> = {
@@ -48,7 +50,7 @@ const SHELL_COLUMNS =
   "id,lead_id,mrn,name,status,platform,platform_id,chat_link,gender," +
   "phone_country_code,phone_number,normalized_phone,source_id,service_name," +
   "campaign,doctor_id,coordinator_user_id,escalation_status,has_unread," +
-  "is_reply_overdue,booking_appointment_id,lost_reason_id,notes,medical_notes," +
+  "is_reply_overdue,reply_overdue_at,booking_appointment_id,lost_reason_id,notes,medical_notes," +
   "medical_history,ai_summary,last_incoming_at,last_outgoing_at,last_contact_at," +
   "created_at,updated_at,metadata";
 
@@ -73,6 +75,7 @@ type ShellRow = {
   escalation_status: string | null;
   has_unread: boolean;
   is_reply_overdue: boolean;
+  reply_overdue_at: string | null;
   booking_appointment_id: string | null;
   lost_reason_id: string | null;
   notes: string | null;
@@ -88,6 +91,7 @@ type ShellRow = {
 };
 
 async function loadLeadShell(id: string): Promise<Lead | null> {
+  await refreshReplyOverdueFlags();
   const { data: row, error } = await supabaseAdmin()
     .from("leads")
     .select(SHELL_COLUMNS)
@@ -121,6 +125,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
   const visibleTagRows = revisiting && !tagRows.some((tag) => tag.name === "Revisiting Patient")
     ? [...tagRows, { name: "Revisiting Patient", color: "#7c3aed" }]
     : tagRows;
+  const bookingSummary = deriveLeadBookingSummary(metadata, row.booking_appointment_id);
 
   return {
     id: row.lead_id,
@@ -152,13 +157,16 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab as Lead["attentionTab"] : undefined,
     incomingUnanswered: row.has_unread,
     overdue: row.is_reply_overdue,
+    overdueReason: row.is_reply_overdue ? `Unread patient message passed its reply deadline${row.reply_overdue_at ? ` at ${new Date(row.reply_overdue_at).toLocaleString("en-EG")}` : ""}.` : undefined,
     escalated: ["escalated", "in_review"].includes(row.escalation_status ?? "none"),
     duplicateStatus: "none",
     lastMessage: row.ai_summary ?? undefined,
     lastMessageAt,
     createdAt: row.created_at,
     lostReason: lost?.label ?? undefined,
-    bookingStatus: row.booking_appointment_id ? "unconfirmed" : "none",
+    bookingStatus: bookingSummary.status,
+    bookingContext: bookingSummary.context,
+    bookingCount: bookingSummary.count,
     bookingAppointmentId: row.booking_appointment_id ?? undefined,
     note: {
       clientNotes: row.notes ?? "",

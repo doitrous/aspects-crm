@@ -63,6 +63,7 @@ export default async function UsersPage({
 
   const canMutate = can(user.role, "users.changeRole");
   const canInvite = can(user.role, "users.invite");
+  const canReset = can(user.role, "users.resetPassword");
   const activeAdmins = adminsPage.total;
   const pageCount = Math.max(1, Math.ceil(usersPage.total / usersPage.pageSize));
   const pageHref = (page: number) => {
@@ -142,7 +143,7 @@ export default async function UsersPage({
             </p>
           )}
           <PaginationNav page={requestedPage} pageCount={pageCount} hrefForPage={pageHref} summary={`Page ${requestedPage} of ${pageCount} · ${usersPage.total} users`} />
-          <UsersTable users={rows} currentUserId={user.id} canMutate={canMutate} />
+          <UsersTable users={rows} currentUserId={user.id} canMutate={canMutate} canReset={canReset} />
           <PaginationNav page={requestedPage} pageCount={pageCount} hrefForPage={pageHref} summary={`Page ${requestedPage} of ${pageCount} · ${usersPage.total} users`} />
         </Card>
 

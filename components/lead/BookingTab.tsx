@@ -199,10 +199,12 @@ export function BookingTab({
   lead,
   bookings,
   catalog,
+  onChanged,
 }: {
   lead: Lead;
   bookings: Booking[];
   catalog: BookingCatalog;
+  onChanged?: (bookings: Booking[]) => void;
 }) {
   const [step, setStep] = useState(1);
   const [bookingRows, setBookingRows] = useState(bookings);
@@ -319,18 +321,24 @@ export function BookingTab({
       else {
         setMessage({ ok: result.ok ?? "Booking created." });
         if (result.appointmentId && selectedSlot) {
-          setBookingRows((current) => [{
-            id: result.appointmentId!,
-            leadId: lead.id,
-            doctorId,
-            specialtyId,
-            branch: selectedBranch?.nameEn ?? "Aspects Clinica",
-            startAt: `${date}T${slot}:00`,
-            durationMin: Math.max(1, Math.round((new Date(`2000-01-01T${selectedSlot.endTime}:00`).getTime() - new Date(`2000-01-01T${slot}:00`).getTime()) / 60_000)),
-            status: "unconfirmed",
-            source: "web",
-            calendarSynced: true,
-          }, ...current]);
+          setBookingRows((current) => {
+            const createdBooking: Booking = {
+              id: result.appointmentId!,
+              leadId: lead.id,
+              doctorId,
+              specialtyId,
+              branch: selectedBranch?.nameEn ?? "Aspects Clinica",
+              startAt: `${date}T${slot}:00`,
+              durationMin: Math.max(1, Math.round((new Date(`2000-01-01T${selectedSlot.endTime}:00`).getTime() - new Date(`2000-01-01T${slot}:00`).getTime()) / 60_000)),
+              status: "unconfirmed",
+              source: "web",
+              origin: "crm",
+              calendarSynced: true,
+            };
+            const next = [createdBooking, ...current];
+            onChanged?.(next);
+            return next;
+          });
         }
         setStep(4);
       }
@@ -348,9 +356,13 @@ export function BookingTab({
       const result = await updateReservationStatusAction(appointmentId, next, lead.id);
       if (result.error) setMessage({ error: result.error });
       else {
-        setBookingRows((current) => current.map((booking) => booking.id === appointmentId
-          ? { ...booking, status: next === "reserved" ? "unconfirmed" : next === "attended" ? "completed" : next === "cancelled" ? "cancelled" : next === "no_show" ? "no_show" : "confirmed" }
-          : booking));
+        setBookingRows((current) => {
+          const rows = current.map((booking) => booking.id === appointmentId
+            ? { ...booking, status: next === "reserved" ? "unconfirmed" as const : next === "attended" ? "completed" as const : next === "cancelled" ? "cancelled" as const : next === "no_show" ? "no_show" as const : "confirmed" as const }
+            : booking);
+          onChanged?.(rows);
+          return rows;
+        });
         setMessage({ ok: result.ok ?? "Booking status updated." });
       }
     } catch (error) {
@@ -394,9 +406,11 @@ export function BookingTab({
           <div className="flex flex-col gap-2">
             {bookingRows.map((b) => (
               <div key={b.id} className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-primary/20 bg-primary-soft/35 p-4 shadow-sm">
-                <div className="min-w-[280px] flex-1">
+                <div className="min-w-0 flex-1 basis-full sm:basis-[280px]">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span className="rounded-pill bg-primary/10 px-2 py-0.5 text-[10.5px] font-bold text-primary">Reservation</span>
+                    <span className={"rounded-pill px-2 py-0.5 text-[10.5px] font-bold " + (b.origin === "crm" ? "bg-slate-100 text-slate-700" : "bg-primary/10 text-primary")}>
+                      {b.origin === "crm" ? "Booked by clinic" : "Website reservation"}
+                    </span>
                     <span className="font-mono text-[10px] text-ink-400">{b.id}</span>
                   </div>
                   <div className="text-[14px] font-bold text-ink-900">

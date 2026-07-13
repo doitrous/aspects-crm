@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { dispatchRule } from "@/lib/email/send";
+import { dispatchTrigger } from "@/lib/email/send";
 import { secretsEqual } from "@/lib/security/secrets";
 
 /**
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   const overdueCount = count ?? 0;
   const reportDate = localDate();
 
-  const outcome = await dispatchRule("overdue_leads_daily", {
+  const outcome = await dispatchTrigger("overdue_leads_daily", {
     discriminator: reportDate,
     ctx: { overdue_count: overdueCount, report_date: reportDate },
   });

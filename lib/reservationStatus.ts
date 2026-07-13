@@ -11,7 +11,7 @@ export const RESERVATION_STATUS_META: Record<
   confirmed: { label: "Confirmed", bg: "#eff8ff", fg: "#175cd3", dot: "#2e90fa" },
   attended: { label: "Attended", bg: "#ecfdf3", fg: "#067647", dot: "#12b76a" },
   no_show: { label: "No-show", bg: "#fef3f2", fg: "#b42318", dot: "#f04438" },
-  cancelled: { label: "Cancelled", bg: "#f2f4f7", fg: "#667085", dot: "#98a2b3" },
+  cancelled: { label: "Cancelled", bg: "#fef3f2", fg: "#b42318", dot: "#f04438" },
   rescheduled: { label: "Rescheduled", bg: "#eef2ff", fg: "#4338ca", dot: "#7a5af8" },
 };
 

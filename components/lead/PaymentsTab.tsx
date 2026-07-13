@@ -72,7 +72,7 @@ const STATUS_STYLE: Record<string, string> = {
   completed: "bg-success/10 text-success",
   pending: "bg-warn/10 text-warn",
   failed: "bg-danger-bg text-danger",
-  cancelled: "bg-line-faint text-ink-500",
+  cancelled: "bg-danger-bg text-danger",
 };
 
 const IDLE: FinancialActionState = { error: null, ok: null };
@@ -203,10 +203,43 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
 
   const below = verdict.status === "below_allowed";
   const cur = fin.currency;
+  const availableDiscounts = [...new Set([0, 5, 10, fin.summary.maxAllowedDiscountPct])]
+    .filter((value) => value >= 0 && value <= fin.summary.maxAllowedDiscountPct)
+    .sort((a, b) => a - b);
+  const chooseDiscount = (pct: number) => {
+    const quoted = Math.round(fin.summary.baseServicePrice * (1 - pct / 100) * 100) / 100;
+    setRaw(String(quoted));
+  };
 
   return (
     <section>
-      <SectionLabel>Pricing</SectionLabel>
+      <SectionLabel>1 · Agree the patient price</SectionLabel>
+
+      <div className="mb-3 overflow-hidden rounded-xl border border-primary/25 bg-primary-soft/45">
+        <div className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div>
+            <div className="text-[10.5px] font-black uppercase tracking-[0.14em] text-primary">Your discount privilege</div>
+            <div className="mt-1 text-[22px] font-black text-ink-900">Up to {formatPct(fin.summary.maxAllowedDiscountPct)}</div>
+            <p className="mt-1 max-w-xl text-[11.5px] leading-relaxed text-ink-600">
+              You can quote any price down to <strong>{formatMoney(fin.summary.minAllowedQuotedPrice, cur)}</strong> without approval
+              {fin.discountRuleScope ? ` under the ${SCOPE_LABEL[fin.discountRuleScope]} rule` : ""}.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5 sm:max-w-[240px] sm:justify-end">
+            {availableDiscounts.map((discount) => (
+              <button
+                key={discount}
+                type="button"
+                disabled={!fin.canEdit || fin.summary.baseServicePrice <= 0}
+                onClick={() => chooseDiscount(discount)}
+                className="rounded-control border border-primary/25 bg-white px-3 py-2 text-[11.5px] font-black text-primary hover:border-primary hover:bg-primary hover:text-white disabled:opacity-40"
+              >
+                {discount === fin.summary.maxAllowedDiscountPct && discount > 0 ? `Use max · ${formatPct(discount)}` : formatPct(discount)}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
 
       <div className="rounded-lg border border-line-soft bg-panel p-4">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -222,7 +255,7 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
 
           <div>
             <label htmlFor="quotedPrice" className="text-[11px] text-ink-400">
-              Quoted price (entered manually)
+              Patient&apos;s final quoted price
             </label>
             <input
               id="quotedPrice"
@@ -241,7 +274,7 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
                 "mt-1 tabular-nums",
                 verdict.isError && "border-danger bg-danger-bg text-danger focus:border-danger",
               )}
-              placeholder="—"
+              placeholder="Enter or choose a discount above"
             />
             {fin.summary.hasQuote && (
               <p className="mt-1 text-[11px] text-ink-400">
@@ -1060,31 +1093,38 @@ export function PaymentsTab({
   const cur = fin.currency;
 
   return (
-    <div className="flex flex-col gap-5 bg-toolbar/30 p-5 [&>section]:border [&>section]:border-line-soft [&>section]:bg-panel [&>section]:p-4 [&>section]:shadow-sm">
-      <section className="border-l-4 border-l-blue-500">
-        <SectionLabel>Summary</SectionLabel>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <Stat label="Quoted price" value={s.hasQuote ? formatMoney(s.quotedPrice, cur) : "—"} />
-          <Stat label="Discount" value={formatMoney(s.discountAmount, cur)} />
-          <Stat label="Amount due" value={formatMoney(s.amountDue, cur)} />
-          <Stat label="Collected" value={formatMoney(s.totalCollected, cur)} tone="success" />
-          <Stat
-            label="Outstanding balance"
-            value={formatMoney(s.outstanding, cur)}
-            tone={s.outstanding > 0 ? "danger" : "success"}
-          />
-          <Stat
-            label="Pending (not collected)"
-            value={formatMoney(s.pendingTotal, cur)}
-            tone={s.pendingTotal > 0 ? "warn" : undefined}
-          />
+    <div className="flex flex-col gap-4 bg-toolbar/30 p-3 sm:p-5 [&>section]:rounded-xl [&>section]:border [&>section]:border-line-soft [&>section]:bg-panel [&>section]:p-4 [&>section]:shadow-sm">
+      <section className="!border-ink-900 !bg-ink-900 !p-5 text-white">
+        <div className="grid gap-5 sm:grid-cols-[1.25fr_1fr] sm:items-end">
+          <div>
+            <div className="text-[10.5px] font-black uppercase tracking-[0.16em] text-white/55">Patient balance</div>
+            <div className={"mt-2 text-[30px] font-black tabular-nums sm:text-[36px] " + (s.outstanding > 0 ? "text-white" : "text-emerald-300")}>
+              {formatMoney(s.outstanding, cur)}
+            </div>
+            <div className="mt-2 text-[12px] text-white/65">
+              {s.outstanding > 0 ? "Still due from the patient" : "Account is settled"}
+              {s.pendingTotal > 0 ? ` · ${formatMoney(s.pendingTotal, cur)} pending settlement` : ""}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-white/15 pt-4 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
+            <div><div className="text-[10px] uppercase text-white/45">Agreed price</div><div className="mt-1 text-[15px] font-bold">{s.hasQuote ? formatMoney(s.quotedPrice, cur) : "Not set"}</div></div>
+            <div><div className="text-[10px] uppercase text-white/45">Collected</div><div className="mt-1 text-[15px] font-bold text-emerald-300">{formatMoney(s.totalCollected, cur)}</div></div>
+            <div><div className="text-[10px] uppercase text-white/45">Discount</div><div className="mt-1 text-[15px] font-bold">{formatPct(s.effectiveDiscountPct)}</div></div>
+            <div><div className="text-[10px] uppercase text-white/45">Amount due</div><div className="mt-1 text-[15px] font-bold">{formatMoney(s.amountDue, cur)}</div></div>
+          </div>
         </div>
       </section>
+
+      <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-line bg-panel text-center text-[10.5px] font-bold text-ink-500">
+        <div className="border-r border-line px-2 py-2.5"><span className="mr-1 text-primary">1</span> Set price</div>
+        <div className="border-r border-line px-2 py-2.5"><span className="mr-1 text-primary">2</span> Record payment</div>
+        <div className="px-2 py-2.5"><span className="mr-1 text-primary">3</span> Verify balance</div>
+      </div>
 
       <QuoteEditor fin={fin} onChanged={onChanged} />
 
       <section className="border-l-4 border-l-amber-500">
-        <SectionLabel>Partial payment protocol</SectionLabel>
+        <SectionLabel>How installments work</SectionLabel>
         <ol className="grid gap-2 text-[12px] text-ink-700 md:grid-cols-3">
           <li className="bg-amber-50 p-3"><strong className="block text-amber-800">1. Confirm the quote</strong>Save the full agreed service price first. Do not reduce the quote to the amount being paid today.</li>
           <li className="bg-blue-50 p-3"><strong className="block text-blue-800">2. Record today&apos;s payment</strong>Add only the amount actually received, with its real method, date, and receipt reference.</li>

@@ -13,6 +13,7 @@ import {
 } from "@/lib/data/financialDashboard";
 import { formatDate } from "@/lib/format";
 import { financialSettingsData } from "@/lib/data/financialSettings";
+import { FinancialCharts } from "@/components/charts/FinancialCharts";
 
 export const dynamic = "force-dynamic";
 
@@ -145,7 +146,8 @@ export default async function FinancialPage({
     <>
       <Topbar title="Financial Dashboard" />
       <div className="flex-1 overflow-auto px-[18px] py-4">
-        <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div className="mb-4 rounded-xl bg-ink-900 p-5 text-white"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Clinic economics</div><h1 className="mt-1 text-[24px] font-black">Financial performance</h1><p className="mt-1 text-[12px] text-white/60">Collections use transaction dates; profitability uses service dates. Every visual responds to the selected range.</p></div>
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-panel p-3">
           <form method="get" action="/financial" className="flex flex-wrap items-center gap-2">
             <input type="hidden" name="tab" value={tab} />
             {tab === "drilldown" && <input type="hidden" name="type" value={drilldownType} />}
@@ -159,9 +161,7 @@ export default async function FinancialPage({
             <Link href={`/financial?from=${range.from}&to=${range.to}`} className={"rounded-md px-3 py-1 text-[12px] font-semibold " + (tab === "overview" ? "bg-primary text-white" : "text-ink-600")}>Overview</Link>
             <Link href={`/financial?from=${range.from}&to=${range.to}&tab=exceptions`} className={"rounded-md px-3 py-1 text-[12px] font-semibold " + (tab === "exceptions" ? "bg-primary text-white" : "text-ink-600")}>Exceptional pricing</Link>
           </div>
-          <Link href="/bulk-import" className="h-8 rounded-control bg-primary px-3 text-[12px] font-semibold leading-8 text-white hover:bg-primary-hover">
-            Bulk import
-          </Link>
+          <div className="flex gap-1"><Link href={`/financial?from=${isoDay(new Date(Date.now()-6*86400000))}&to=${isoDay(new Date())}`} className="rounded-control border border-line px-2.5 py-1.5 text-[10.5px] font-bold text-ink-600">7D</Link><Link href={`/financial?from=${isoDay(new Date(Date.now()-29*86400000))}&to=${isoDay(new Date())}`} className="rounded-control border border-line px-2.5 py-1.5 text-[10.5px] font-bold text-ink-600">30D</Link><Link href={`/financial?from=${isoDay(new Date(Date.now()-89*86400000))}&to=${isoDay(new Date())}`} className="rounded-control border border-line px-2.5 py-1.5 text-[10.5px] font-bold text-ink-600">90D</Link></div>
         </div>
 
         {tab === "overview" ? (
@@ -191,6 +191,7 @@ async function OverviewTab({ range }: { range: { from: string; to: string } }) {
         {unpriced.length > 0 && <Link href="/settings" className="border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-900"><strong className="block">{unpriced.length} unpriced or inactive services</strong><span>Open Settings → Financial Settings → Service Pricing.</span></Link>}
         {expiring.length > 0 && <Link href="/settings" className="border border-rose-300 bg-rose-50 p-3 text-[12px] text-rose-900"><strong className="block">{expiring.length} bundles expire within 14 days</strong><span>{expiring.slice(0, 3).map((bundle) => bundle.name).join(", ")}</span></Link>}
       </section>}
+      <FinancialCharts data={d} />
       <section>
         <h2 className="mb-2 text-[12px] font-bold uppercase tracking-wide text-ink-500">
           Cash flow — based on actual transaction date

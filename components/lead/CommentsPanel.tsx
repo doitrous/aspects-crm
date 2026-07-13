@@ -46,7 +46,7 @@ function CommentCard({ comment, depth }: { comment: Comment; depth: number }) {
     <div style={depth > 0 ? { marginLeft: Math.min(depth, 4) * 20 } : undefined}>
       <div
         className={
-          "rounded-card border p-3 " + (business ? "border-primary/30 bg-primary-soft/40" : "border-line bg-panel")
+          "rounded-xl border border-l-4 p-3.5 shadow-sm " + (business ? "border-primary/30 border-l-primary bg-primary-soft/40" : comment.platform === "instagram" ? "border-line border-l-pink-500 bg-panel" : "border-line border-l-blue-500 bg-panel")
         }
       >
         <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px]">
@@ -142,11 +142,23 @@ export function CommentsPanel({ comments }: { comments: Comment[] }) {
     );
   }
 
+  const replyCount = comments.reduce((count, comment) => count + (comment.replies?.length ?? 0), 0);
+  const businessReplies = comments.reduce((count, comment) => count + (comment.isPageOrBusinessReply ? 1 : 0) + (comment.replies?.filter((reply) => reply.isPageOrBusinessReply).length ?? 0), 0);
   return (
-    <div className="flex flex-col gap-2.5 p-4">
-      {comments.map((c) => (
-        <CommentCard key={c.id} comment={c} depth={0} />
-      ))}
+    <div className="min-h-full bg-slate-50/70">
+      <div className="sticky top-0 z-10 border-b border-line bg-panel px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h3 className="text-[14px] font-black text-ink-900">Social comment threads</h3><p className="mt-0.5 text-[10.5px] text-ink-400">Original comments stay grouped with every public reply.</p></div>
+          <div className="flex gap-2 text-[10.5px] font-bold">
+            <span className="rounded-full bg-line-faint px-2.5 py-1 text-ink-600">{comments.length} threads</span>
+            <span className="rounded-full bg-primary-soft px-2.5 py-1 text-primary">{replyCount} replies</span>
+            <span className={"rounded-full px-2.5 py-1 " + (businessReplies ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>{businessReplies} clinic replies</span>
+          </div>
+        </div>
+      </div>
+      <div className="mx-auto flex max-w-4xl flex-col gap-3 p-3 sm:p-5">
+        {comments.map((c) => <CommentCard key={c.id} comment={c} depth={0} />)}
+      </div>
     </div>
   );
 }

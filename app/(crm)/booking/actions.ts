@@ -75,6 +75,7 @@ export async function createLeadBookingAction(formData: FormData): Promise<Booki
         date: String(formData.get("date") ?? ""),
         startTime: String(formData.get("startTime") ?? ""),
         appointmentId: result.appointmentId,
+        patientEmail: String(formData.get("patientEmail") ?? "") || null,
       });
       revalidatePath("/emails");
     } catch (emailErr) {

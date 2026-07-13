@@ -40,7 +40,7 @@ export function LeadModal({ data }: { data: LeadDetailData }) {
         onClick={() => router.back()}
         className="absolute inset-0 cursor-default bg-black/40"
       />
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Lead details for ${data.lead.patientName}`} tabIndex={-1} className="relative z-10 flex h-full w-full flex-col overflow-hidden bg-canvas shadow-toast outline-none sm:w-[88vw] lg:w-[67vw] lg:max-w-[1200px]">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={`Lead details for ${data.lead.patientName}`} tabIndex={-1} className="relative z-10 flex h-full w-full flex-col overflow-hidden bg-canvas shadow-toast outline-none sm:w-[94vw] md:w-[88vw] lg:w-[78vw] xl:w-[72vw] xl:max-w-[1380px]">
         <LeadDetail data={data} onClose={() => router.back()} />
       </div>
     </div>

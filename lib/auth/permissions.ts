@@ -32,6 +32,7 @@ export type Capability =
   | "users.changeRole" // change another user's role
   | "users.activate" // activate / deactivate a user
   | "users.invite" // create / invite a new user
+  | "users.resetPassword" // issue a new login password for an account
   // ── settings & configuration (§C) ───────────────────────────
   | "settings.view" // open the Settings area
   | "settings.manage" // edit tags, lost reasons, SLA, follow-up rules, target CPL, AI prompt
@@ -72,6 +73,7 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "users.changeRole",
     "users.activate",
     "users.invite",
+    "users.resetPassword",
     "settings.view",
     "settings.manage",
     "reports.view",
@@ -94,6 +96,7 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "financial.viewReports",
     "financial.bulkImport",
     "users.view",
+    "users.resetPassword",
     // The auditor owns operational configuration and the daily review workflow
     // (§C/§A): they may manage tags, lost reasons, follow-up rules etc., run and
     // finalize reports, and manage email rules — but not change user access.

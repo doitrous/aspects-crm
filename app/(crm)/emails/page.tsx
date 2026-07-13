@@ -9,6 +9,8 @@ import { listEmailLog } from "@/lib/data/emailData";
 import { emailConfigured } from "@/lib/email/resend";
 import { formatDateTime } from "@/lib/format";
 import { ManualEmailForm } from "@/components/email/ManualEmailForm";
+import { EmailAutomationManager } from "@/components/email/EmailAutomationManager";
+import { listEmailRules } from "@/lib/data/settingsData";
 
 export const dynamic = "force-dynamic";
 
@@ -28,19 +30,19 @@ export default async function EmailsPage() {
   const { effective: user } = await requireSession();
   if (!can(user.role, "email.view")) notFound();
 
-  const rows = await listEmailLog();
+  const [rows, rules] = await Promise.all([listEmailLog(), listEmailRules()]);
   const configured = emailConfigured();
 
   return (
     <>
       <Topbar title="Emails" />
       <div className="flex-1 overflow-auto px-[18px] py-4">
+        <EmailAutomationManager rules={rules} canManage={can(user.role, "email.manage")} />
         <ManualEmailForm />
         {!configured && (
           <div className="mb-3 rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800">
             Resend is not configured (<span className="font-mono">RESEND_API_KEY</span> is unset). Rule dispatches are
-            recorded as <span className="font-semibold">skipped</span> until a key is added. Manage rules in{" "}
-            <Link href="/settings" className="font-semibold underline">Settings → Email rules</Link>.
+            recorded as <span className="font-semibold">skipped</span> until a key is added.
           </div>
         )}
 

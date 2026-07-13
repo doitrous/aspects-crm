@@ -21,5 +21,5 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     reportAutoData(date).catch((error) => { console.error("report calculation failed", error); failures.push("automatic calculations"); return emptyReportAutoData(date); }),
     can(user.role, "reports.generate") ? moderatorScorecards(date).catch((error) => { console.error("scorecards failed", error); failures.push("moderator scores"); return []; }) : Promise.resolve([]),
   ]);
-  return <><Topbar title="Reports Center" /><ReportsWorkspace reports={reports} selectedId={sp.id} date={date} auto={auto} scorecards={scorecards} role={user.role} warning={failures.length ? `Some report data could not be loaded (${failures.join(", ")}). You can still open this page and retry Calculate.` : undefined} /></>;
+  return <><Topbar title="Reports Center" /><ReportsWorkspace reports={reports} selectedId={sp.id} date={date} auto={auto} scorecards={scorecards} role={user.role} warning={failures.length ? `Some report data could not be loaded (${failures.join(", ")}). Load the date again after the data source is available.` : undefined} /></>;
 }

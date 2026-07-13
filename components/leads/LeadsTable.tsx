@@ -86,8 +86,8 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
                       {lead.patientName}
                     </span>
                   </div>
-                  <div className="mt-0.5 font-mono text-[11px] font-bold text-ink-700">
-                    MRN {lead.mrn ?? "--"}
+                  <div className={"mt-0.5 font-mono text-[11px] font-bold " + (lead.mrn ? "text-ink-700" : "text-danger")}>
+                    {lead.mrn ? `MRN ${lead.mrn}` : "MRN"}
                   </div>
                   {lead.attentionMessage && (
                     <div className="mt-1 max-w-[260px] truncate rounded bg-amber-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-amber-800">
@@ -139,6 +139,9 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
                 </td>
                 <td className="px-3 py-3">
                   <Badge style={BOOKING_META[lead.bookingStatus]} />
+                  {lead.bookingContext && lead.bookingStatus !== "none" && (
+                    <div className="mt-1 max-w-[180px] text-[10.5px] leading-snug text-ink-500">{lead.bookingContext}</div>
+                  )}
                 </td>
                 <td className="px-3 py-3 text-ink-600">
                   {lead.assignedModerator ?? "—"}
@@ -153,6 +156,11 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
                   >
                     {lead.lastMessageAt ? formatAge(lead.lastMessageAt, nowDate) : "—"}
                   </span>
+                  {lead.overdueReason && (
+                    <div className="ml-auto mt-1 max-w-[220px] rounded-md bg-danger-bg px-2 py-1 text-left text-[10px] font-semibold leading-snug text-danger">
+                      {lead.overdueReason}
+                    </div>
+                  )}
                 </td>
                 {canDelete&&<td className="px-3 py-3 pr-[18px] text-right"><DeleteLeadButton leadId={lead.id} patientName={lead.patientName}/></td>}
               </tr>

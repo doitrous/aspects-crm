@@ -42,7 +42,7 @@ export async function generateReportAction(
     return fail(err);
   }
   refresh(date);
-  return { ok: true, message: "Report generated." };
+  return { ok: true, message: "Live snapshot refreshed." };
 }
 
 export async function saveOverrideAction(
@@ -78,7 +78,7 @@ export async function finalizeReportAction(
     return fail(err);
   }
   refresh(date);
-  return { ok: true, message: "Report finalized." };
+  return { ok: true, message: "Report finalized and locked." };
 }
 
 export async function reopenReportAction(

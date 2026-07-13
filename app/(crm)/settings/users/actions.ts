@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { PermissionError } from "@/lib/auth/permissions";
 import { isAssignableRole } from "@/lib/auth/roles";
 import { ActorError } from "@/lib/data/actor";
-import { changeUserRole, linkAuthUser, setUserActive, UserAdminError } from "@/lib/data/users";
+import { changeUserRole, linkAuthUser, resetUserPassword, setUserActive, UserAdminError } from "@/lib/data/users";
 import type { Role } from "@/lib/types";
 
 export interface UserActionState {
@@ -68,6 +68,23 @@ export async function setActiveAction(
 
   revalidatePath("/settings/users");
   return { error: null, ok: active ? "User activated." : "User deactivated." };
+}
+
+export async function resetPasswordAction(
+  _prev: UserActionState,
+  formData: FormData,
+): Promise<UserActionState> {
+  const userId = String(formData.get("userId") ?? "");
+  const password = String(formData.get("password") ?? "");
+  const confirmation = String(formData.get("confirmation") ?? "");
+  if (!userId) return { error: "Missing user.", ok: null };
+  if (password !== confirmation) return { error: "The passwords do not match.", ok: null };
+  try {
+    await resetUserPassword(userId, password);
+  } catch (err) {
+    return toState(err);
+  }
+  return { error: null, ok: "Login password reset." };
 }
 
 /** Create + link a CRM profile for an existing Supabase Auth user (admin only). */

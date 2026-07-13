@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import type { Role } from "@/lib/types";
 import { ASSIGNABLE_ROLES } from "@/lib/auth/roles";
-import { changeRoleAction, setActiveAction, type UserActionState } from "./actions";
+import { changeRoleAction, resetPasswordAction, setActiveAction, type UserActionState } from "./actions";
 
 const IDLE: UserActionState = { error: null, ok: null };
 
@@ -102,13 +102,16 @@ function UserCard({
   user,
   isSelf,
   canMutate,
+  canReset,
 }: {
   user: UserRow;
   isSelf: boolean;
   canMutate: boolean;
+  canReset: boolean;
 }) {
   const [roleState, roleAction] = useActionState(changeRoleAction, IDLE);
   const [activeState, activeAction] = useActionState(setActiveAction, IDLE);
+  const [resetState, resetAction, resetPending] = useActionState(resetPasswordAction, IDLE);
   const [editingRole, setEditingRole] = useState<Role | null>(null);
   const [confirmingActive, setConfirmingActive] = useState(false);
 
@@ -191,6 +194,19 @@ function UserCard({
         </div>
       </div>
 
+      {canReset && user.linkedToAuth && (
+        <details className="mt-2 rounded-control border border-line-soft bg-slate-50/60 px-3 py-2">
+          <summary className="cursor-pointer text-[11px] font-bold text-ink-700">Reset login password</summary>
+          <form action={resetAction} className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <input type="hidden" name="userId" value={user.id} />
+            <label className="text-[10.5px] font-semibold text-ink-500">Temporary password<input name="password" type="password" minLength={8} required className="mt-1 h-8 w-full rounded-control border border-line bg-white px-2 text-[12px]" /></label>
+            <label className="text-[10.5px] font-semibold text-ink-500">Confirm password<input name="confirmation" type="password" minLength={8} required className="mt-1 h-8 w-full rounded-control border border-line bg-white px-2 text-[12px]" /></label>
+            <button disabled={resetPending} className="h-8 rounded-control bg-ink-900 px-3 text-[11px] font-bold text-white disabled:opacity-50">{resetPending ? "Resetting…" : "Reset password"}</button>
+          </form>
+          <Feedback error={resetState.error} ok={resetState.ok} />
+        </details>
+      )}
+
       {editingRole && (
         <form action={roleAction}>
           <input type="hidden" name="userId" value={user.id} />
@@ -229,10 +245,12 @@ export function UsersTable({
   users,
   currentUserId,
   canMutate,
+  canReset,
 }: {
   users: UserRow[];
   currentUserId: string;
   canMutate: boolean;
+  canReset: boolean;
 }) {
   if (users.length === 0) {
     return <p className="px-4 py-6 text-[12.5px] text-ink-500">No users match these filters.</p>;
@@ -245,6 +263,7 @@ export function UsersTable({
           user={u}
           isSelf={u.id === currentUserId}
           canMutate={canMutate}
+          canReset={canReset}
         />
       ))}
     </ul>

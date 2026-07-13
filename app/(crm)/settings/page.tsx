@@ -63,12 +63,10 @@ export default async function SettingsPage() {
     <>
       <Topbar title="CRM Settings" />
       <div className="flex-1 overflow-auto px-[18px] py-4">
-        {can(user.role, "users.view") && (
-          <Link href="/settings/users" className="mb-4 flex items-center justify-between rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-indigo-50 px-4 py-3 text-[13px] font-bold text-violet-800 shadow-sm hover:border-violet-300">
-            <span><span className="mr-2">👥</span>Users &amp; Roles</span>
-            <span className="text-[11px] font-semibold text-violet-600">Manage access →</span>
-          </Link>
-        )}
+        <div className="mb-4 grid gap-2 sm:grid-cols-2">
+          <Link href="/settings/account" className="flex items-center justify-between rounded-xl border border-line bg-panel px-4 py-3 text-[13px] font-black text-ink-900 shadow-sm hover:border-primary"><span>Profile &amp; security</span><span className="text-[11px] font-bold text-primary">Manage account →</span></Link>
+          {can(user.role, "users.view") && <Link href="/settings/users" className="flex items-center justify-between rounded-xl border border-line bg-ink-900 px-4 py-3 text-[13px] font-black text-white shadow-sm hover:bg-primary"><span>Users &amp; roles</span><span className="text-[11px] font-bold text-white/70">Manage access →</span></Link>}
+        </div>
         <SettingsManager
           canManage={canManage}
           tags={tags}

@@ -6,13 +6,17 @@ import { listAccounts, requireSession } from "@/lib/data/session";
 import { I18nProvider } from "@/lib/i18n/context";
 import { getPreferences } from "@/lib/i18n/server";
 import { ArabicPageTranslator } from "@/components/i18n/ArabicPageTranslator";
+import { crmCreatedAppointmentIds } from "@/lib/booking/reservationOrigins";
 
 /** New/unread reservation count for the sidebar badge. Isolated from the shell:
  *  a booking-platform outage must never break CRM navigation. */
 async function newReservationCount(): Promise<number> {
   try {
-    const dismissed = await dismissedWebsiteReservationIds();
-    return getNewReservationCount(dismissed);
+    const [dismissed, crmCreated] = await Promise.all([
+      dismissedWebsiteReservationIds(),
+      crmCreatedAppointmentIds(),
+    ]);
+    return getNewReservationCount(new Set([...dismissed, ...crmCreated]));
   } catch {
     return 0;
   }

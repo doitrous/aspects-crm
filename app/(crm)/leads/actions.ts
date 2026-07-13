@@ -22,6 +22,7 @@ export interface LeadActionState {
   ok: string | null;
   error: string | null;
   leadId?: string;
+  tags?: string[];
 }
 
 function toState(err: unknown): LeadActionState {
@@ -100,11 +101,13 @@ export async function setLeadTagsAction(
   tagIds: string[],
 ): Promise<LeadActionState> {
   try {
-    await setLeadTagAssignments(leadId, tagIds);
+    const tags = await setLeadTagAssignments(leadId, tagIds);
+    refreshLeadLists();
+    revalidatePath(`/leads/${leadId}`);
+    return { ok: "Tags saved.", error: null, tags };
   } catch (err) {
     return toState(err);
   }
-  return { ok: "Tags saved.", error: null };
 }
 
 export async function escalateLeadAction(

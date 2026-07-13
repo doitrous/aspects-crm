@@ -17,6 +17,7 @@ export interface CrmUserRow {
   role: string | null;
   is_active: boolean | null;
   auth_user_id: string | null;
+  avatar_url?: string | null;
 }
 
 export interface SessionUser extends User {
@@ -53,6 +54,7 @@ export function toSessionUser(row: CrmUserRow, impersonating = false): SessionUs
     initials: initialsOf(name, email),
     isActive: row.is_active ?? false,
     authUserId: row.auth_user_id,
+    avatarUrl: row.avatar_url ?? undefined,
     impersonating,
   };
 }

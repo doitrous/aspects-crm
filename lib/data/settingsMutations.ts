@@ -187,7 +187,7 @@ export async function updateSlaRule(input: {
   const db = supabaseAdmin();
   const { data: before } = await db
     .from("crm_stage_reply_rules")
-    .select("reply_deadline_minutes,warning_threshold_minutes,is_active")
+    .select("stage_key,reply_deadline_minutes,warning_threshold_minutes,is_active")
     .eq("id", input.id)
     .maybeSingle();
   const patch = {
@@ -198,6 +198,24 @@ export async function updateSlaRule(input: {
   };
   const { error } = await db.from("crm_stage_reply_rules").update(patch).eq("id", input.id);
   if (error) throw new SettingsError(error.message);
+  if (before?.stage_key) {
+    const { data: openLeads, error: openError } = await db
+      .from("leads")
+      .select("id,unread_since")
+      .eq("status", before.stage_key)
+      .eq("has_unread", true)
+      .not("unread_since", "is", null);
+    if (openError) throw new SettingsError(openError.message);
+    const now = Date.now();
+    await Promise.all((openLeads ?? []).map(async (lead) => {
+      const deadline = new Date(new Date(String(lead.unread_since)).getTime() + input.replyDeadlineMinutes * 60_000).toISOString();
+      const result = await db.from("leads").update({
+        reply_overdue_at: deadline,
+        is_reply_overdue: input.isActive && new Date(deadline).getTime() <= now,
+      }).eq("id", lead.id);
+      if (result.error) throw new SettingsError(result.error.message);
+    }));
+  }
   await logActivity({
     actorId: actor.id,
     action: "settings.sla_rule_updated",

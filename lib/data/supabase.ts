@@ -1,6 +1,8 @@
 import "server-only";
 import { bookingConfigured, bookingDb } from "@/lib/booking/client";
 import { bookingStatusForReservation } from "@/lib/booking/service";
+import { deriveLeadBookingSummary } from "@/lib/booking/leadSummary";
+import { refreshReplyOverdueFlags } from "@/lib/data/replySla";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { nestComments } from "@/lib/data/comments";
 import { writeActor } from "@/lib/data/actor";
@@ -157,6 +159,7 @@ interface LeadRow {
   escalation_status: string | null;
   has_unread: boolean;
   is_reply_overdue: boolean;
+  reply_overdue_at: string | null;
   booking_appointment_id: string | null;
   lost_reason_id: string | null;
   notes: string | null;
@@ -183,7 +186,7 @@ const LEAD_COLUMNS =
   "id,lead_id,mrn,name,status,platform,platform_id,chat_link,gender," +
   "phone_country_code,phone_number,normalized_phone,source_id,service_name," +
   "campaign,doctor_id,branch_id,coordinator_user_id,escalation_status,has_unread," +
-  "is_reply_overdue,booking_appointment_id,lost_reason_id,notes,medical_notes," +
+  "is_reply_overdue,reply_overdue_at,booking_appointment_id,lost_reason_id,notes,medical_notes," +
   "medical_history,ai_summary,last_incoming_at,last_outgoing_at,last_contact_at," +
   "created_at,updated_at,metadata";
 
@@ -405,6 +408,7 @@ function mapLead(row: LeadRow, lk: Lookups, tagRows: Array<{ name: string; color
   const visibleTags = revisiting && !tagRows.some((tag) => tag.name === "Revisiting Patient")
     ? [...tagRows, { name: "Revisiting Patient", color: "#7c3aed" }]
     : tagRows;
+  const bookingSummary = deriveLeadBookingSummary(metadata, row.booking_appointment_id);
   return {
     id: row.lead_id,
     uid: row.id,
@@ -439,13 +443,16 @@ function mapLead(row: LeadRow, lk: Lookups, tagRows: Array<{ name: string; color
     attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab as Lead["attentionTab"] : undefined,
     incomingUnanswered: row.has_unread,
     overdue: row.is_reply_overdue,
+    overdueReason: row.is_reply_overdue ? `Unread patient message passed its reply deadline${row.reply_overdue_at ? ` at ${new Date(row.reply_overdue_at).toLocaleString("en-EG")}` : ""}.` : undefined,
     escalated: ESCALATED_STATES.includes(row.escalation_status ?? "none"),
     duplicateStatus: lk.dupSet.has(row.id) ? "suspected" : "none",
     lastMessage: row.ai_summary ?? undefined,
     lastMessageAt,
     createdAt: row.created_at,
     lostReason: row.lost_reason_id ? lk.lostReasonsById.get(row.lost_reason_id) : undefined,
-    bookingStatus: row.booking_appointment_id ? "unconfirmed" : "none",
+    bookingStatus: bookingSummary.status,
+    bookingContext: bookingSummary.context,
+    bookingCount: bookingSummary.count,
     bookingAppointmentId: row.booking_appointment_id ?? undefined,
     note: buildNote(row),
     followUp: followUp ?? { status: "none" },
@@ -603,6 +610,7 @@ export const supabaseProvider: DataProvider = {
   },
 
   async getLeadsPage(filters: LeadFilters = {}): Promise<LeadListResult> {
+    await refreshReplyOverdueFlags();
     const [usersById, lostReasonsById, duplicateFilterSet] = await Promise.all([
       loadUserMap(),
       loadLostReasonMap(),
@@ -642,6 +650,7 @@ export const supabaseProvider: DataProvider = {
   },
 
   async getLead(id: string): Promise<Lead | undefined> {
+    await refreshReplyOverdueFlags();
     const [usersById, lostReasonsById] = await Promise.all([
       loadUserMap(),
       loadLostReasonMap(),
@@ -921,7 +930,7 @@ export const supabaseProvider: DataProvider = {
     const legacyId = leadRow.booking_appointment_id as string | null | undefined;
     const { data: links, error: linksError } = await supabaseAdmin()
       .from("crm_lead_booking_links")
-      .select("appointment_id")
+      .select("appointment_id,source")
       .eq("lead_id", leadRow.id)
       .order("created_at", { ascending: false });
     if (linksError) throw new Error(`bookingsFor(links): ${linksError.message}`);
@@ -929,6 +938,12 @@ export const supabaseProvider: DataProvider = {
       ...((links ?? []).map((link) => link.appointment_id as string)),
       ...(legacyId ? [legacyId] : []),
     ])];
+    const originById = new Map<string, "crm" | "website">(
+      (links ?? []).map((link) => [
+        String(link.appointment_id),
+        String(link.source) === "crm" ? "crm" : "website",
+      ]),
+    );
     if (appointmentIds.length === 0) return [];
     const { data, error } = await bookingDb()
       .from("appointments")
@@ -956,6 +971,7 @@ export const supabaseProvider: DataProvider = {
           : Math.max(1, Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3, 5)) - (Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3, 5)))),
         status,
         source: "web",
+        origin: originById.get(String(row.id)) ?? "website",
         calendarSynced: true,
       };
     });
@@ -1073,6 +1089,7 @@ export const supabaseProvider: DataProvider = {
   },
 
   async dashboardMetrics(): Promise<DashboardMetrics> {
+    await refreshReplyOverdueFlags();
     const db = supabaseAdmin();
     const { data: aggregate, error: aggregateError } = await db.rpc("crm_dashboard_metrics");
     if (!aggregateError && aggregate && typeof aggregate === "object" && !Array.isArray(aggregate)) {

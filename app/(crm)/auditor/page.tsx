@@ -10,6 +10,7 @@ import {
   auditorFilterOptions,
   resolveAuditorScope,
   scopedSnapshotPreview,
+  auditorTrend,
 } from "@/lib/data/auditor";
 
 export const dynamic = "force-dynamic";
@@ -41,9 +42,10 @@ export default async function AuditorPage({
     getAuditReportDetail(date),
     auditorFilterOptions(),
   ]);
-  const [dropped, scopedPreview] = await Promise.all([
+  const [dropped, scopedPreview, trend] = await Promise.all([
     droppedLeadsForDate(date, scope ?? undefined),
     scope ? scopedSnapshotPreview(date, scope) : Promise.resolve(null),
+    auditorTrend(date, scope ?? undefined),
   ]);
 
   return (
@@ -59,6 +61,7 @@ export default async function AuditorPage({
           selectedDoctorId={sp.doctorId ?? ""}
           selectedSpecialtyId={sp.specialtyId ?? ""}
           scopedPreview={scopedPreview}
+          trend={trend}
         />
       </div>
     </>

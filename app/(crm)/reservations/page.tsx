@@ -14,6 +14,7 @@ import { dismissedWebsiteReservationIds } from "@/lib/booking/reservationDismiss
 import { requireSession } from "@/lib/data/session";
 import { can } from "@/lib/auth/permissions";
 import { PaginationNav } from "@/components/ui/PaginationNav";
+import { crmCreatedAppointmentIds } from "@/lib/booking/reservationOrigins";
 
 export const dynamic = "force-dynamic";
 
@@ -59,13 +60,16 @@ export default async function ReservationsPage({
 
   const now = Date.now();
   const requestedPage = pageNumber((await searchParams).page);
-  const reservationPage = await getReservationsPage(requestedPage, 100);
-  const allReservations = reservationPage.reservations;
+  const [reservationPage, crmCreatedIds] = await Promise.all([
+    getReservationsPage(requestedPage, 100),
+    crmCreatedAppointmentIds(),
+  ]);
+  const allReservations = reservationPage.reservations.filter((reservation) => !crmCreatedIds.has(reservation.id));
   const leadByAppointment = await syncReservationsToLeads(allReservations);
   const dismissedIds = await dismissedWebsiteReservationIds();
   const reservations = allReservations.filter((reservation) => !dismissedIds.has(reservation.id));
   const newCount = reservations.filter((r) => isNewReservation(r.status, r.createdAt, now)).length;
-  const adjustedTotal = Math.max(0, reservationPage.total - dismissedIds.size);
+  const adjustedTotal = Math.max(0, reservationPage.total - dismissedIds.size - crmCreatedIds.size);
   const pageCount = Math.max(1, Math.ceil(adjustedTotal / reservationPage.pageSize));
   const hrefForPage = (page: number) => page > 1 ? `/reservations?page=${page}` : "/reservations";
 

@@ -15,6 +15,9 @@ export function LeadCell({ lead, tab }: { lead?: LeadSummary; tab?: string }) {
       <span data-patient-content className="font-semibold text-ink-900 group-hover:text-primary">
         {lead.name}
       </span>
+      <span className={`mt-0.5 block text-[10.5px] font-bold ${lead.mrn ? "font-mono text-ink-500" : "text-red-600"}`}>
+        {lead.mrn ? `MRN ${lead.mrn}` : "MRN"}
+      </span>
       <span className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-ink-400">
         {lead.id}
         {pm && <span style={{ color: pm.fg }}>· {pm.label}</span>}

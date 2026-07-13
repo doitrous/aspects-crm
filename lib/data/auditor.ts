@@ -202,7 +202,7 @@ export async function generateAuditReport(date: string): Promise<void> {
     .eq("report_date", date)
     .maybeSingle();
   if (existing && (existing.status === "submitted" || existing.status === "approved")) {
-    throw new AuditorError("This report is finalized. Reopen it before regenerating.");
+    throw new AuditorError("This report is finalized. Reopen it before refreshing the snapshot.");
   }
 
   const auto = await computeAutoSnapshot(date);
@@ -496,4 +496,51 @@ export async function scopedSnapshotPreview(
 ): Promise<{ metrics: AuditorMetrics; redFlags: Array<{ key: string; reason: string }> }> {
   const metrics = await computeAutoSnapshot(date, scope);
   return { metrics, redFlags: auditorRedFlags(metrics) };
+}
+
+export interface AuditorTrendPoint {
+  date: string;
+  totalLeads: number;
+  qualified: number;
+  booked: number;
+  dropped: number;
+}
+
+/** Seven-day live activity trend ending on the selected report day. */
+export async function auditorTrend(
+  endDate: string,
+  scope?: AuditorScope,
+): Promise<AuditorTrendPoint[]> {
+  const end = new Date(`${endDate}T00:00:00.000Z`);
+  const dates = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(end);
+    day.setUTCDate(day.getUTCDate() - (6 - index));
+    return isoDay(day);
+  });
+  const afterEnd = new Date(end);
+  afterEnd.setUTCDate(afterEnd.getUTCDate() + 1);
+  let query = supabaseAdmin()
+    .from("leads")
+    .select("created_at,status")
+    .gte("created_at", `${dates[0]}T00:00:00.000Z`)
+    .lt("created_at", afterEnd.toISOString());
+  if (scope?.doctorIds?.length) query = query.in("doctor_id", scope.doctorIds);
+  const { data, error } = await query;
+  if (error) throw new AuditorError(`auditorTrend: ${error.message}`);
+  const points = new Map(dates.map((date) => [date, {
+    date,
+    totalLeads: 0,
+    qualified: 0,
+    booked: 0,
+    dropped: 0,
+  }]));
+  for (const row of data ?? []) {
+    const point = points.get(String(row.created_at).slice(0, 10));
+    if (!point) continue;
+    point.totalLeads += 1;
+    if (row.status === "qualified") point.qualified += 1;
+    if (row.status === "booked") point.booked += 1;
+    if (row.status === "lost") point.dropped += 1;
+  }
+  return dates.map((date) => points.get(date)!);
 }

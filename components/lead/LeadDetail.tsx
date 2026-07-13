@@ -33,7 +33,6 @@ import {
 } from "@/lib/badges";
 import {
   campaignName,
-  doctorName,
   sourceName,
   specialtyName,
 } from "@/lib/data/reference";
@@ -56,6 +55,7 @@ import {
 import { resolveDuplicateAction } from "@/app/(crm)/duplicates/actions";
 import { EscalationResolutionControls } from "@/components/queues/EscalationResolutionControls";
 import { mergeMessages } from "@/lib/messages/merge";
+import { deriveLeadBookingSummary } from "@/lib/booking/leadSummary";
 
 const TABS = [
   "Overview",
@@ -324,11 +324,34 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
   }
 
   function toggleTag(tag: string) {
+    if (pending) return;
+    const previous = tags;
     const next = tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag];
-    run(() => {
+    setTags(next);
+    setData((current) => ({ ...current, lead: { ...current.lead, tags: next } }));
+    startTransition(async () => {
+      setActionError(null);
+      setActionOk(null);
       const ids = data.availableTags.filter((t) => next.includes(t.label)).map((t) => t.id);
-      return setLeadTagsAction(lead.id, ids);
-    }, () => setTags(next));
+      try {
+        const result = await setLeadTagsAction(lead.id, ids);
+        if (result.error) {
+          setTags(previous);
+          setData((current) => ({ ...current, lead: { ...current.lead, tags: previous } }));
+          setActionError(result.error);
+          return;
+        }
+        const canonical = result.tags ?? next;
+        setTags(canonical);
+        setData((current) => ({ ...current, lead: { ...current.lead, tags: canonical } }));
+        setActionOk(result.ok);
+        router.refresh();
+      } catch (err) {
+        setTags(previous);
+        setData((current) => ({ ...current, lead: { ...current.lead, tags: previous } }));
+        setActionError(err instanceof Error ? err.message : "Tags could not be saved.");
+      }
+    });
   }
 
   function markRead() {
@@ -377,63 +400,60 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Header: identity + status/channel badges + close */}
-      <div className="flex-none border-b border-line-soft px-5 pb-4 pt-4">
-        {lead.unread && (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={markRead}
-            className="mb-3 inline-flex min-h-10 items-center gap-2 rounded-control border-2 border-primary bg-primary px-4 py-2 text-[13px] font-extrabold text-white shadow-sm hover:bg-primary-hover disabled:opacity-60"
-          >
-            ✓ Mark as read
-          </button>
-        )}
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 flex-none items-center justify-center rounded-full bg-primary-avatar text-[15px] font-bold text-primary">
+      {/* Compact fixed header: identity and the three high-frequency actions. */}
+      <div className="flex-none border-b border-line-soft bg-panel px-3 py-2.5 sm:px-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2.5 sm:flex-nowrap">
+          <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-primary-avatar text-[12px] font-black text-primary">
             {lead.patientName.slice(0, 2).toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="truncate font-display text-[17px] font-semibold text-clinic-ink">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="truncate font-display text-[14px] font-bold text-clinic-ink sm:text-[15px]">
               {lead.patientName}
+              </div>
+              <span className="hidden font-mono text-[10px] text-ink-400 sm:inline">{lead.id}</span>
             </div>
-            <div className="mt-0.5 font-mono text-[12px] font-bold text-ink-700">
-              MRN {lead.mrn ?? "--"}
-            </div>
-            <div className="font-mono text-[10.5px] text-ink-400">
-              {lead.id}
-            </div>
-            {lead.chatLink && (
-              <a
-                href={lead.chatLink}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-2 inline-flex items-center gap-1.5 rounded-control border border-primary/30 bg-primary-soft px-2.5 py-1.5 text-[12px] font-bold text-primary shadow-sm transition hover:border-primary hover:bg-primary/10"
-              >
-                <span aria-hidden>↗</span>
-                {lead.platform === "instagram"
-                  ? "Open Instagram DM"
-                  : lead.platform === "whatsapp"
-                    ? "Open WhatsApp Conversation"
-                    : lead.platform === "facebook"
-                      ? "Open Facebook Conversation"
-                      : "Open Conversation"}
-              </a>
-            )}
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+              <span className={"font-mono text-[10.5px] font-bold " + (lead.mrn ? "text-ink-600" : "text-danger")}>
+                {lead.mrn ? `MRN ${lead.mrn}` : "MRN"}
+              </span>
               <Badge style={STAGE_META[stage]} />
-              {pm && (
-                <Badge style={{ label: CHANNEL_LABEL[lead.platform], bg: pm.bg, fg: pm.fg }} />
-              )}
-              {lead.escalated && <Badge className="bg-danger-bg text-danger">⚑ Escalated</Badge>}
+              {pm && <span className="hidden sm:inline-flex"><Badge style={{ label: CHANNEL_LABEL[lead.platform], bg: pm.bg, fg: pm.fg }} /></span>}
+              {lead.escalated && <span className="text-[10px] font-bold text-danger">⚑ Escalated</span>}
             </div>
           </div>
+          <div className="flex w-full flex-none items-center justify-end gap-1.5 sm:w-auto">
+            {lead.unread && (
+              <button type="button" disabled={pending} onClick={markRead} className="rounded-control bg-primary px-2.5 py-2 text-[11px] font-bold text-white hover:bg-primary-hover disabled:opacity-60">
+                ✓ <span className="hidden sm:inline">Read</span>
+              </button>
+            )}
+            {lead.chatLink && (
+              <a href={lead.chatLink} target="_blank" rel="noreferrer" aria-label="Open source conversation" className="rounded-control border border-primary/30 bg-primary-soft px-2.5 py-2 text-[11px] font-bold text-primary hover:border-primary">
+                ↗ <span className="hidden lg:inline">Open chat</span>
+              </a>
+            )}
+            <button onClick={() => setTab("Booking")} className="rounded-control bg-ink-900 px-2.5 py-2 text-[11px] font-bold text-white hover:bg-ink-800">
+              + <span className="hidden md:inline">Book</span>
+            </button>
+            <button onClick={() => setTab("Payments")} className="rounded-control border border-line px-2.5 py-2 text-[11px] font-bold text-ink-700 hover:border-primary hover:text-primary">
+              $ <span className="hidden lg:inline">Payment</span>
+            </button>
+            <button
+              type="button"
+              aria-label={lead.escalated ? "Clear escalation" : "Escalate lead"}
+              disabled={pending}
+              onClick={() => lead.escalated ? run(() => clearLeadEscalationAction(lead.id)) : setEscalateModal(true)}
+              className={"rounded-control border px-2.5 py-2 text-[11px] font-bold disabled:opacity-60 " + (lead.escalated ? "border-danger bg-danger text-white" : "border-danger/30 bg-danger-bg text-danger")}
+            >
+              ⚑
+            </button>
           {onClose ? (
             <button
               type="button"
               aria-label="Close"
               onClick={onClose}
-              className="flex-none rounded-control border border-line px-2.5 py-2 text-[13px] leading-none text-ink-600 hover:bg-line-faint"
+              className="rounded-control border border-line px-2.5 py-2 text-[12px] leading-none text-ink-600 hover:bg-line-faint"
             >
               ✕
             </button>
@@ -441,51 +461,17 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
             <Link
               href="/leads"
               aria-label="Close"
-              className="flex-none rounded-control border border-line px-2.5 py-2 text-[13px] leading-none text-ink-600 hover:bg-line-faint"
+              className="rounded-control border border-line px-2.5 py-2 text-[12px] leading-none text-ink-600 hover:bg-line-faint"
             >
               ✕
             </Link>
           )}
-        </div>
-
-        {/* Action row */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => setTab("Booking")}
-            className="min-w-[170px] flex-1 rounded-control bg-primary px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-primary-hover"
-          >
-            Book appointment
-          </button>
-          <button
-            onClick={() => setTab("Payments")}
-            className="rounded-control border border-primary/35 bg-primary-soft px-3 py-2 text-[12px] font-bold text-primary hover:border-primary hover:bg-primary/10"
-          >
-            Submit payment
-          </button>
-          {lead.escalated ? (
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => run(() => clearLeadEscalationAction(lead.id))}
-              className="rounded-control border border-danger bg-danger px-3.5 py-2 text-[12.5px] font-bold text-white shadow-sm hover:bg-danger/85 disabled:opacity-60"
-            >
-              Un-Escalate
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => setEscalateModal(true)}
-              className="rounded-control border border-danger/35 bg-danger-bg px-3.5 py-2 text-[12.5px] font-bold text-danger shadow-sm hover:border-danger hover:bg-danger/10 disabled:opacity-60"
-            >
-              Escalate
-            </button>
-          )}
+          </div>
         </div>
         {(actionError || actionOk) && (
           <div
             className={
-              "mt-2 rounded-control px-3 py-2 text-[12px] font-medium " +
+              "mt-2 rounded-control px-3 py-1.5 text-[11px] font-medium " +
               (actionError ? "bg-danger-bg text-danger" : "bg-[#ecfdf3] text-success")
             }
           >
@@ -495,13 +481,13 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
       </div>
 
       {/* Tabs */}
-      <div className="flex flex-none items-center gap-1 overflow-x-auto border-b border-line-soft px-3">
+      <div className="flex flex-none items-center gap-0.5 overflow-x-auto border-b border-line-soft bg-panel px-2">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={
-              "whitespace-nowrap border-b-2 px-3 py-2.5 text-[12.5px] font-medium transition-colors " +
+              "whitespace-nowrap border-b-2 px-2.5 py-2 text-[11.5px] font-semibold transition-colors " +
               (tab === t
                 ? "border-primary text-primary"
                 : "border-transparent text-ink-500 hover:text-ink-700")
@@ -525,7 +511,37 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
           </div>
         )}
         {tab === "Overview" && (
-          <div className="flex flex-col gap-5 p-5">
+          <div className="flex flex-col gap-4 bg-slate-50/60 p-3 sm:p-5">
+            <section className="overflow-hidden rounded-xl border border-line bg-panel shadow-sm">
+              <div className="border-b border-line bg-ink-900 px-4 py-3 text-white">
+                <div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Lead at a glance</div>
+                <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-[18px] font-black">{lead.patientName}</div>
+                  <div className="text-[11px] font-semibold text-white/65">Created {formatDate(lead.createdAt)}</div>
+                </div>
+              </div>
+              <div className="grid divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+                <div className="p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Patient record</div>
+                  <div className="mt-2 text-[13px] font-bold text-ink-900">{lead.phone || "No phone"}</div>
+                  <div className={"mt-1 font-mono text-[11px] font-bold " + (lead.mrn ? "text-ink-500" : "text-danger")}>
+                    {lead.mrn ? `MRN ${lead.mrn}` : "MRN · Missing"}
+                  </div>
+                </div>
+                <div className="p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Care plan</div>
+                  <div className="mt-2 text-[13px] font-bold text-ink-900">{lead.serviceNames?.join(", ") ?? lead.serviceName ?? specialtyName(lead.specialtyId)}</div>
+                  <div className="mt-1 text-[11px] text-ink-500">{data.treatingDoctors.map((doctor) => doctor.doctorName).join(", ") || lead.doctorNames?.join(", ") || lead.doctorName || "Doctor not assigned"}</div>
+                </div>
+                <div className="p-4">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Next attention</div>
+                  <div className={"mt-2 text-[13px] font-bold " + (lead.overdue ? "text-danger" : lead.incomingUnanswered ? "text-warn" : "text-success")}>
+                    {lead.overdue ? "Reply is overdue" : lead.incomingUnanswered ? "Patient is waiting" : "No urgent action"}
+                  </div>
+                  <div className="mt-1 text-[11px] text-ink-500">{lead.bookingContext ?? (lead.followUp.nextDate ? `Follow-up ${formatDate(lead.followUp.nextDate)}` : "Review the latest conversation")}</div>
+                </div>
+              </div>
+            </section>
             {lead.attentionMessage && (
               <button
                 type="button"
@@ -537,8 +553,11 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 <span className="mt-1 block text-[11px] text-primary">Open admin / auditor message →</span>
               </button>
             )}
-            <section>
-              <div className="mb-2 flex items-center justify-between"><SectionLabel>Patient information</SectionLabel><span className="text-[10.5px] text-ink-400">Select all services and treating doctors that apply</span></div>
+            <details className="group rounded-xl border border-line bg-panel shadow-sm">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+                <div><div className="text-[12.5px] font-black text-ink-900">Edit patient record & care plan</div><div className="mt-0.5 text-[10.5px] text-ink-400">Identity, MRN, services, specialties and treating doctors</div></div>
+                <span className="text-[18px] text-ink-400 transition group-open:rotate-45">+</span>
+              </summary>
               <form
                 key={`profile-${lead.serviceIds?.join("-") ?? lead.serviceName ?? "none"}-${data.treatingDoctors.map((doctor) => doctor.doctorId).join("-") || lead.doctorId || "none"}`}
                 onSubmit={(event) => {
@@ -554,7 +573,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                     invalidateTab("Overview");
                   });
                 }}
-                className="grid gap-3 border-y border-line-soft py-3 md:grid-cols-2 xl:grid-cols-3"
+                className="grid gap-3 border-t border-line-soft bg-slate-50/60 p-4 md:grid-cols-2 xl:grid-cols-3"
               >
                 <label className="text-[11.5px] font-semibold text-ink-500">Name<input data-patient-content name="name" required defaultValue={lead.patientName} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]" /></label>
                 <label className="text-[11.5px] font-semibold text-ink-500">Phone<input data-patient-content name="phone" required defaultValue={lead.phone} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]" /></label>
@@ -565,26 +584,22 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 <div className="text-[11.5px] font-semibold text-ink-500"><span>Treating doctors</span><input value={doctorSearch} onChange={(e)=>setDoctorSearch(e.target.value)} placeholder="Search doctors…" className="mt-1 h-8 w-full rounded-control border border-line bg-white px-2 text-[11.5px] outline-none focus:border-primary"/><div className="mt-1 max-h-28 overflow-auto rounded-control border border-line bg-panel p-2">{data.bookingCatalog.doctors.filter((doctor)=>doctor.nameEn.toLowerCase().includes(doctorSearch.toLowerCase())).map((doctor) => <label key={doctor.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="doctorIds" value={doctor.id} defaultChecked={data.treatingDoctors.some((row) => row.doctorId === doctor.id) || (!data.treatingDoctors.length && lead.doctorId === doctor.id)} />{doctor.nameEn}</label>)}</div></div>
                 <div className="md:col-span-2 xl:col-span-3 flex justify-end"><button disabled={pending || !data.bookingCatalog.configured} className="rounded-control bg-primary px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-50">{pending ? "Saving..." : "Save patient information"}</button></div>
               </form>
-            </section>
+            </details>
             {/* Lead details */}
-            <section>
-              <SectionLabel>Lead details</SectionLabel>
-              <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-                <DetailField label="Phone" value={lead.phone} />
-                <DetailField label="MRN" value={<span className="font-mono">{lead.mrn ?? "—"}</span>} />
-                <DetailField label="Gender" value={<span className="capitalize">{lead.gender ?? "—"}</span>} />
-                <DetailField label="Services" value={lead.serviceNames?.length ? lead.serviceNames.join(", ") : lead.serviceName ?? specialtyName(lead.specialtyId)} />
-                <DetailField label="Treating doctors" value={data.treatingDoctors.length ? data.treatingDoctors.map((doctor) => doctor.doctorName).join(", ") : lead.doctorNames?.join(", ") ?? lead.doctorName ?? doctorName(lead.doctorId)} />
-                <DetailField label="Branch" value={lead.branch ?? "—"} />
+            <section className="rounded-xl border border-line bg-panel p-4 shadow-sm">
+              <SectionLabel>Lead context</SectionLabel>
+              <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
                 <DetailField label="Patient type" value={<span className="capitalize">{lead.patientType}</span>} />
                 <DetailField label="Campaign" value={campaignName(lead.campaignId)} />
                 <DetailField label="Heard via" value={lead.sourceLabel ?? (pm ? pm.label : sourceName(lead.sourceId))} />
+                <DetailField label="Branch" value={lead.branch ?? "—"} />
                 {stage === "lost" && <DetailField label="Lost reason" value={lead.lostReason ?? "—"} />}
               </div>
             </section>
 
             {/* Change status */}
-            <section>
+            <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+            <section className="rounded-xl border border-line bg-panel p-4 shadow-sm">
               <SectionLabel>Change status</SectionLabel>
               <div className="flex flex-wrap gap-2">
                 {STATUS_PILL_ORDER.map((s) => {
@@ -617,7 +632,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
             </section>
 
             {/* Tags */}
-            <section>
+            <section className="rounded-xl border border-line bg-panel p-4 shadow-sm">
               <SectionLabel>Tags</SectionLabel>
               <div className="flex flex-wrap items-center gap-1.5">
                 {data.availableTags.map((tag) => {
@@ -648,9 +663,10 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                 )}
               </div>
             </section>
+            </div>
 
             {/* Latest message */}
-            <section>
+            <section className="rounded-xl border border-line bg-panel p-4 shadow-sm">
               <SectionLabel>Latest message</SectionLabel>
               {latestMessage ? (
                 <div className="rounded-card border border-line p-3.5">
@@ -687,6 +703,9 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
             messages={data.messages.filter(
               (m) => m.channel === "facebook" || m.channel === "instagram",
             )}
+            title={lead.platform === "instagram" ? "Instagram conversation" : "Messenger conversation"}
+            chatLink={lead.chatLink}
+            channelTone={lead.platform === "instagram" ? "pink" : "blue"}
             emptyHint="Facebook Messenger and Instagram DM messages will appear here once integrations are connected."
           />
         )}
@@ -696,6 +715,9 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
             data.whatsappConfigured ? (
               <MessageThread
                 messages={data.messages.filter((m) => m.channel === "whatsapp")}
+                title="WhatsApp conversation"
+                chatLink={lead.chatLink}
+                channelTone="green"
                 emptyHint="No WhatsApp messages have been ingested for this lead yet."
               />
             ) : (
@@ -750,7 +772,24 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
 
         {tab === "Booking" && (
           loadedTabs.has("Booking") ? (
-            <BookingTab lead={lead} bookings={data.bookings} catalog={data.bookingCatalog} />
+            <BookingTab
+              lead={lead}
+              bookings={data.bookings}
+              catalog={data.bookingCatalog}
+              onChanged={(bookings) => {
+                const statusById = Object.fromEntries(bookings.map((booking) => [
+                  booking.id,
+                  booking.status === "unconfirmed" ? "reserved" : booking.status === "completed" ? "attended" : booking.status,
+                ]));
+                const summary = deriveLeadBookingSummary({ booking_status_by_id: statusById }, bookings[0]?.id);
+                setData((current) => ({
+                  ...current,
+                  bookings,
+                  lead: { ...current.lead, bookingStatus: summary.status, bookingContext: summary.context, bookingCount: summary.count },
+                }));
+                router.refresh();
+              }}
+            />
           ) : (
             <div className="p-5 text-[12px] text-ink-400">Loading live booking...</div>
           )
@@ -1028,6 +1067,9 @@ function FollowUpPanel({
   const [outcome, setOutcome] = useState("");
   const missed = f.status === "missed";
   const scheduled = f.status !== "none" || !!f.nextDate || !!f.reason;
+  const steps = plan?.steps ?? [];
+  const doneCount = steps.filter((step) => step.state === "done").length;
+  const currentStep = steps.find((step) => step.state !== "done");
 
   const dueText = missed
     ? "Overdue"
@@ -1036,13 +1078,32 @@ function FollowUpPanel({
       : "No date set";
 
   return (
-    <div className="flex flex-col gap-5 p-5">
+    <div className="flex flex-col gap-4 bg-slate-50/70 p-3 sm:p-5">
+      <section className="overflow-hidden rounded-xl bg-ink-900 p-5 text-white shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Next required action</div>
+            <div className="mt-2 text-[22px] font-black">{currentStep?.name ?? f.reason ?? "Schedule the first follow-up"}</div>
+            <div className={"mt-1 text-[12px] font-semibold " + (missed || currentStep?.state === "overdue" ? "text-red-300" : "text-white/60")}>
+              {currentStep?.dueAt ? `${currentStep.state === "overdue" ? "Overdue · " : "Due · "}${formatDateTime(currentStep.dueAt)}` : dueText}
+            </div>
+          </div>
+          <div className="rounded-xl bg-white/10 px-4 py-3 text-right">
+            <div className="text-[10px] uppercase tracking-wide text-white/50">Journey progress</div>
+            <div className="mt-1 text-[20px] font-black">{doneCount}<span className="text-[12px] text-white/50"> / {steps.length || "—"}</span></div>
+          </div>
+        </div>
+        {currentStep?.moderatorInstruction && <div className="mt-4 border-l-2 border-primary pl-3 text-[12px] leading-relaxed text-white/75">{currentStep.moderatorInstruction}</div>}
+      </section>
       {plan && plan.steps.length > 0 && (
-        <div>
-          <SectionLabel>Scheduled</SectionLabel>
+        <section className="rounded-xl border border-line bg-panel p-4 shadow-sm">
+          <SectionLabel>{plan.workflowType === "post_op" ? "Post-op follow-up journey" : "Regular lead follow-up journey"}</SectionLabel>
           <div className="flex flex-col gap-2.5">
             {plan.steps.map((step) => (
-              <div key={step.id ?? step.sequence} className="rounded-card border border-line bg-panel p-3.5">
+              <div key={step.id ?? step.sequence} className={"relative rounded-xl border p-3.5 pl-12 " + (step.state === "overdue" ? "border-danger/35 bg-danger-bg/40" : step.state === "done" ? "border-emerald-200 bg-emerald-50/50" : step === currentStep ? "border-primary/35 bg-primary-soft/35" : "border-line bg-white")}>
+                <span className={"absolute left-3.5 top-3.5 flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-black " + (step.state === "done" ? "bg-success text-white" : step.state === "overdue" ? "bg-danger text-white" : step === currentStep ? "bg-primary text-white" : "bg-line-faint text-ink-500")}>
+                  {step.state === "done" ? "✓" : step.sequence}
+                </span>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <div className="text-[13.5px] font-semibold text-ink-900">
@@ -1077,7 +1138,7 @@ function FollowUpPanel({
                     {step.completedBy ? ` by ${step.completedBy}` : ""}
                   </div>
                 )}
-                <div className="mt-3 flex flex-wrap gap-2">
+                {step === currentStep && <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
                     disabled={pending || step.state === "done"}
@@ -1102,14 +1163,14 @@ function FollowUpPanel({
                   >
                     Mark lost
                   </button>
-                </div>
+                </div>}
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {scheduled ? (
+      {scheduled && steps.length === 0 ? (
         <div
           className={
             "rounded-card border p-4 " +
@@ -1129,16 +1190,17 @@ function FollowUpPanel({
             {f.owner ? ` · ${f.owner}` : ""}
           </div>
         </div>
-      ) : (
+      ) : steps.length === 0 ? (
         <EmptyState
           icon="↻"
           title="No follow-up scheduled"
           hint="Schedule a follow-up to keep this lead moving through the pipeline."
         />
-      )}
+      ) : null}
 
-      <div>
-        <SectionLabel>Schedule next</SectionLabel>
+      <details className="group rounded-xl border border-line bg-panel shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3"><div><div className="text-[12.5px] font-black text-ink-900">Schedule a manual follow-up</div><div className="mt-0.5 text-[10.5px] text-ink-400">Use when this patient needs a date outside the configured journey.</div></div><span className="text-[18px] text-ink-400 transition group-open:rotate-45">+</span></summary>
+        <div className="border-t border-line p-4">
         <div className="grid gap-2 sm:grid-cols-[120px_1fr]">
           <select
             value={workflowType}
@@ -1171,10 +1233,12 @@ function FollowUpPanel({
             Schedule next
           </button>
         </div>
-      </div>
+        </div>
+      </details>
 
-      <div>
-        <SectionLabel>Actions</SectionLabel>
+      <section className="rounded-xl border border-line bg-panel p-4 shadow-sm">
+        <SectionLabel>Complete the current action</SectionLabel>
+        <p className="mb-3 text-[11px] text-ink-500">Record the outcome before completing so the next moderator understands what happened.</p>
         <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
           <input
             value={outcome}
@@ -1207,7 +1271,7 @@ function FollowUpPanel({
             Mark lost
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -1239,21 +1303,28 @@ function eventLabel(e: TimelineEvent): string {
 
 function TimelinePanel({ events, embedded }: { events: TimelineEvent[]; embedded?: boolean }) {
   if (events.length === 0) return <EmptyState title="No timeline events" />;
+  const conversations = events.filter((event) => event.kind === "message_in" || event.kind === "message_out").length;
+  const workflowChanges = events.filter((event) => event.kind === "stage_change" || event.kind === "follow_up" || event.kind === "booking").length;
   return (
     <div className={embedded ? "" : "p-5"}>
-      <div className="relative ml-1 border-l border-line-soft pl-6">
+      <div className="mb-4 grid grid-cols-3 overflow-hidden rounded-xl border border-line bg-panel text-center">
+        <div className="border-r border-line px-2 py-3"><div className="text-[18px] font-black text-ink-900">{events.length}</div><div className="text-[9.5px] font-bold uppercase text-ink-400">All events</div></div>
+        <div className="border-r border-line px-2 py-3"><div className="text-[18px] font-black text-primary">{workflowChanges}</div><div className="text-[9.5px] font-bold uppercase text-ink-400">Workflow</div></div>
+        <div className="px-2 py-3"><div className="text-[18px] font-black text-emerald-600">{conversations}</div><div className="text-[9.5px] font-bold uppercase text-ink-400">Messages</div></div>
+      </div>
+      <div className="relative ml-2 border-l-2 border-line-soft pl-6">
         {events.map((e) => (
-          <div key={e.id} className="relative pb-6 last:pb-0">
+          <article key={e.id} className="relative pb-4 last:pb-0">
             <span
-              className="absolute -left-[30px] top-[3px] h-3 w-3 rounded-full ring-4 ring-panel"
+              className="absolute -left-[31px] top-4 h-3 w-3 rounded-full ring-4 ring-slate-50"
               style={{ backgroundColor: eventDotColor(e) }}
             />
-            <div className="text-[13.5px] font-semibold text-ink-900">{eventLabel(e)}</div>
-            <div className="mt-1 border border-line-soft bg-panel px-3 py-2 shadow-sm">
+            <div className="rounded-xl border border-line bg-panel px-4 py-3 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-2"><div className="text-[13px] font-black text-ink-900">{eventLabel(e)}</div><div className="text-[10.5px] font-semibold text-ink-400">{formatDateTime(e.at)}</div></div>
               {e.body && <div data-patient-content className="whitespace-pre-wrap text-[12px] text-ink-700">{e.body}</div>}
-              <div className="mt-1 text-[11px] text-ink-400">{formatDateTime(e.at)}{e.actor ? ` · ${e.actor}` : ""}</div>
+              {e.actor && <div className="mt-1 text-[10.5px] text-ink-400">By {e.actor}</div>}
             </div>
-          </div>
+          </article>
         ))}
       </div>
     </div>

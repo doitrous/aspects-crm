@@ -67,7 +67,7 @@ export async function upsertEmailRule(input: {
 
   const { data, error } = await db
     .from("crm_email_rules")
-    .insert({ ...row, created_by: actor.id })
+    .insert({ ...row, rule_key: `automation_${crypto.randomUUID()}`, created_by: actor.id })
     .select("id")
     .single();
   if (error) throw new EmailRuleError(error.message);

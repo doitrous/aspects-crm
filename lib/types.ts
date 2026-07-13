@@ -68,6 +68,7 @@ export interface User {
   name: string;
   role: Role;
   initials: string;
+  avatarUrl?: string;
 }
 
 /** How far an outgoing message has travelled. `null` for incoming messages. */
@@ -253,6 +254,8 @@ export interface Booking {
   durationMin: number;
   status: BookingStatus;
   source: Platform;
+  /** Distinguishes staff-created bookings from public website reservations. */
+  origin?: "crm" | "website";
   calendarSynced: boolean;
 }
 
@@ -345,6 +348,9 @@ export interface Lead {
   lostReason?: string;
 
   bookingStatus: BookingStatus;
+  bookingContext?: string;
+  bookingCount?: number;
+  overdueReason?: string;
 
   note: LeadNote;
   followUp: FollowUp;

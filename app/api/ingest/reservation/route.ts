@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { dispatchRule } from "@/lib/email/send";
+import { dispatchTrigger } from "@/lib/email/send";
 import { secretsEqual } from "@/lib/security/secrets";
 import {
   assignRevisitingPatientTag,
@@ -352,7 +352,7 @@ export async function POST(req: Request) {
   // Idempotent on the appointment id, so a re-POST does not re-notify. An email
   // failure must never fail ingest.
   try {
-    await dispatchRule("booking_created", {
+    await dispatchTrigger("booking_created", {
       discriminator: body.bookingAppointmentId,
       leadUid: created.id as string,
       ctx: {
@@ -360,6 +360,7 @@ export async function POST(req: Request) {
         appointment_date: body.appointmentDate ?? "",
         appointment_datetime: `${body.appointmentDate ?? ""} ${body.startTime ?? ""}`.trim(),
         service_name: body.serviceName ?? "",
+        patient_email: body.patientEmail ?? "",
       },
     });
   } catch (emailErr) {

@@ -92,6 +92,13 @@ test("assertCan throws PermissionError when denied, is silent when allowed", () 
   assert.doesNotThrow(() => assertCan("admin", "financial.editRules"));
 });
 
+test("admins and auditors may reset account passwords, operational roles may not", () => {
+  assert.equal(can("admin", "users.resetPassword"), true);
+  assert.equal(can("auditor", "users.resetPassword"), true);
+  assert.equal(can("moderator", "users.resetPassword"), false);
+  assert.equal(can("viewer", "users.resetPassword"), false);
+});
+
 /* ── lockout protection (§21) ────────────────────────────────── */
 
 const admin1: AccountRef = { id: "a1", role: "admin", isActive: true };

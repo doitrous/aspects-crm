@@ -1,10 +1,12 @@
 import "server-only";
 import { revalidatePath } from "next/cache";
 import { bookingConfigured, bookingDb } from "@/lib/booking/client";
+import { withBookingStatus } from "@/lib/booking/leadSummary";
 import { assertCan } from "@/lib/auth/permissions";
 import { writeActor } from "@/lib/data/actor";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import type { BookingStatus, ReservationStatus } from "@/lib/types";
+import { notifyBookingStatusChanged } from "@/lib/email/triggers";
 
 export class BookingError extends Error {}
 
@@ -824,11 +826,10 @@ export async function createLeadBooking(input: {
 
   const now = new Date().toISOString();
   const bookingMeta = {
-    ...(lead.metadata ?? {}),
+    ...withBookingStatus(lead.metadata, appointment.id, status, "crm"),
     booking_appointment_id: appointment.id,
     appointment_date: input.date,
     start_time: input.startTime,
-    booking_status: status,
   };
   const { error: leadError } = await supabaseAdmin()
     .from("leads")
@@ -910,7 +911,7 @@ export async function updateReservationStatus(input: {
       .from("leads")
       .update({
         status: nextLeadStatus,
-        metadata: { ...(lead.metadata ?? {}), booking_status: input.status },
+        metadata: withBookingStatus(lead.metadata, input.appointmentId, input.status),
         updated_at: new Date().toISOString(),
       })
       .eq("id", lead.id);
@@ -926,9 +927,26 @@ export async function updateReservationStatus(input: {
     });
     revalidatePath(`/leads/${lead.lead_id}`);
   }
+  try {
+    await notifyBookingStatusChanged({
+      leadUid: lead?.id ?? null,
+      leadId: lead?.lead_id ?? input.leadId ?? null,
+      patientName: lead?.name ?? null,
+      appointmentId: input.appointmentId,
+      fromStatus: previous,
+      toStatus: input.status,
+    });
+  } catch (emailError) {
+    console.error("booking_status_changed email dispatch failed", emailError);
+  }
   revalidatePath("/calendar");
   revalidatePath("/reservations");
   revalidatePath("/calendar");
   revalidatePath("/booked");
+  revalidatePath("/follow-up");
+  revalidatePath("/post-op");
+  revalidatePath("/lost");
+  revalidatePath("/qualified");
+  revalidatePath("/leads");
   revalidatePath("/database");
 }

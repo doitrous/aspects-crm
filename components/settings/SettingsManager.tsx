@@ -13,8 +13,6 @@ import {
   deleteFollowUpStageAction,
   updateAuditorTargetsAction,
   updateAiPromptAction,
-  upsertEmailRuleAction,
-  toggleEmailRuleAction,
 } from "@/app/(crm)/settings/actions";
 import { Card } from "@/components/ui/Card";
 import type {
@@ -159,24 +157,29 @@ function EscalationReasonForm({ reason, canManage }: { reason?: EscalationReason
 function SlaForm({ rule, canManage }: { rule: SlaRuleSetting; canManage: boolean }) {
   const [state, action, pending] = useActionState(updateSlaRuleAction, SETTINGS_IDLE);
   return (
-    <form action={action} className="flex flex-wrap items-end gap-2 border-b border-line-faint py-2.5 last:border-0">
+    <form action={action} className={"rounded-xl border p-4 " + (rule.isActive ? "border-line bg-panel" : "border-line-soft bg-slate-50 opacity-75")}>
       <input type="hidden" name="id" value={rule.id} />
-      <div className="min-w-[150px] pb-2">
-        <div className="text-[12.5px] font-bold text-ink-900">{rule.stageLabel}</div>
-        <div className="text-[11px] text-ink-400">{rule.stageKey}</div>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+        <div><div className="text-[14px] font-black text-ink-900">{rule.stageLabel}</div><div className="mt-0.5 text-[10.5px] text-ink-400">Applied whenever an unread message arrives while a lead is in this stage.</div></div>
+        <span className={"rounded-full px-2.5 py-1 text-[10px] font-black " + (rule.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>{rule.isActive ? "ENFORCED" : "OFF"}</span>
       </div>
+      <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
       <label className={label}>
         Reply deadline (min)
-        <input type="number" name="replyDeadlineMinutes" min={1} defaultValue={rule.replyDeadlineMinutes} disabled={!canManage} className={`${field} w-28`} />
+        <input type="number" name="replyDeadlineMinutes" min={1} defaultValue={rule.replyDeadlineMinutes} disabled={!canManage} className={field} />
       </label>
       <label className={label}>
         Warn at (min)
-        <input type="number" name="warningThresholdMinutes" min={0} defaultValue={rule.warningThresholdMinutes} disabled={!canManage} className={`${field} w-24`} />
+        <input type="number" name="warningThresholdMinutes" min={0} defaultValue={rule.warningThresholdMinutes} disabled={!canManage} className={field} />
       </label>
       <label className="flex items-center gap-1.5 pb-2 text-[12px] text-ink-700">
         <input type="checkbox" name="isActive" defaultChecked={rule.isActive} disabled={!canManage} /> Active
       </label>
       {canManage && <SaveButton pending={pending} />}
+      </div>
+      <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[10.5px] leading-relaxed text-ink-600">
+        Result: after {rule.replyDeadlineMinutes} minutes, the lead row turns red and shows the exact missed reply deadline. Changing this rule recalculates every currently unread {rule.stageLabel.toLowerCase()} lead.
+      </div>
       <Feedback state={state} />
     </form>
   );
@@ -187,27 +190,28 @@ function FollowUpStageForm({
   stage,
   canManage,
   tags,
+  workflowType,
 }: {
   stage?: FollowUpStageSetting;
   canManage: boolean;
   tags: TagSetting[];
+  workflowType?: "regular" | "postop";
 }) {
   const [state, action, pending] = useActionState(upsertFollowUpStageAction, SETTINGS_IDLE);
   const [del, delAction, delPending] = useActionState(deleteFollowUpStageAction, SETTINGS_IDLE);
   return (
-    <div className="border-b border-line-faint py-2.5 last:border-0">
-      <form action={action} className="flex flex-wrap items-end gap-2">
+    <div className="relative rounded-xl border border-line bg-white p-4 shadow-sm">
+      <span className="absolute -left-3 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-ink-900 text-[10px] font-black text-white">{stage?.stageOrder ?? "+"}</span>
+      <form action={action} className="grid gap-3 pl-2 sm:grid-cols-2 xl:grid-cols-4">
         {stage && <input type="hidden" name="id" value={stage.id} />}
-        <label className={label}>
-          Type
-          <select name="workflowType" defaultValue={stage?.workflowType ?? "regular"} disabled={!canManage} className={field}>
-            <option value="regular">Regular</option>
-            <option value="postop">Post-op</option>
-          </select>
-        </label>
+        <input type="hidden" name="workflowType" value={stage?.workflowType ?? workflowType ?? "regular"} />
         <label className={label}>
           Step name
           <input name="name" defaultValue={stage?.name ?? ""} required disabled={!canManage} className={`${field} min-w-[150px]`} />
+        </label>
+        <label className={`${label} sm:col-span-2 xl:col-span-4`}>
+          Moderator instruction
+          <textarea name="moderatorInstruction" defaultValue={stage?.moderatorInstruction ?? ""} disabled={!canManage} rows={2} placeholder="What should the moderator do or ask during this step?" className={field} />
         </label>
         <label className={label}>
           Order
@@ -257,8 +261,7 @@ function FollowUpStageForm({
         <label className="flex items-center gap-1.5 pb-2 text-[12px] text-ink-700">
           <input type="checkbox" name="isActive" defaultChecked={stage?.isActive ?? true} disabled={!canManage} /> Active
         </label>
-        {canManage && <SaveButton pending={pending}>{stage ? "Save" : "Add step"}</SaveButton>}
-        <Feedback state={state} />
+        <div className="flex items-center gap-2 sm:col-span-2 xl:col-span-4">{canManage && <SaveButton pending={pending}>{stage ? "Save step" : "Add step"}</SaveButton>}<Feedback state={state} /></div>
       </form>
       {stage && canManage && (
         <form action={delAction} className="mt-1">
@@ -322,85 +325,6 @@ function AiPromptForm({ prompt, canManage }: { prompt: AiPromptSetting; canManag
         </div>
       )}
     </form>
-  );
-}
-
-/* ── Email rules ──────────────────────────────────────────────── */
-function EmailRuleForm({ rule, canManage }: { rule?: EmailRuleSetting; canManage: boolean }) {
-  const [state, action, pending] = useActionState(upsertEmailRuleAction, SETTINGS_IDLE);
-  const [toggle, toggleAction, togglePending] = useActionState(toggleEmailRuleAction, SETTINGS_IDLE);
-  const recips = rule?.recipients ?? [];
-  const has = (t: string) => recips.some((r) => r.type === t);
-  const statics = recips.filter((r) => r.type === "static").map((r) => r.value).join(", ");
-  return (
-    <div className="rounded-control border border-line-soft p-3">
-      {rule && (
-        <div className="mb-2 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className={`rounded-pill px-2 py-0.5 text-[10px] font-semibold ${rule.isActive ? "bg-emerald-100 text-emerald-700" : "bg-line-faint text-ink-500"}`}>
-              {rule.isActive ? "Active" : "Disabled"}
-            </span>
-            <span className="font-mono text-[11px] text-ink-400">{rule.trigger}</span>
-          </div>
-          {canManage && (
-            <form action={toggleAction}>
-              <input type="hidden" name="id" value={rule.id} />
-              <input type="hidden" name="isActive" value={rule.isActive ? "false" : "true"} />
-              <button type="submit" disabled={togglePending} className="text-[11px] font-semibold text-primary hover:underline disabled:opacity-60">
-                {togglePending ? "…" : rule.isActive ? "Disable" : "Enable"}
-              </button>
-              <Feedback state={toggle} />
-            </form>
-          )}
-        </div>
-      )}
-      <form action={action} className="flex flex-col gap-2">
-        {rule && <input type="hidden" name="id" value={rule.id} />}
-        <div className="flex flex-wrap gap-2">
-          <label className={label}>
-            Name
-            <input name="name" defaultValue={rule?.name ?? ""} required disabled={!canManage} className={`${field} min-w-[200px]`} />
-          </label>
-          <label className={label}>
-            Trigger
-            <select name="trigger" defaultValue={rule?.trigger ?? "custom"} disabled={!canManage} className={field}>
-              <option value="booking_created">booking_created</option>
-              <option value="booking_under_review">booking_under_review</option>
-              <option value="overdue_leads_daily">overdue_leads_daily</option>
-              <option value="custom">custom</option>
-            </select>
-          </label>
-          <label className={label}>
-            Dedupe window (h)
-            <input type="number" name="dedupeWindowHours" min={0} defaultValue={rule?.dedupeWindowHours ?? 24} disabled={!canManage} className={`${field} w-24`} />
-          </label>
-          <label className="flex items-center gap-1.5 pb-2 text-[12px] text-ink-700">
-            <input type="checkbox" name="isActive" defaultChecked={rule?.isActive ?? false} disabled={!canManage} /> Active
-          </label>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 text-[12px] text-ink-700">
-          <span className="text-[11px] font-semibold text-ink-500">Recipients:</span>
-          <label className="flex items-center gap-1.5"><input type="checkbox" name="toModerators" defaultChecked={has("moderators")} disabled={!canManage} /> Moderators</label>
-          <label className="flex items-center gap-1.5"><input type="checkbox" name="toAuditors" defaultChecked={has("auditors")} disabled={!canManage} /> Auditors</label>
-          <label className="flex items-center gap-1.5"><input type="checkbox" name="toInvolvedLead" defaultChecked={has("involved_lead")} disabled={!canManage} /> Involved lead</label>
-          <input name="staticRecipients" defaultValue={statics} placeholder="extra@email.com, ..." disabled={!canManage} className={`${field} min-w-[220px] flex-1`} />
-        </div>
-        <label className={label}>
-          Subject template
-          <input name="subjectTemplate" defaultValue={rule?.subjectTemplate ?? ""} disabled={!canManage} className={field} />
-        </label>
-        <label className={label}>
-          Body template (use {"{{variables}}"})
-          <textarea name="bodyTemplate" defaultValue={rule?.bodyTemplate ?? ""} disabled={!canManage} rows={3} className={field} />
-        </label>
-        {canManage && (
-          <div className="flex items-center gap-3">
-            <SaveButton pending={pending}>{rule ? "Save rule" : "Create rule"}</SaveButton>
-            <Feedback state={state} />
-          </div>
-        )}
-      </form>
-    </div>
   );
 }
 
@@ -633,21 +557,21 @@ export function SettingsManager({
         )}
 
         {tab === "rules" && (
-          <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Rules</h3>
-            <p className="mb-2 text-[11.5px] text-ink-500">Reply deadlines per lead stage. Drive overdue / unanswered highlighting.</p>
+          <Card className="p-4 sm:p-5">
+            <div className="mb-4 border-b border-line pb-4"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-primary">Operational enforcement</div><h3 className="mt-1 text-[20px] font-black text-ink-900">Reply deadline rules</h3><p className="mt-1 max-w-2xl text-[11.5px] leading-relaxed text-ink-500">Each active rule starts a timer on the first unread patient message. When the deadline passes, the lead becomes overdue everywhere and the row explains why.</p></div>
             {slaRules.length === 0 && <p className="text-[12px] text-ink-400">No stage reply rules configured.</p>}
-            {slaRules.map((r) => <SlaForm key={r.id} rule={r} canManage={canManage} />)}
+            <div className="grid gap-3 lg:grid-cols-2">{slaRules.map((r) => <SlaForm key={r.id} rule={r} canManage={canManage} />)}</div>
           </Card>
         )}
 
         {tab === "followup" && (
-          <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Follow-Up Stages</h3>
-            <p className="mb-2 text-[11.5px] text-ink-500">Flexible sequences — any number of steps, arbitrary delays, per workflow type. Consumed by the Follow-Up tab.</p>
-            <PagedItems items={followUpStages} render={(s) => <FollowUpStageForm key={s.id} stage={s} canManage={canManage} tags={tags} />} />
-            {canManage && <div className="mt-2"><FollowUpStageForm canManage={canManage} tags={tags} /></div>}
-          </Card>
+          <div className="space-y-5">
+            <div className="rounded-xl bg-ink-900 p-5 text-white"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-white/50">Workflow designer</div><h3 className="mt-1 text-[22px] font-black">Follow-up journeys</h3><p className="mt-1 max-w-2xl text-[12px] text-white/65">Regular leads and post-op patients have separate journeys. Each step defines when it becomes due, what activates it, and exactly what the moderator should do.</p></div>
+            {(["regular", "postop"] as const).map((type) => {
+              const stages = followUpStages.filter((stage) => stage.workflowType === type).sort((a, b) => a.stageOrder - b.stageOrder);
+              return <Card key={type} className="p-4 sm:p-5"><div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-line pb-3"><div><div className="text-[16px] font-black text-ink-900">{type === "regular" ? "Regular lead flow" : "Post-op patient flow"}</div><p className="mt-1 text-[11px] text-ink-500">{type === "regular" ? "Starts when a lead enters Follow-Up." : "Starts from the procedure date or Post-Op stage."}</p></div><span className="rounded-full bg-primary-soft px-3 py-1 text-[10.5px] font-black text-primary">{stages.length} steps</span></div><div className="ml-3 space-y-3 border-l-2 border-line-soft pl-5">{stages.map((stage) => <FollowUpStageForm key={stage.id} stage={stage} canManage={canManage} tags={tags} workflowType={type} />)}{canManage && <FollowUpStageForm canManage={canManage} tags={tags} workflowType={type} />}</div></Card>;
+            })}
+          </div>
         )}
 
         {tab === "sources" && (
@@ -736,12 +660,15 @@ export function SettingsManager({
         {tab === "financial" && <div>{financial}</div>}
 
         {tab === "email" && (
-          <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Email automation rules</h3>
-            <p className="mb-3 text-[11.5px] text-ink-500">Rules are disabled by default. Review recipients and templates, then enable. Sends are logged in Emails.</p>
-            <div className="flex flex-col gap-3">
-              <PagedItems items={emailRules} render={(r) => <EmailRuleForm key={r.id} rule={r} canManage={canManage} />} />
-              {canManage && <EmailRuleForm canManage={canManage} />}
+          <Card className="overflow-hidden p-0">
+            <div className="bg-slate-950 p-5 text-white">
+              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-300">Email system</div>
+              <h3 className="mt-2 text-[22px] font-bold">Automations now live beside their delivery history.</h3>
+              <p className="mt-2 max-w-2xl text-[12px] leading-5 text-slate-300">Build event conditions, recipients, messages, reminder timing, and on/off state in one workspace. This settings page remains the map; the Emails page is the control room.</p>
+            </div>
+            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div><div className="text-[18px] font-bold text-ink-950">{emailRules.filter((rule) => rule.isActive).length} active of {emailRules.length}</div><div className="text-[12px] text-ink-500">All sends retain provider status and error evidence.</div></div>
+              <Link href="/emails" className="inline-flex h-10 items-center justify-center rounded-control bg-primary px-4 text-[13px] font-bold text-white hover:bg-primary-hover">Open email automation</Link>
             </div>
           </Card>
         )}

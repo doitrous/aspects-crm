@@ -36,6 +36,7 @@ interface FinRecord {
   service_name: string | null;
   is_exceptional: boolean;
   lead_id: string;
+  service_date: string | null;
   leads: { doctor_id: string | null; source_id: string | null } | { doctor_id: string | null; source_id: string | null }[] | null;
 }
 
@@ -45,21 +46,23 @@ function leadDim(rec: FinRecord): { doctorId: string | null; sourceId: string | 
   return { doctorId: row?.doctor_id ?? null, sourceId: row?.source_id ?? null };
 }
 
-async function sumChild(table: string, column: string, finIds: string[]): Promise<number> {
-  if (finIds.length === 0) return 0;
-  const { data, error } = await supabaseAdmin()
-    .from(table)
-    .select(column)
-    .in("lead_financials_id", finIds);
-  if (error) throw new Error(`sumChild(${table}): ${error.message}`);
-  return addMoney(...(data ?? []).map((r) => Number((r as unknown as Record<string, unknown>)[column]) || 0));
+async function childAmountsByFinancialId(table: string, column: string, finIds: string[]): Promise<Map<string, number>> {
+  const totals = new Map<string, number>();
+  if (finIds.length === 0) return totals;
+  const { data, error } = await supabaseAdmin().from(table).select(`lead_financials_id,${column}`).in("lead_financials_id", finIds);
+  if (error) throw new Error(`childAmountsByFinancialId(${table}): ${error.message}`);
+  for (const row of (data ?? []) as unknown as Array<Record<string, unknown>>) {
+    const id = String(row.lead_financials_id);
+    totals.set(id, addMoney(totals.get(id) ?? 0, Number(row[column]) || 0));
+  }
+  return totals;
 }
 
 /** Records whose service/procedure date falls in range (profitability basis). */
 async function recordsInServiceRange(range: DateRange): Promise<FinRecord[]> {
   const { data, error } = await supabaseAdmin()
     .from("crm_lead_financials")
-    .select("id,base_service_price,quoted_price,service_name,is_exceptional,lead_id,leads(doctor_id,source_id)")
+    .select("id,base_service_price,quoted_price,service_name,is_exceptional,lead_id,service_date,leads(doctor_id,source_id)")
     .gte("service_date", range.from)
     .lte("service_date", range.to);
   if (error) throw new Error(`recordsInServiceRange: ${error.message}`);
@@ -83,6 +86,7 @@ export interface FinancialDashboardData {
   exceptionalCount: number;
   pendingApprovals: number;
   outstandingCurrent: number;
+  profitByDay: Array<{ day: string; revenue: number; costs: number; profit: number }>;
 }
 
 export interface CashFlowSummary {
@@ -171,16 +175,20 @@ export async function financialDashboard(range: DateRange): Promise<FinancialDas
   const records = await recordsInServiceRange(range);
   const finIds = records.map((r) => r.id);
 
-  const [consumablesTotal, doctorCompensationTotal, externalCostsTotal, cashFlow, outstanding, sources, catalog] =
+  const [cashFlow, outstanding, sources, catalog, consumablesByFin, compensationByFin, externalByFin] =
     await Promise.all([
-      sumChild("crm_lead_consumables", "total_cost", finIds),
-      sumChild("crm_lead_doctor_compensation", "computed_amount", finIds),
-      sumChild("crm_external_costs", "amount", finIds),
       cashFlowSummary(range),
       outstandingCurrent(),
       leadSourcesList().catch(() => []),
       bookingCatalog().catch(() => ({ doctors: [] as Array<{ id: string; nameEn: string }> })),
+      childAmountsByFinancialId("crm_lead_consumables", "total_cost", finIds),
+      childAmountsByFinancialId("crm_lead_doctor_compensation", "computed_amount", finIds),
+      childAmountsByFinancialId("crm_external_costs", "amount", finIds),
     ]);
+
+  const consumablesTotal = addMoney(...consumablesByFin.values());
+  const doctorCompensationTotal = addMoney(...compensationByFin.values());
+  const externalCostsTotal = addMoney(...externalByFin.values());
 
   const profitability = computeProfitability({
     baseServicePrices: records.map((r) => Number(r.base_service_price) || 0),
@@ -204,6 +212,14 @@ export async function financialDashboard(range: DateRange): Promise<FinancialDas
   });
 
   const exceptionalCount = records.filter((r) => r.is_exceptional).length;
+  const daily = new Map<string, { revenue: number; costs: number }>();
+  for (const record of records) {
+    const day = record.service_date ?? range.from;
+    const current = daily.get(day) ?? { revenue: 0, costs: 0 };
+    current.revenue = addMoney(current.revenue, Number(record.quoted_price) || 0);
+    current.costs = addMoney(current.costs, consumablesByFin.get(record.id) ?? 0, compensationByFin.get(record.id) ?? 0, externalByFin.get(record.id) ?? 0);
+    daily.set(day, current);
+  }
   const { count: pendingApprovals } = await supabaseAdmin()
     .from("crm_discount_approvals")
     .select("id", { count: "exact", head: true })
@@ -219,6 +235,7 @@ export async function financialDashboard(range: DateRange): Promise<FinancialDas
     exceptionalCount,
     pendingApprovals: pendingApprovals ?? 0,
     outstandingCurrent: outstanding,
+    profitByDay: [...daily.entries()].map(([day, values]) => ({ day, revenue: roundMoney(values.revenue), costs: roundMoney(values.costs), profit: roundMoney(values.revenue - values.costs) })).sort((a, b) => a.day.localeCompare(b.day)),
   };
 }
 

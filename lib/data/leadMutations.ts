@@ -5,6 +5,7 @@ import { ensureFollowUpPlanForLead } from "@/lib/data/followupPlans";
 import { assertCan } from "@/lib/auth/permissions";
 import type { PipelineStage, ReferenceOption } from "@/lib/types";
 import { bookingCatalog } from "@/lib/booking/service";
+import { notifyLeadStatusChanged } from "@/lib/email/triggers";
 
 type NoteKey = "clientNotes" | "medicalHistory" | "generalNotes";
 
@@ -56,7 +57,7 @@ function asNoteKey(value: string): NoteKey {
 async function resolveLead(leadId: string) {
   const { data, error } = await supabaseAdmin()
     .from("leads")
-    .select("id,lead_id,status,notes,medical_notes,medical_history,lost_reason_id,lost_notes,escalation_status,metadata,has_unread")
+    .select("id,lead_id,name,status,notes,medical_notes,medical_history,lost_reason_id,lost_notes,escalation_status,metadata,has_unread")
     .eq("lead_id", leadId)
     .maybeSingle();
   if (error) throw new Error(`resolveLead: ${error.message}`);
@@ -64,6 +65,7 @@ async function resolveLead(leadId: string) {
   return data as {
     id: string;
     lead_id: string;
+    name: string | null;
     status: string | null;
     notes: string | null;
     medical_notes: string | null;
@@ -281,6 +283,7 @@ export async function saveLeadNote(leadId: string, rawKey: string, value: string
     title: `Note updated: ${NOTE_LABEL[key]}`,
     metadata: { field: column },
   })]);
+
 }
 
 export async function updateLeadStage(params: {
@@ -342,9 +345,21 @@ export async function updateLeadStage(params: {
       to_label: DB_TO_LABEL[nextStatus],
     },
   })]);
+
+  try {
+    await notifyLeadStatusChanged({
+      leadUid: lead.id,
+      leadId: params.leadId,
+      patientName: lead.name || "Lead",
+      fromStatus: lead.status ?? "",
+      toStatus: nextStatus,
+    });
+  } catch (emailError) {
+    console.error("lead_status_changed email dispatch failed", emailError);
+  }
 }
 
-export async function setLeadTagAssignments(leadId: string, tagIds: string[]): Promise<void> {
+export async function setLeadTagAssignments(leadId: string, tagIds: string[]): Promise<string[]> {
   const actor = await writeLeadActor();
   const lead = await resolveLead(leadId);
   const unique = [...new Set(tagIds.filter(Boolean))];
@@ -404,6 +419,8 @@ export async function setLeadTagAssignments(leadId: string, tagIds: string[]): P
     title: "Tags updated",
     metadata: { tag_ids: unique },
   });
+  const labelById = new Map((active ?? []).map((tag) => [tag.id as string, tag.name as string]));
+  return unique.map((id) => labelById.get(id)).filter((label): label is string => Boolean(label));
 }
 
 export async function escalateLead(params: {

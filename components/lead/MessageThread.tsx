@@ -118,17 +118,44 @@ function Reactions({ message }: { message: Message }) {
 export function MessageThread({
   messages,
   emptyHint,
+  title = "Conversation",
+  chatLink,
+  channelTone = "blue",
 }: {
   messages: Message[];
   emptyHint?: string;
+  title?: string;
+  chatLink?: string;
+  channelTone?: "blue" | "green" | "pink";
 }) {
   if (messages.length === 0) {
     return <EmptyState icon="✉" title="No messages yet" hint={emptyHint} />;
   }
 
+  const latest = messages[messages.length - 1];
+  const waiting = latest?.direction === "incoming";
+  const tone = channelTone === "green" ? "bg-emerald-600" : channelTone === "pink" ? "bg-pink-600" : "bg-blue-600";
+
   return (
-    <div className="flex min-h-full flex-col">
-      <div className="flex flex-1 flex-col gap-3 p-4">
+    <div className="flex min-h-full flex-col bg-slate-50/70">
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-panel px-4 py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={"h-2.5 w-2.5 rounded-full " + tone} />
+            <h3 className="truncate text-[14px] font-black text-ink-900">{title}</h3>
+            <span className="rounded-full bg-line-faint px-2 py-0.5 text-[10px] font-bold text-ink-500">{messages.length}</span>
+          </div>
+          <p className={"mt-0.5 text-[10.5px] font-semibold " + (waiting ? "text-warn" : "text-ink-400")}>
+            {waiting ? "Patient is waiting for a reply" : "Latest message was sent by the clinic"}
+          </p>
+        </div>
+        {chatLink && (
+          <a href={chatLink} target="_blank" rel="noreferrer" className="rounded-control bg-ink-900 px-3 py-2 text-[11px] font-bold text-white hover:bg-primary">
+            Reply in channel ↗
+          </a>
+        )}
+      </div>
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 p-3 sm:p-5">
         {messages.map((m) => {
           const out = m.direction === "outgoing";
           const attachments = m.attachments ?? [];
@@ -148,7 +175,7 @@ export function MessageThread({
               </div>
               <div
                 className={
-                  "max-w-[78%] rounded-2xl px-3.5 py-2.5 text-[12.5px] leading-relaxed shadow-sm " +
+                  "max-w-[88%] rounded-2xl px-3.5 py-2.5 text-[12.5px] leading-relaxed shadow-sm sm:max-w-[72%] " +
                   (out ? "rounded-br-sm bg-primary text-white" : "rounded-bl-sm border border-line bg-white text-ink-900")
                 }
               >
@@ -216,34 +243,13 @@ export function MessageThread({
           );
         })}
       </div>
-      <div className="sticky bottom-0 border-t border-line bg-panel p-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="sticky bottom-0 border-t border-line bg-panel px-4 py-3">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">AI suggested reply</div>
-            <div className="text-[11px] text-ink-400">Review and edit before any outgoing message is sent.</div>
+            <div className="text-[11.5px] font-bold text-ink-700">Conversation is read-only in the CRM</div>
+            <div className="text-[10.5px] text-ink-400">Use the source channel to send a reply; the transcript will sync back here.</div>
           </div>
-          <button
-            type="button"
-            disabled
-            className="rounded-control border border-line px-2.5 py-1.5 text-[11.5px] font-medium text-ink-400"
-            title="No connected regeneration action is exposed in this CRM code path."
-          >
-            Regenerate
-          </button>
-        </div>
-        <textarea
-          placeholder="No generated suggestion loaded. Use the connected AI reply workflow, then review the draft here before sending."
-          className="min-h-[74px] w-full resize-none rounded-control border border-line bg-white p-2 text-[12.5px] text-ink-700"
-        />
-        <div className="mt-2 flex justify-end">
-          <button
-            type="button"
-            disabled
-            className="rounded-control bg-line px-3 py-2 text-[12px] font-semibold text-ink-400"
-            title="This repository does not expose a direct channel send handler here."
-          >
-            Insert
-          </button>
+          {chatLink && <a href={chatLink} target="_blank" rel="noreferrer" className="flex-none rounded-control border border-primary px-3 py-2 text-[11px] font-bold text-primary hover:bg-primary hover:text-white">Open chat ↗</a>}
         </div>
       </div>
     </div>

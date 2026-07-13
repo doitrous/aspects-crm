@@ -215,16 +215,30 @@ export async function upsertEmailRuleAction(
     if (v) recipients.push({ type: "static", value: v });
   }
   const dedupe = str(fd, "dedupeWindowHours");
+  const trigger = str(fd, "trigger");
+  const fromStatus = str(fd, "fromStatus");
+  const toStatus = str(fd, "toStatus");
+  const workflowType = str(fd, "workflowType");
+  const hoursBefore = int(fd, "hoursBefore", 24);
+  const conditions: Record<string, unknown> = {};
+  if (fromStatus) conditions.from_status = fromStatus;
+  if (toStatus) conditions.to_status = toStatus;
+  if (workflowType) conditions.workflow_type = workflowType;
+  if (trigger === "followup_reminder") conditions.hours_before = Math.max(1, hoursBefore);
+  const cron = str(fd, "cron");
+  const timezone = str(fd, "timezone") || "Africa/Cairo";
   try {
     await upsertEmailRule({
       id: str(fd, "id") || undefined,
       name: str(fd, "name"),
       description: str(fd, "description") || null,
-      trigger: str(fd, "trigger"),
+      trigger,
       isActive: bool(fd, "isActive"),
       recipients,
       subjectTemplate: str(fd, "subjectTemplate") || null,
       bodyTemplate: str(fd, "bodyTemplate") || null,
+      conditions,
+      schedule: cron ? { cron, timezone } : {},
       dedupeWindowHours: dedupe ? Number(dedupe) : null,
     });
   } catch (err) {

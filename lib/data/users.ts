@@ -7,7 +7,26 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 import { writeActor } from "@/lib/data/actor";
 import { logActivity } from "@/lib/audit/log";
 
-const COLS = "id, email, full_name, role, is_active, auth_user_id";
+const COLS = "id, email, full_name, role, is_active, auth_user_id, avatar_url";
+
+export async function resetUserPassword(userId: string, password: string): Promise<void> {
+  const actor = await writeActor();
+  assertCan(actor.role, "users.resetPassword");
+  if (password.length < 8) throw new UserAdminError("Temporary password must be at least 8 characters.");
+  const admin = supabaseAdmin();
+  const { data: target, error: targetError } = await admin.from("crm_users").select("id,auth_user_id,email").eq("id", userId).maybeSingle();
+  if (targetError) throw new UserAdminError(targetError.message);
+  if (!target?.auth_user_id) throw new UserAdminError("This CRM profile is not linked to a login account.");
+  const { error } = await admin.auth.admin.updateUserById(String(target.auth_user_id), { password });
+  if (error) throw new UserAdminError(`Password reset failed: ${error.message}`);
+  await logActivity({
+    actorId: actor.id,
+    action: "user.password_reset",
+    entityType: "user",
+    entityId: userId,
+    metadata: { target_email: target.email, reset_by_role: actor.role },
+  });
+}
 
 export interface UserFilters {
   /** Matches name or email, case-insensitive. */

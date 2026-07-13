@@ -12,6 +12,7 @@ export interface SwitchableUser {
   name: string;
   role: Role;
   initials: string;
+  avatarUrl?: string;
 }
 
 /**
@@ -46,8 +47,9 @@ export function UserSwitcher({
   return (
     <div className="border-t border-line-soft px-2 pt-3">
       <div className="flex items-center gap-2.5">
-        <span className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-full bg-primary-avatar text-[11px] font-bold text-primary">
-          {current.initials}
+        <span className="flex h-[30px] w-[30px] flex-none items-center justify-center overflow-hidden rounded-full bg-primary-avatar text-[11px] font-bold text-primary">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {current.avatarUrl ? <img src={current.avatarUrl} alt="" className="h-full w-full object-cover" /> : current.initials}
         </span>
 
         <div className="min-w-0 flex-1">
@@ -74,6 +76,7 @@ export function UserSwitcher({
           <span className="block text-[10.5px] font-normal capitalize text-ink-400">
             {impersonating ? `${current.role} · previewing` : current.role}
           </span>
+          <a href="/settings/account" className="mt-0.5 block text-[10px] font-bold text-primary hover:underline">Manage account</a>
         </div>
 
         <form action={signOut}>
