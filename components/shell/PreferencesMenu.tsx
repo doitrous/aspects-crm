@@ -40,28 +40,16 @@ export function PreferencesMenu({ theme }: { theme: Theme }) {
   }
 
   const segBtn = (active: boolean) =>
-    "flex-1 rounded-control px-2 py-1.5 text-[11px] font-semibold transition-all " +
+    "flex h-7 min-w-0 flex-1 items-center justify-center rounded-md px-1 text-[10px] font-bold transition-all " +
     (active ? "bg-panel text-primary shadow-sm ring-1 ring-line" : "text-ink-500 hover:text-ink-800");
 
   return (
-    <div className="mt-auto flex flex-col gap-2 border-t border-line-soft pt-3">
-      <div>
-        <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-400">
-          {t("pref.language")}
-        </div>
-        <div className="flex gap-1 rounded-control border border-line-soft bg-toolbar p-1">
-          <button type="button" aria-pressed={locale === "en"} onClick={() => applyLocale("en")} className={segBtn(locale === "en")}><span className="me-1 font-mono">EN</span> English</button>
-          <button type="button" aria-pressed={locale === "ar"} onClick={() => applyLocale("ar")} className={segBtn(locale === "ar")}><span className="me-1 font-mono">AR</span> العربية</button>
-        </div>
-      </div>
-      <div>
-        <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-400">
-          {t("pref.theme")}
-        </div>
-        <div className="flex gap-1 rounded-control border border-line-soft bg-toolbar p-1">
-          <button type="button" aria-pressed={activeTheme === "light"} onClick={() => applyTheme("light")} className={segBtn(activeTheme === "light")}>☀ {t("pref.light")}</button>
-          <button type="button" aria-pressed={activeTheme === "dark"} onClick={() => applyTheme("dark")} className={segBtn(activeTheme === "dark")}>☾ {t("pref.dark")}</button>
-        </div>
+    <div className="mt-auto border-t border-line-soft pt-2">
+      <div role="group" className="grid grid-cols-4 gap-0.5 rounded-lg border border-line-soft bg-toolbar p-0.5" aria-label={`${t("pref.language")} · ${t("pref.theme")}`}>
+        <button type="button" title={t("pref.english")} aria-label={t("pref.english")} aria-pressed={locale === "en"} onClick={() => applyLocale("en")} className={segBtn(locale === "en")}>EN</button>
+        <button type="button" title={t("pref.arabic")} aria-label={t("pref.arabic")} aria-pressed={locale === "ar"} onClick={() => applyLocale("ar")} className={segBtn(locale === "ar")}>AR</button>
+        <button type="button" title={t("pref.light")} aria-label={t("pref.light")} aria-pressed={activeTheme === "light"} onClick={() => applyTheme("light")} className={segBtn(activeTheme === "light")}>☀</button>
+        <button type="button" title={t("pref.dark")} aria-label={t("pref.dark")} aria-pressed={activeTheme === "dark"} onClick={() => applyTheme("dark")} className={segBtn(activeTheme === "dark")}>☾</button>
       </div>
     </div>
   );
