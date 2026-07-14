@@ -578,16 +578,92 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                     invalidateTab("Overview");
                   });
                 }}
-                className="grid gap-4 border-t border-line-soft bg-slate-50/60 p-4 md:grid-cols-2 xl:grid-cols-3"
+                className="space-y-3 border-t border-line-soft bg-slate-50/60 p-3 sm:p-4"
               >
-                <label className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500">Name<input data-patient-content name="name" required defaultValue={lead.patientName} className="calm-field mt-1.5 h-10 w-full px-3 text-[12.5px]" /></label>
-                <div className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500"><label>Primary phone<input data-patient-content name="phone" required defaultValue={lead.phone} className="calm-field mt-1.5 h-10 w-full px-3 text-[12.5px]" /></label>{lead.phones && lead.phones.length > 1 && <div className="mt-2 flex flex-wrap gap-1">{lead.phones.filter((phone) => !phone.primary).map((phone) => <span key={phone.id} className="rounded-md bg-line-faint px-2 py-1 text-[10.5px] text-ink-700">{phone.label}: {phone.number}</span>)}</div>}<label className="mt-2 block text-[10.5px] text-ink-500">+ Add another phone<input name="additionalPhone" placeholder="Optional additional number" className="calm-field mt-1 h-9 w-full px-3 text-[11.5px]" /></label></div>
-                <label className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500">MRN <span className="font-normal text-ink-400">(clinic record)</span><input name="mrn" inputMode="numeric" pattern="\d{1,9}" minLength={1} maxLength={9} defaultValue={lead.mrn ?? ""} placeholder="1–9 digits" className="calm-field mt-1.5 h-10 w-full px-3 font-mono text-[12.5px]" /><span className="mt-1.5 block text-[10px] font-normal text-ink-400">A repeated MRN opens the identity-link review.</span></label>
-                <label className="text-[11.5px] font-semibold text-ink-500">Gender<select name="gender" defaultValue={lead.gender ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Not specified</option><option value="female">Female</option><option value="male">Male</option></select></label>
-                <div className="text-[11.5px] font-semibold text-ink-500"><span>Main specialty + add-ons</span><select name="specialtyId" defaultValue={lead.specialtyId ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]"><option value="">Choose main specialty</option>{data.bookingCatalog.specialties.map((row) => <option key={row.id} value={row.id}>{row.nameEn}</option>)}</select><div className="mt-1 max-h-20 overflow-auto rounded-control border border-line-soft bg-white p-1.5">{data.bookingCatalog.specialties.map((row)=><label key={row.id} className="flex items-center gap-2 py-0.5 text-[10.5px] font-medium"><input type="checkbox" name="specialtyIds" value={row.id} defaultChecked={data.treatingDoctors.some((d)=>d.specialtyId===row.id && row.id!==lead.specialtyId)}/>Add-on · {row.nameEn}</label>)}</div></div>
-                <div className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500"><span>Services</span><input type="search" value={serviceSearch} onChange={(e)=>setServiceSearch(e.target.value)} placeholder="Type to filter services…" className="calm-field mt-1.5 h-9 w-full px-2.5 text-[11.5px]"/><div className="mt-1.5 max-h-32 overflow-auto border border-line bg-panel p-2">{data.bookingCatalog.services.filter((service)=>service.nameEn.toLowerCase().includes(serviceSearch.trim().toLowerCase())).map((service) => <label key={service.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="serviceIds" value={service.id} defaultChecked={lead.serviceIds?.includes(service.id) || (!lead.serviceIds?.length && lead.serviceName === service.nameEn)} />{service.nameEn}</label>)}</div></div>
-                <div className="rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500"><span>Treating doctors</span><input type="search" value={doctorSearch} onChange={(e)=>setDoctorSearch(e.target.value)} placeholder="Type to filter doctors…" className="calm-field mt-1.5 h-9 w-full px-2.5 text-[11.5px]"/><div className="mt-1.5 max-h-32 overflow-auto border border-line bg-panel p-2">{data.bookingCatalog.doctors.filter((doctor)=>doctor.nameEn.toLowerCase().includes(doctorSearch.trim().toLowerCase())).map((doctor) => <label key={doctor.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700"><input type="checkbox" name="doctorIds" value={doctor.id} defaultChecked={data.treatingDoctors.some((row) => row.doctorId === doctor.id) || (!data.treatingDoctors.length && lead.doctorId === doctor.id)} />{doctor.nameEn}</label>)}</div></div>
-                <div className="md:col-span-2 xl:col-span-3 flex justify-end"><button disabled={pending} className="rounded-md bg-primary px-4 py-2.5 text-[12px] font-semibold text-white disabled:opacity-50">{pending ? "Saving..." : "Save patient information"}</button></div>
+                <div className="rounded-lg border border-line-soft bg-panel p-3">
+                  <div className="grid items-start gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <label className="text-[11.5px] font-semibold text-ink-500">
+                      Name
+                      <input data-patient-content name="name" required defaultValue={lead.patientName} className="calm-field mt-1 h-9 w-full px-3 text-[12.5px]" />
+                    </label>
+                    <label className="text-[11.5px] font-semibold text-ink-500">
+                      Gender
+                      <select name="gender" defaultValue={lead.gender ?? ""} className="mt-1 h-9 w-full rounded-control border border-line bg-panel px-2.5 text-[12.5px]">
+                        <option value="">Not specified</option>
+                        <option value="female">Female</option>
+                        <option value="male">Male</option>
+                      </select>
+                    </label>
+                    <div className="text-[11.5px] font-semibold text-ink-500">
+                      <label>
+                        Primary phone
+                        <input data-patient-content name="phone" required defaultValue={lead.phone} className="calm-field mt-1 h-9 w-full px-3 text-[12.5px]" />
+                      </label>
+                      {lead.phones && lead.phones.length > 1 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {lead.phones.filter((phone) => !phone.primary).map((phone) => (
+                            <span key={phone.id} className="rounded-md bg-line-faint px-2 py-0.5 text-[10px] text-ink-700">{phone.label}: {phone.number}</span>
+                          ))}
+                        </div>
+                      )}
+                      <label className="mt-1.5 block text-[10px] text-ink-500">
+                        + Add another phone
+                        <input name="additionalPhone" placeholder="Optional additional number" className="calm-field mt-1 h-8 w-full px-3 text-[11.5px]" />
+                      </label>
+                    </div>
+                    <label className="text-[11.5px] font-semibold text-ink-500">
+                      MRN <span className="font-normal text-ink-400">(clinic record)</span>
+                      <input name="mrn" inputMode="numeric" pattern="\d{1,9}" minLength={1} maxLength={9} defaultValue={lead.mrn ?? ""} placeholder="1–9 digits" className="calm-field mt-1 h-9 w-full px-3 font-mono text-[12.5px]" />
+                      <span className="mt-1 block text-[10px] font-normal leading-tight text-ink-400">A repeated MRN opens the identity-link review.</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid items-stretch gap-3 md:grid-cols-3">
+                  <div className="flex min-h-0 flex-col rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500">
+                    <span>Main specialty + add-ons</span>
+                    <select name="specialtyId" defaultValue={lead.specialtyId ?? ""} className="mt-1 h-9 w-full shrink-0 rounded-control border border-line bg-panel px-2.5 text-[12.5px]">
+                      <option value="">Choose main specialty</option>
+                      {data.bookingCatalog.specialties.map((row) => <option key={row.id} value={row.id}>{row.nameEn}</option>)}
+                    </select>
+                    <div className="mt-1.5 h-32 overflow-auto rounded-control border border-line-soft bg-white p-2">
+                      {data.bookingCatalog.specialties.map((row) => (
+                        <label key={row.id} className="flex items-center gap-2 py-0.5 text-[10.5px] font-medium text-ink-700">
+                          <input type="checkbox" name="specialtyIds" value={row.id} defaultChecked={data.treatingDoctors.some((d) => d.specialtyId === row.id && row.id !== lead.specialtyId)} />
+                          Add-on · {row.nameEn}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex min-h-0 flex-col rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500">
+                    <span>Services</span>
+                    <input type="search" value={serviceSearch} onChange={(e) => setServiceSearch(e.target.value)} placeholder="Type to filter services…" className="calm-field mt-1 h-9 w-full shrink-0 px-2.5 text-[11.5px]" />
+                    <div className="mt-1.5 h-32 overflow-auto rounded-control border border-line bg-panel p-2">
+                      {data.bookingCatalog.services.filter((service) => service.nameEn.toLowerCase().includes(serviceSearch.trim().toLowerCase())).map((service) => (
+                        <label key={service.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700">
+                          <input type="checkbox" name="serviceIds" value={service.id} defaultChecked={lead.serviceIds?.includes(service.id) || (!lead.serviceIds?.length && lead.serviceName === service.nameEn)} />
+                          {service.nameEn}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex min-h-0 flex-col rounded-lg border border-line-soft bg-panel p-3 text-[11.5px] font-semibold text-ink-500">
+                    <span>Treating doctors</span>
+                    <input type="search" value={doctorSearch} onChange={(e) => setDoctorSearch(e.target.value)} placeholder="Type to filter doctors…" className="calm-field mt-1 h-9 w-full shrink-0 px-2.5 text-[11.5px]" />
+                    <div className="mt-1.5 h-32 overflow-auto rounded-control border border-line bg-panel p-2">
+                      {data.bookingCatalog.doctors.filter((doctor) => doctor.nameEn.toLowerCase().includes(doctorSearch.trim().toLowerCase())).map((doctor) => (
+                        <label key={doctor.id} className="flex items-center gap-2 py-1 text-[11.5px] font-medium text-ink-700">
+                          <input type="checkbox" name="doctorIds" value={doctor.id} defaultChecked={data.treatingDoctors.some((row) => row.doctorId === doctor.id) || (!data.treatingDoctors.length && lead.doctorId === doctor.id)} />
+                          {doctor.nameEn}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end border-t border-line-soft pt-3">
+                  <button disabled={pending} className="rounded-md bg-primary px-4 py-2 text-[12px] font-semibold text-white disabled:opacity-50">{pending ? "Saving..." : "Save patient information"}</button>
+                </div>
               </form>
             </details>
             {(lead.linkedLeads?.length || lead.familyMembers?.length) ? (
