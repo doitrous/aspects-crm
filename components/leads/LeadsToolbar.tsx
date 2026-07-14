@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { STAGE_META, STAGE_ORDER } from "@/lib/badges";
 import type { LeadSourceInfo } from "@/lib/types";
+import { DateField } from "@/components/ui/DateField";
 
 const PLATFORMS = ["facebook", "instagram", "whatsapp", "web", "referral"];
 
@@ -89,20 +90,8 @@ export function LeadsToolbar({
         ))}
       </select>
 
-      <input
-        type="date"
-        value={sp.get("dateFrom") ?? ""}
-        onChange={(e) => setParam("dateFrom", e.target.value)}
-        className={selCls}
-        aria-label="Date from"
-      />
-      <input
-        type="date"
-        value={sp.get("dateTo") ?? ""}
-        onChange={(e) => setParam("dateTo", e.target.value)}
-        className={selCls}
-        aria-label="Date to"
-      />
+      <DateField key={`from-${sp.get("dateFrom") ?? ""}`} name="dateFrom" defaultValue={sp.get("dateFrom") ?? ""} onChange={(value) => setParam("dateFrom", value)} ariaLabel="Date from" />
+      <DateField key={`to-${sp.get("dateTo") ?? ""}`} name="dateTo" defaultValue={sp.get("dateTo") ?? ""} onChange={(value) => setParam("dateTo", value)} ariaLabel="Date to" />
 
       <div className="ms-auto flex items-center gap-1.5">
         {[

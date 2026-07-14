@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { can } from "@/lib/auth/permissions";
 import { requireSession } from "@/lib/data/session";
 import { listUsers, userRoleHistory, userSessionEvents, type RoleHistoryEntry } from "@/lib/data/users";
+import { formatDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -27,13 +28,7 @@ function describe(e: RoleHistoryEntry): string {
 }
 
 function when(iso: string): string {
-  return new Date(iso).toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(iso);
 }
 
 /** Role + activation history for one CRM account (spec §21). */

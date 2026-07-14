@@ -19,7 +19,7 @@ import type {
   TimelineEvent,
 } from "@/lib/types";
 import { nestComments } from "@/lib/data/comments";
-import { isDatabasePatientSource } from "@/lib/data/databasePatientVisibility";
+import { isDatabaseOnly, isDatabasePatientSource } from "@/lib/data/databasePatientVisibility";
 import {
   NOW,
   bookings,
@@ -48,6 +48,7 @@ function filterLeads(filters: LeadFilters): Lead[] {
     .filter((l) => {
       if (filters.q && !matchesSearch(l, filters.q)) return false;
       if (filters.excludeDatabasePatients && isDatabasePatientSource(l.sourceLabel)) return false;
+      if (filters.excludeDatabaseOnly && isDatabaseOnly(l.databaseOnly)) return false;
       if (filters.stage && filters.stage !== "all" && l.stage !== filters.stage) return false;
       if (filters.platform && l.platform !== filters.platform) return false;
       if (filters.doctorId && l.doctorId !== filters.doctorId) return false;
@@ -83,6 +84,7 @@ function toSummary(l: Lead): LeadSummary {
     serviceNames: l.serviceNames,
     doctorNames: l.doctorNames,
     assignedModerator: l.assignedModerator,
+    databaseOnly: l.databaseOnly,
   };
 }
 
@@ -164,17 +166,18 @@ export const mockProvider: DataProvider = {
   },
 
   async dashboardMetrics(): Promise<DashboardMetrics> {
+    const operationalIds = new Set(leads.filter((lead) => !lead.databaseOnly).map((lead) => lead.id));
     return {
-      newLeads: leads.filter((l) => l.stage === "new").length,
-      unread: leads.filter((l) => l.unread).length,
-      incomingUnanswered: leads.filter((l) => l.incomingUnanswered).length,
-      overdue: leads.filter((l) => l.overdue).length,
-      qualified: leads.filter((l) => l.stage === "qualified").length,
-      booked: leads.filter((l) => l.stage === "booked").length,
-      followUp: leads.filter((l) => l.stage === "follow_up").length,
-      lost: leads.filter((l) => l.stage === "lost").length,
-      duplicates: leads.filter((l) => l.duplicateStatus === "suspected").length,
-      escalations: escalations.filter((e) => e.status !== "resolved").length,
+      newLeads: leads.filter((l) => !l.databaseOnly && l.stage === "new" && !isDatabasePatientSource(l.sourceLabel)).length,
+      unread: leads.filter((l) => !l.databaseOnly && l.unread).length,
+      incomingUnanswered: leads.filter((l) => !l.databaseOnly && l.incomingUnanswered).length,
+      overdue: leads.filter((l) => !l.databaseOnly && l.overdue).length,
+      qualified: leads.filter((l) => !l.databaseOnly && l.stage === "qualified").length,
+      booked: leads.filter((l) => !l.databaseOnly && l.stage === "booked").length,
+      followUp: leads.filter((l) => !l.databaseOnly && l.stage === "follow_up").length,
+      lost: leads.filter((l) => !l.databaseOnly && l.stage === "lost").length,
+      duplicates: leads.filter((l) => !l.databaseOnly && l.duplicateStatus === "suspected").length,
+      escalations: escalations.filter((e) => operationalIds.has(e.leadId) && e.status !== "resolved").length,
       unconfirmedAppts: bookings.filter((b) => b.status === "unconfirmed").length,
     };
   },
@@ -188,12 +191,13 @@ export const mockProvider: DataProvider = {
       post_op: 0,
       lost: 0,
     };
-    for (const l of leads) base[l.stage]++;
+    for (const l of leads) if (!l.databaseOnly) base[l.stage]++;
     return base;
   },
 
   async escalationQueue(): Promise<EscalationQueueItem[]> {
     return escalations
+      .filter((escalation) => !findLead(escalation.leadId)?.databaseOnly)
       .slice()
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .map((e) => {
@@ -215,7 +219,7 @@ export const mockProvider: DataProvider = {
         primary: primary ? toSummary(primary) : undefined,
         duplicate: duplicate ? toSummary(duplicate) : undefined,
       };
-    });
+    }).filter((pair) => !pair.primary?.databaseOnly && !pair.duplicate?.databaseOnly);
   },
 
   async duplicateQueuePage(
@@ -244,7 +248,7 @@ export const mockProvider: DataProvider = {
   async followUpQueue(stage?: "follow_up" | "post_op", requestedPage = 1, requestedPageSize = 30) {
     const now = NOW.getTime();
     const all = leads
-      .filter((l) => (stage ? l.stage === stage : l.stage === "follow_up" || l.stage === "post_op"))
+      .filter((l) => !l.databaseOnly && (stage ? l.stage === stage : l.stage === "follow_up" || l.stage === "post_op"))
       .map((l) => {
         const dueAt = l.followUp.nextDate;
         return {

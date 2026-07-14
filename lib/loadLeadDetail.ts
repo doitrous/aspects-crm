@@ -18,6 +18,9 @@ import { whatsappConfigured } from "@/lib/whatsapp/config";
 import { deriveLeadBookingSummary } from "@/lib/booking/leadSummary";
 import { refreshReplyOverdueFlags } from "@/lib/data/replySla";
 import type { Lead, PipelineStage, Platform, TreatingDoctorAssignment } from "@/lib/types";
+import { getSessionUser } from "@/lib/data/session";
+import { can } from "@/lib/auth/permissions";
+import { formatDateTime } from "@/lib/format";
 
 const DB_TO_UI_STAGE: Record<string, PipelineStage> = {
   new_lead: "new",
@@ -146,6 +149,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     chatLink: row.chat_link ?? undefined,
     sourceId: row.source_id ?? undefined,
     sourceLabel: metadata.record_source === "database" ? "Database" : undefined,
+    databaseOnly: metadata.database_only === true,
     specialtyId: typeof metadata.specialty_id === "string" ? metadata.specialty_id : undefined,
     campaignId: row.campaign ?? undefined,
     serviceName: row.service_name ?? undefined,
@@ -164,7 +168,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab as Lead["attentionTab"] : undefined,
     incomingUnanswered: row.has_unread,
     overdue: row.is_reply_overdue,
-    overdueReason: row.is_reply_overdue ? `Unread patient message passed its reply deadline${row.reply_overdue_at ? ` at ${new Date(row.reply_overdue_at).toLocaleString("en-EG")}` : ""}.` : undefined,
+    overdueReason: row.is_reply_overdue ? `Unread patient message passed its reply deadline${row.reply_overdue_at ? ` at ${formatDateTime(row.reply_overdue_at)}` : ""}.` : undefined,
     escalated: ["escalated", "in_review"].includes(row.escalation_status ?? "none"),
     duplicateStatus: "none",
     lastMessage: row.ai_summary ?? undefined,
@@ -188,7 +192,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
 async function patientConnectionsFor(leadUid: string): Promise<Pick<Lead, "linkedLeads" | "familyMembers">> {
   const db = supabaseAdmin();
   const [{ data: links, error: linksError }, { data: ownPhones, error: phonesError }] = await Promise.all([
-    db.from("crm_lead_links").select("lead_a_id,lead_b_id,relationship").or(`lead_a_id.eq.${leadUid},lead_b_id.eq.${leadUid}`),
+    db.from("crm_lead_links").select("id,lead_a_id,lead_b_id,relationship").or(`lead_a_id.eq.${leadUid},lead_b_id.eq.${leadUid}`),
     db.from("crm_lead_phones").select("normalized_phone").eq("lead_id", leadUid),
   ]);
   if (linksError) throw new Error(`patientConnections(links): ${linksError.message}`);
@@ -207,7 +211,8 @@ async function patientConnectionsFor(leadUid: string): Promise<Pick<Lead, "linke
     linkedLeads: (links ?? []).map((link) => {
       const uid = (link.lead_a_id === leadUid ? link.lead_b_id : link.lead_a_id) as string;
       const member = byId.get(uid);
-      return member ? { id: member.lead_id as string, name: (member.name as string | null) || "Unnamed", phone: buildPhone(member as never), relationship: link.relationship as "same_patient" | "family" } : null;
+      const relationship = link.relationship === "family" ? "relative" : link.relationship;
+      return member ? { linkId: link.id as string, id: member.lead_id as string, name: (member.name as string | null) || "Unnamed", phone: buildPhone(member as never), relationship: relationship as "same_patient" | "relative" | "distant_relative" | "other" } : null;
     }).filter((member): member is NonNullable<typeof member> => Boolean(member)),
     familyMembers: (familyPhoneRows.data ?? []).map((phoneRow) => {
       const member = byId.get(phoneRow.lead_id as string);
@@ -276,11 +281,12 @@ async function loadFinancials(id: string): Promise<{ financials: LeadFinancials 
  * never drift.
  */
 export async function loadLeadDetail(id: string): Promise<LeadDetailData | null> {
-  const [lead, availableTags, lostReasons, escalationReasonRows] = await Promise.all([
+  const [lead, availableTags, lostReasons, escalationReasonRows, viewer] = await Promise.all([
     loadLeadShell(id),
     activeLeadTags(),
     activeLostReasons(),
     listEscalationReasons(),
+    getSessionUser(),
   ]);
   if (!lead) return null;
   const escalationReasons = escalationReasonRows
@@ -304,6 +310,7 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
     lostReasons,
     escalationReasons,
     treatingDoctors: [],
+    canReturnToDatabase: viewer ? can(viewer.role, "leads.returnToDatabase") : false,
     bookingCatalog: {
       configured: false,
       specialties: [],
@@ -385,12 +392,14 @@ export async function loadLeadTab(
     return { financials: result.financials, financialsError: result.error };
   }
   if (tab === "Log" || tab === "Timeline") {
-    const [timeline, escalations, duplicateGroups] = await Promise.all([
+    const [timeline, escalations, duplicateGroups, currentLead] = await Promise.all([
       Promise.all(relatedIds.map((relatedId) => leadTimeline(relatedId))).then((groups) => groups.flat().sort((a,b)=>b.at.localeCompare(a.at))),
       Promise.all(relatedIds.map((relatedId) => escalationsFor(relatedId))).then((groups) => groups.flat().sort((a,b)=>b.createdAt.localeCompare(a.createdAt))),
       duplicateGroupsWithMembers(id),
+      loadLeadShell(id),
     ]);
-    return { timeline, escalations, duplicateGroups };
+    const connections = currentLead?.uid ? await patientConnectionsFor(currentLead.uid) : { linkedLeads: [], familyMembers: [] };
+    return { timeline, escalations, duplicateGroups, ...(currentLead ? { lead: { ...currentLead, ...connections } } : {}) };
   }
 
   return {};
@@ -443,5 +452,6 @@ export async function loadFullLeadDetail(id: string): Promise<LeadDetailData | n
     escalationReasons: shell.escalationReasons,
     bookingCatalog: catalog,
     treatingDoctors: await treatingDoctorsFor(shell.lead.uid!),
+    canReturnToDatabase: shell.canReturnToDatabase,
   };
 }

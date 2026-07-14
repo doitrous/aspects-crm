@@ -25,6 +25,7 @@ import { MessageThread } from "@/components/lead/MessageThread";
 import { NotesTab } from "@/components/lead/NotesTab";
 import { BookingTab } from "@/components/lead/BookingTab";
 import { PaymentsTab } from "@/components/lead/PaymentsTab";
+import { LeadRelationshipManager } from "@/components/lead/LeadRelationshipManager";
 import type { LeadFinancials } from "@/lib/data/financials";
 import {
   PLATFORM_META,
@@ -48,6 +49,7 @@ import {
   updateLeadStageAction,
   markLeadReadAction,
   updateLeadProfileAction,
+  returnLeadToDatabaseAction,
 } from "@/app/(crm)/leads/actions";
 import {
   resolveEscalationAction,
@@ -181,6 +183,7 @@ export interface LeadDetailData {
   lostReasons: ReferenceOption[];
   escalationReasons: Array<ReferenceOption & { severity?: string }>;
   treatingDoctors: TreatingDoctorAssignment[];
+  canReturnToDatabase: boolean;
 }
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -230,6 +233,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
   const [tabError, setTabError] = useState<string | null>(null);
   const [serviceSearch, setServiceSearch] = useState("");
   const [doctorSearch, setDoctorSearch] = useState("");
+  const [returnDatabaseModal, setReturnDatabaseModal] = useState(false);
 
   const pm = PLATFORM_META[lead.platform];
 
@@ -305,8 +309,8 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
   }
 
   function changeStage(next: PipelineStage) {
-    if (next === stage) return;
-    if (next === "lost") {
+    if (next === stage && !lead.databaseOnly) return;
+    if (next === "lost" && !(lead.databaseOnly && next === stage)) {
       setLostModal(true);
       return;
     }
@@ -318,6 +322,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
     const next = confirmStage;
     run(() => updateLeadStageAction(lead.id, next), () => {
       setStage(next);
+      setData((current) => ({ ...current, lead: { ...current.lead, databaseOnly: false } }));
       setConfirmStage(null);
       invalidateTab("Follow-Up");
       router.refresh();
@@ -369,6 +374,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
       () => updateLeadStageAction(lead.id, "lost", lostReasonId, lostNotes),
       () => {
         setStage("lost");
+        setData((current) => ({ ...current, lead: { ...current.lead, databaseOnly: false } }));
         setLostModal(false);
         setLostReasonId("");
         setLostNotes("");
@@ -388,6 +394,14 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
         setEscalationReason("");
       },
     );
+  }
+
+  function submitReturnToDatabase() {
+    run(() => returnLeadToDatabaseAction(lead.id), () => {
+      setData((current) => ({ ...current, lead: { ...current.lead, databaseOnly: true, unread: false, incomingUnanswered: false, overdue: false } }));
+      setReturnDatabaseModal(false);
+      router.refresh();
+    });
   }
 
   // Most recent message across every channel, for the Overview preview card.
@@ -418,7 +432,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               <span className={"font-mono text-[10.5px] font-bold " + (lead.mrn ? "text-ink-600" : "text-danger")}>
                 {lead.mrn ? `MRN ${lead.mrn}` : "MRN"}
               </span>
-              <Badge style={STAGE_META[stage]} />
+              {lead.databaseOnly ? <span className="rounded-pill bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">Database only</span> : <Badge style={STAGE_META[stage]} />}
               {pm && <span className="hidden sm:inline-flex"><Badge style={{ label: CHANNEL_LABEL[lead.platform], bg: pm.bg, fg: pm.fg }} /></span>}
               {lead.escalated && <span className="text-[10px] font-bold text-danger">⚑ Escalated</span>}
             </div>
@@ -693,7 +707,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               <SectionLabel>Change status</SectionLabel>
               <div className="flex flex-wrap gap-2">
                 {STATUS_PILL_ORDER.map((s) => {
-                  const active = s === stage;
+                  const active = !lead.databaseOnly && s === stage;
                   return (
                     <button
                       key={s}
@@ -719,6 +733,11 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                   );
                 })}
               </div>
+              {lead.databaseOnly ? (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-600">This patient is retained in Database only. Choosing any status above restores the lead to that operational queue.</div>
+              ) : data.canReturnToDatabase ? (
+                <button type="button" onClick={() => setReturnDatabaseModal(true)} className="mt-3 rounded-control border border-slate-300 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-700 hover:border-slate-500">↩ Return lead to Database</button>
+              ) : null}
             </section>
 
             {/* Tags */}
@@ -902,6 +921,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
 
         {tab === "Timeline" && (
           <div className="flex flex-col gap-7 p-5">
+            <LeadRelationshipManager leadId={lead.id} relationships={lead.linkedLeads} onChanged={() => invalidateTab("Timeline")} />
             {data.escalations.length > 0 && (
               <div>
                 <SectionLabel>Escalations & results</SectionLabel>
@@ -960,6 +980,13 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
           </div>
         </Modal>
       )}
+      {returnDatabaseModal && (
+        <Modal title="Return lead to Database" onClose={() => setReturnDatabaseModal(false)}>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[12px] leading-5 text-amber-900"><strong>{lead.patientName} ({lead.id})</strong> will be removed from New Leads, Qualified, Booked, Follow-Up, Post-Op, and Lost queues.</div>
+          <p className="mt-3 text-[12px] leading-5 text-ink-600">The patient is not deleted. Their Lead ID, MRN, messages, timeline, relationships, bookings, and financial history remain searchable in Database.</p>
+          <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setReturnDatabaseModal(false)} className="rounded-control border border-line px-3 py-2 text-[12px]">Cancel</button><button type="button" disabled={pending} onClick={submitReturnToDatabase} className="rounded-control bg-slate-800 px-3 py-2 text-[12px] font-bold text-white disabled:opacity-60">Confirm return to Database</button></div>
+        </Modal>
+      )}
       {confirmStage && (
         <Modal title="Confirm Status Change" onClose={() => setConfirmStage(null)}>
           <div className="space-y-2 text-[12.5px] text-ink-700">
@@ -969,7 +996,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
             </div>
             <div>
               <span className="font-semibold text-ink-500">Old status:</span>{" "}
-              {STATUS_PILL_LABEL[stage]}
+              {lead.databaseOnly ? "Database only" : STATUS_PILL_LABEL[stage]}
             </div>
             <div>
               <span className="font-semibold text-ink-500">New status:</span>{" "}

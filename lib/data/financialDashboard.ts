@@ -100,6 +100,34 @@ export interface CashFlowSummary {
   byDay: Array<{ day: string; amount: number }>;
 }
 
+export interface GrossCollectedLeadRow {
+  leadHumanId: string;
+  mrn: string | null;
+  leadName: string;
+  totalPayments: number;
+}
+
+/** Completed patient payments grouped by lead for the Gross Collected popup. */
+export async function grossCollectedByLead(range: DateRange): Promise<GrossCollectedLeadRow[]> {
+  const { data, error } = await supabaseAdmin()
+    .from("crm_financial_transactions")
+    .select("lead_id,amount,leads(lead_id,mrn,name)")
+    .eq("kind", "payment")
+    .eq("status", "completed")
+    .gte("occurred_on", range.from)
+    .lte("occurred_on", range.to);
+  if (error) throw new Error(`grossCollectedByLead: ${error.message}`);
+  const grouped = new Map<string, GrossCollectedLeadRow>();
+  for (const row of (data ?? []) as unknown as Array<Record<string, unknown>>) {
+    const lead = oneLead(row.leads) as (LeadJoin & { mrn?: string | null }) | null;
+    if (!lead?.lead_id) continue;
+    const current = grouped.get(lead.lead_id) ?? { leadHumanId: lead.lead_id, mrn: lead.mrn ?? null, leadName: lead.name ?? "Unnamed lead", totalPayments: 0 };
+    current.totalPayments = addMoney(current.totalPayments, Number(row.amount) || 0);
+    grouped.set(lead.lead_id, current);
+  }
+  return [...grouped.values()].map((row) => ({ ...row, totalPayments: roundMoney(row.totalPayments) })).sort((a, b) => b.totalPayments - a.totalPayments || a.leadHumanId.localeCompare(b.leadHumanId));
+}
+
 /** Cash-flow aggregation from the ledger, on the actual transaction date. */
 export async function cashFlowSummary(range: DateRange): Promise<CashFlowSummary> {
   const db = supabaseAdmin();
@@ -341,6 +369,7 @@ export interface FinancialDrilldownRow {
 interface LeadJoin {
   lead_id?: string | null;
   name?: string | null;
+  mrn?: string | null;
 }
 
 function oneLead(v: unknown): LeadJoin | null {

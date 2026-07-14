@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  isDatabaseOnly,
+  NON_DATABASE_ONLY_FILTER,
   isDatabasePatientSource,
   NON_DATABASE_PATIENT_FILTER,
 } from "./databasePatientVisibility";
@@ -10,6 +12,13 @@ test("Database patients are excluded by their canonical source", () => {
   assert.equal(isDatabasePatientSource(" database "), true);
   assert.equal(isDatabasePatientSource("Website"), false);
   assert.equal(isDatabasePatientSource(undefined), false);
+});
+
+test("Database-only is a strict workflow marker and has an operational filter", () => {
+  assert.equal(isDatabaseOnly(true), true);
+  assert.equal(isDatabaseOnly(false), false);
+  assert.equal(isDatabaseOnly(undefined), false);
+  assert.equal(NON_DATABASE_ONLY_FILTER.includes("database_only.neq.true"), true);
 });
 
 test("the database exclusion does not let revisiting imports leak into New Leads", () => {

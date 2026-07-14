@@ -5,7 +5,7 @@ import { getReservations } from "@/lib/booking/reservations";
 import { bookingConfigured } from "@/lib/booking/client";
 import { syncReservationsToLeads } from "@/lib/booking/sync";
 import { RESERVATION_STATUS_META } from "@/lib/reservationStatus";
-import { formatClock } from "@/lib/format";
+import { formatClock, formatDate } from "@/lib/format";
 import type { Reservation } from "@/lib/types";
 import { pipelineCounts } from "@/lib/data";
 import { PipelineSummary } from "@/components/dashboard/PipelineSummary";
@@ -308,7 +308,7 @@ export default async function CalendarPage({
                           const meta = RESERVATION_STATUS_META[r.status];
                           const row = (
                             <div className="grid grid-cols-[72px_80px_1fr] gap-2 rounded-control px-2 py-1.5 text-[11.5px]" style={{ background: meta.bg }}>
-                              <span className="font-mono text-ink-500">{r.date.slice(5)}</span>
+                              <span className="text-ink-500">{formatDate(r.date)}</span>
                               <span className="font-semibold" style={{ color: meta.fg }}>{formatClock(r.startTime)}</span>
                               <span>
                                 {leadId && <span className="me-1 font-mono text-ink-400">{leadId}</span>}

@@ -312,8 +312,13 @@ export interface Lead {
   patientName: string;
   phone: string;
   phones?: Array<{ id: string; number: string; label: string; primary: boolean }>;
-  linkedLeads?: Array<{ id: string; name: string; phone: string; relationship: "same_patient" | "family" }>;
+  linkedLeads?: Array<{ linkId: string; id: string; name: string; phone: string; relationship: LeadRelationship }>;
   familyMembers?: Array<{ id: string; name: string; phone: string; sharedPhone: string }>;
+  /** True when an admin/auditor removed this record from operational queues
+   *  while retaining it permanently in the patient Database. */
+  databaseOnly?: boolean;
+  /** Historical source record retained after identity consolidation. */
+  mergedRecord?: boolean;
   gender?: "male" | "female";
   platform: Platform;
   platformId?: string; // messenger/ig/whatsapp id
@@ -359,6 +364,8 @@ export interface Lead {
   followUp: FollowUp;
 }
 
+export type LeadRelationship = "same_patient" | "relative" | "distant_relative" | "other";
+
 export interface TreatingDoctorAssignment {
   id: string;
   doctorId: string;
@@ -400,6 +407,7 @@ export interface LeadSummary {
   tags?: string[];
   attentionMessage?: string;
   attentionTab?: string;
+  databaseOnly?: boolean;
 }
 
 /** An escalation enriched with its lead, for the auditor escalations queue. */

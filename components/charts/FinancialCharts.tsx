@@ -1,4 +1,5 @@
 import type { FinancialDashboardData, RevenueBreakdownRow } from "@/lib/data/financialDashboard";
+import { formatDate } from "@/lib/format";
 
 function points(values: number[], width = 520, height = 150): string {
   if (!values.length) return "";
@@ -12,7 +13,7 @@ function EmptyChart() { return <div className="flex h-[170px] items-center justi
 
 function LineChart({ title, subtitle, rows, value, color }: { title: string; subtitle: string; rows: Array<{ day: string }>; value: (row: { day: string }) => number; color: string }) {
   const values = rows.map(value);
-  return <section className="rounded-xl border border-line bg-panel p-4 shadow-sm"><div className="mb-3"><h3 className="text-[14px] font-black text-ink-900">{title}</h3><p className="mt-0.5 text-[10.5px] text-ink-400">{subtitle}</p></div>{rows.length ? <><svg viewBox="0 0 520 150" className="h-[150px] w-full" role="img" aria-label={title}><line x1="0" x2="520" y1="141" y2="141" stroke="#e4e7ec"/><polyline fill="none" stroke={color} strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" points={points(values)} /></svg><div className="mt-1 flex justify-between text-[9.5px] font-semibold text-ink-400"><span>{rows[0]?.day}</span><span>{rows.at(-1)?.day}</span></div></> : <EmptyChart />}</section>;
+  return <section className="rounded-xl border border-line bg-panel p-4 shadow-sm"><div className="mb-3"><h3 className="text-[14px] font-black text-ink-900">{title}</h3><p className="mt-0.5 text-[10.5px] text-ink-400">{subtitle}</p></div>{rows.length ? <><svg viewBox="0 0 520 150" className="h-[150px] w-full" role="img" aria-label={title}><line x1="0" x2="520" y1="141" y2="141" stroke="#e4e7ec"/><polyline fill="none" stroke={color} strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" points={points(values)} /></svg><div className="mt-1 flex justify-between text-[9.5px] font-semibold text-ink-400"><span>{rows[0] ? formatDate(rows[0].day) : ""}</span><span>{rows.at(-1) ? formatDate(rows.at(-1)!.day) : ""}</span></div></> : <EmptyChart />}</section>;
 }
 
 function MixChart({ rows }: { rows: RevenueBreakdownRow[] }) {

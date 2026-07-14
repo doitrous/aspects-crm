@@ -27,6 +27,7 @@ import type {
   IngestLogSetting,
 } from "@/lib/data/settingsData";
 import type { LeadSourceInfo } from "@/lib/types";
+import { formatDateTime } from "@/lib/format";
 
 const PatientBulkImport = dynamic(
   () => import("@/components/leads/PatientBulkImport").then((module) => module.PatientBulkImport),
@@ -661,7 +662,7 @@ export function SettingsManager({
           <Card className="p-4">
             <h3 className="mb-1 text-[13px] font-bold text-ink-900">Ingestion Log</h3>
             <p className="mb-3 text-[11.5px] text-ink-500">Latest 30 message-ingestion events from the canonical ingest API log.</p>
-            <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-[11.5px]"><thead><tr className="border-b text-left text-[10px] uppercase text-ink-400"><th className="py-2">Time</th><th>Platform</th><th>Event</th><th>Direction</th><th>User / conversation</th><th>Result</th><th>Message</th></tr></thead><tbody>{ingestLogs.map((row) => <tr key={row.id} className="border-b border-line-faint"><td className="py-2 tabular-nums">{new Date(row.createdAt).toLocaleString()}</td><td>{row.platform ?? row.source ?? "-"}</td><td>{row.eventType ?? "-"} {row.eventAction ?? ""}</td><td>{row.direction ?? "-"}</td><td className="max-w-[180px] truncate" data-no-translate>{row.platformUserId ?? row.conversationKey ?? "-"}</td><td>{row.skipped ? `Skipped: ${row.skipReason ?? "unknown"}` : row.errors.length ? "Error" : row.created ? "Created" : row.updated ? "Updated" : "Processed"}</td><td className="max-w-[260px] truncate" data-patient-content>{row.messageText ?? "-"}</td></tr>)}</tbody></table>{ingestLogs.length === 0 && <p className="py-5 text-center text-ink-400">No ingestion events recorded.</p>}</div>
+            <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-[11.5px]"><thead><tr className="border-b text-left text-[10px] uppercase text-ink-400"><th className="py-2">Time</th><th>Platform</th><th>Event</th><th>Direction</th><th>User / conversation</th><th>Result</th><th>Message</th></tr></thead><tbody>{ingestLogs.map((row) => <tr key={row.id} className="border-b border-line-faint"><td className="py-2 tabular-nums">{formatDateTime(row.createdAt)}</td><td>{row.platform ?? row.source ?? "-"}</td><td>{row.eventType ?? "-"} {row.eventAction ?? ""}</td><td>{row.direction ?? "-"}</td><td className="max-w-[180px] truncate" data-no-translate>{row.platformUserId ?? row.conversationKey ?? "-"}</td><td>{row.skipped ? `Skipped: ${row.skipReason ?? "unknown"}` : row.errors.length ? "Error" : row.created ? "Created" : row.updated ? "Updated" : "Processed"}</td><td className="max-w-[260px] truncate" data-patient-content>{row.messageText ?? "-"}</td></tr>)}</tbody></table>{ingestLogs.length === 0 && <p className="py-5 text-center text-ink-400">No ingestion events recorded.</p>}</div>
           </Card>
         )}
 

@@ -7,7 +7,6 @@ import { doctorName, specialtyName } from "@/lib/data/reference";
 import { formatAge, formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { DeleteLeadButton } from "@/components/leads/LeadDeletionControls";
 
 function Indicators({ lead }: { lead: Lead }) {
   return (
@@ -25,7 +24,7 @@ function Indicators({ lead }: { lead: Lead }) {
  * `now` is passed from the server page as an ISO string so this client
  * component never imports the server-only data layer just to compute SLA age.
  */
-export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; now: string; canDelete?: boolean }) {
+export function LeadsTable({ leads, now }: { leads: Lead[]; now: string }) {
   const router = useRouter();
   const nowDate = new Date(now);
 
@@ -51,7 +50,6 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
             <th className="px-3 py-2.5 font-semibold">Booking</th>
             <th className="px-3 py-2.5 font-semibold">Coordinator</th>
             <th className="px-3 py-2.5 pe-[18px] text-right font-semibold">SLA</th>
-            {canDelete&&<th className="px-3 py-2.5 pe-[18px] text-right font-semibold">Admin actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -135,7 +133,7 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
                   </div>
                 </td>
                 <td className="px-3 py-3">
-                  <Badge style={STAGE_META[lead.stage]} />
+                  {lead.mergedRecord ? <span className="rounded-pill bg-violet-50 px-2 py-0.5 text-[10.5px] font-bold text-violet-700">Merged record</span> : lead.databaseOnly ? <span className="rounded-pill bg-slate-100 px-2 py-0.5 text-[10.5px] font-bold text-slate-600">Database only</span> : <Badge style={STAGE_META[lead.stage]} />}
                 </td>
                 <td className="px-3 py-3">
                   <Badge style={BOOKING_META[lead.bookingStatus]} />
@@ -162,7 +160,6 @@ export function LeadsTable({ leads, now, canDelete = false }: { leads: Lead[]; n
                     </div>
                   )}
                 </td>
-                {canDelete&&<td className="px-3 py-3 pe-[18px] text-right"><DeleteLeadButton leadId={lead.id} patientName={lead.patientName}/></td>}
               </tr>
             );
           })}

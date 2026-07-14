@@ -6,9 +6,7 @@ import { getLeadsPage, leadSourcesList, NOW, type LeadFilters } from "@/lib/data
 import type { PipelineStage } from "@/lib/types";
 import { financialDoctorCatalog } from "@/lib/booking/service";
 import { PaginationNav } from "@/components/ui/PaginationNav";
-import { DeleteAllLeadsButton } from "@/components/leads/LeadDeletionControls";
 import { requireSession } from "@/lib/data/session";
-import { can } from "@/lib/auth/permissions";
 import { bookingConfigured } from "@/lib/booking/client";
 import { getReservationsPage } from "@/lib/booking/reservations";
 import { syncReservationsToLeads } from "@/lib/booking/sync";
@@ -49,8 +47,7 @@ export default async function Page({
   searchParams: Promise<SP>;
 }) {
   const sp = await searchParams;
-  const { effective: user } = await requireSession();
-  const canDelete = can(user.role, "leads.delete");
+  await requireSession();
   await syncWebsiteReservationsIntoDatabase();
   const channel = str(sp.channel);
   const filters: LeadFilters = {
@@ -67,6 +64,7 @@ export default async function Page({
     unread: str(sp.unread) === "1" ? true : undefined,
     overdue: str(sp.overdue) === "1" ? true : undefined,
     duplicate: str(sp.duplicate) === "1" ? true : undefined,
+    includeMerged: true,
     page: pageNumber(sp.page),
     pageSize: 30,
   };
@@ -86,7 +84,7 @@ export default async function Page({
 
   return (
     <>
-      <Topbar title="Database" action={canDelete?<DeleteAllLeadsButton total={total}/>:undefined} />
+      <Topbar title="Database" />
       <Suspense fallback={null}>
         <LeadsToolbar sources={sources} doctors={catalog.doctors.map((d) => ({ id: d.id, name: d.nameEn }))} specialties={catalog.specialties.map((s) => ({ id: s.id, name: s.nameEn }))} basePath="/database" />
       </Suspense>
@@ -95,7 +93,7 @@ export default async function Page({
           {`Showing ${leads.length} of ${total} leads · page ${page} / ${pageCount}`}
         </div>
         <PaginationNav page={page} pageCount={pageCount} hrefForPage={pageHref} />
-        <LeadsTable leads={leads} now={NOW.toISOString()} canDelete={canDelete} />
+        <LeadsTable leads={leads} now={NOW.toISOString()} />
         <PaginationNav page={page} pageCount={pageCount} hrefForPage={pageHref} />
       </div>
     </>

@@ -47,8 +47,9 @@ export type Capability =
   // ── audit ───────────────────────────────────────────────────
   | "audit.view" // read financial + role-change audit logs
   | "leads.edit" // mutate lead stage, tags, notes, follow-ups and escalations
+  | "leads.returnToDatabase" // remove pipeline presence but retain the permanent patient record
   | "leads.bulkImport" // import patient spreadsheets as ordinary leads
-  | "leads.delete" // permanently delete individual/all leads (admin + auditor only)
+  | "leads.delete" // legacy destructive action; intentionally granted to no role
   | "reservations.manage"; // dismiss or permanently delete website reservations
 
 /**
@@ -85,8 +86,8 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "email.manage",
     "audit.view",
     "leads.edit",
+    "leads.returnToDatabase",
     "leads.bulkImport",
-    "leads.delete",
     "reservations.manage",
   ]),
   auditor: new Set<Capability>([
@@ -112,8 +113,8 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "email.manage",
     "audit.view",
     "leads.edit",
+    "leads.returnToDatabase",
     "leads.bulkImport",
-    "leads.delete",
     "reservations.manage",
   ]),
   moderator: new Set<Capability>([

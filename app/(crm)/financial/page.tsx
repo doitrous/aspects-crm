@@ -8,12 +8,14 @@ import {
   financialDashboard,
   exceptionalCases,
   financialDrilldown,
+  grossCollectedByLead,
   type FinancialDrilldownType,
   type RevenueBreakdownRow,
 } from "@/lib/data/financialDashboard";
 import { formatDate } from "@/lib/format";
 import { financialSettingsData } from "@/lib/data/financialSettings";
 import { FinancialCharts } from "@/components/charts/FinancialCharts";
+import { DateField } from "@/components/ui/DateField";
 
 export const dynamic = "force-dynamic";
 
@@ -127,7 +129,7 @@ const DRILLDOWN_TYPES = new Set<FinancialDrilldownType>([
 export default async function FinancialPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; tab?: string; status?: string; type?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; tab?: string; status?: string; type?: string; popup?: string }>;
 }) {
   const { effective: user } = await requireSession();
   if (!can(user.role, "financial.viewReports")) notFound();
@@ -140,21 +142,19 @@ export default async function FinancialPage({
     ? (sp.type as FinancialDrilldownType)
     : "outstanding";
 
-  const fieldCls = "rounded-control border border-line-soft bg-panel px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary";
-
   return (
     <>
       <Topbar title="Financial Dashboard" />
       <div className="flex-1 overflow-auto px-[18px] py-4">
-        <div className="section-hero mb-4 rounded-xl p-5"><div className="section-hero-eyebrow text-[10px] font-black uppercase tracking-[0.16em]">Clinic economics</div><h1 className="mt-1 text-[24px] font-black text-ink-950">Financial performance</h1><p className="section-hero-muted mt-1 text-[12px]">Collections use transaction dates; profitability uses service dates. Every visual responds to the selected range.</p></div>
+        <div className="section-hero mb-4 flex flex-wrap items-end justify-between gap-4 rounded-xl p-5"><div><div className="section-hero-eyebrow text-[10px] font-black uppercase tracking-[0.16em]">Clinic economics</div><h1 className="mt-1 text-[24px] font-black text-ink-950">Financial performance</h1><p className="section-hero-muted mt-1 text-[12px]">Collections use transaction dates; profitability uses service dates. Every visual responds to the selected range.</p></div><div className="rounded-xl border border-primary/20 bg-white/80 px-4 py-2 text-right shadow-sm"><div className="text-[9.5px] font-black uppercase tracking-[0.14em] text-ink-400">Report range</div><div className="mt-0.5 text-[14px] font-black text-primary">{formatDate(range.from)} — {formatDate(range.to)}</div></div></div>
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-panel p-3">
           <form method="get" action="/financial" className="flex flex-wrap items-center gap-2">
             <input type="hidden" name="tab" value={tab} />
             {tab === "drilldown" && <input type="hidden" name="type" value={drilldownType} />}
             <label className="text-[11px] font-semibold text-ink-500">From</label>
-            <input type="date" name="from" defaultValue={range.from} className={fieldCls} />
+            <DateField name="from" defaultValue={range.from} ariaLabel="Financial range start date" />
             <label className="text-[11px] font-semibold text-ink-500">To</label>
-            <input type="date" name="to" defaultValue={range.to} className={fieldCls} />
+            <DateField name="to" defaultValue={range.to} ariaLabel="Financial range end date" />
             <button type="submit" className="h-8 rounded-control border border-line-soft px-3 text-[12px] font-semibold text-ink-700 hover:bg-line-faint/60">Apply</button>
           </form>
           <div className="ms-auto flex gap-1 rounded-lg bg-line-faint/60 p-0.5">
@@ -165,7 +165,7 @@ export default async function FinancialPage({
         </div>
 
         {tab === "overview" ? (
-          <OverviewTab range={range} />
+          <OverviewTab range={range} showGrossCollected={sp.popup === "gross_collected"} />
         ) : tab === "drilldown" ? (
           <DrilldownTab range={range} type={drilldownType} />
         ) : (
@@ -176,8 +176,8 @@ export default async function FinancialPage({
   );
 }
 
-async function OverviewTab({ range }: { range: { from: string; to: string } }) {
-  const [d, settings] = await Promise.all([financialDashboard(range), financialSettingsData()]);
+async function OverviewTab({ range, showGrossCollected }: { range: { from: string; to: string }; showGrossCollected: boolean }) {
+  const [d, settings, grossRows] = await Promise.all([financialDashboard(range), financialSettingsData(), showGrossCollected ? grossCollectedByLead(range) : Promise.resolve([])]);
   const p = d.profitability;
   const c = d.cashFlow;
   const unpriced = settings.services.filter((service) => !service.id || !service.active || service.basePrice <= 0);
@@ -198,7 +198,7 @@ async function OverviewTab({ range }: { range: { from: string; to: string } }) {
         </h2>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
           <Kpi label="Net cash collected" value={egp(c.netCash)} />
-          <Kpi label="Gross collected" value={egp(c.collected)} />
+          <Kpi label="Gross collected" value={egp(c.collected)} href={`/financial?from=${range.from}&to=${range.to}&popup=gross_collected`} />
           <Kpi label="Refunds" value={egp(c.refunds)} flag={c.refunds > 0}
                href={`/financial?from=${range.from}&to=${range.to}&tab=drilldown&type=refunds`} />
           <Kpi label="Reversals" value={egp(c.reversals)} flag={c.reversals > 0}
@@ -255,6 +255,7 @@ async function OverviewTab({ range }: { range: { from: string; to: string } }) {
         <Breakdown title="Revenue by service" rows={d.byService} />
         <Breakdown title="Revenue by source" rows={d.bySource} />
       </section>
+      {showGrossCollected && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4"><div role="dialog" aria-modal="true" aria-label="Gross Collected by lead" className="max-h-[84vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-line bg-white shadow-toast"><div className="flex items-center justify-between border-b border-line px-5 py-4"><div><div className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-600">Cash flow drill-down</div><h2 className="mt-1 text-[20px] font-black text-ink-950">Gross Collected by lead</h2><p className="mt-0.5 text-[11px] text-ink-500">Completed patient payments from {formatDate(range.from)} to {formatDate(range.to)}</p></div><Link href={`/financial?from=${range.from}&to=${range.to}`} className="rounded-control border border-line px-3 py-2 text-[11.5px] font-bold text-ink-700">← Back</Link></div><div className="max-h-[68vh] overflow-auto"><table className="w-full min-w-[620px] text-[12px]"><thead className="sticky top-0 bg-slate-50"><tr className="border-b border-line text-left text-[10.5px] uppercase tracking-wide text-ink-400"><th className="px-4 py-2.5">Lead ID</th><th className="px-4 py-2.5">MRN</th><th className="px-4 py-2.5">Lead name</th><th className="px-4 py-2.5 text-right">Total payments</th></tr></thead><tbody>{grossRows.length ? grossRows.map((row) => <tr key={row.leadHumanId} className="border-b border-line-faint"><td className="px-4 py-3"><Link href={`/leads/${row.leadHumanId}?tab=Payments%20%2F%20Financials`} className="font-mono font-black text-primary hover:underline">{row.leadHumanId}</Link></td><td className="px-4 py-3 font-mono text-ink-700">{row.mrn || "—"}</td><td className="px-4 py-3 font-semibold text-ink-800">{row.leadName}</td><td className="px-4 py-3 text-right font-black tabular-nums text-emerald-700">{egp(row.totalPayments)}</td></tr>) : <tr><td colSpan={4} className="px-4 py-10 text-center text-ink-400">No completed patient payments in this range.</td></tr>}</tbody></table></div></div></div>}
     </div>
   );
 }
@@ -266,7 +267,7 @@ async function DrilldownTab({ range, type }: { range: { from: string; to: string
       <div className="border-b border-line-soft px-3 py-2">
         <div className="text-[13px] font-bold text-ink-900">{DRILLDOWN_LABEL[type]}</div>
         <div className="text-[11px] text-ink-500">
-          {type === "outstanding" ? "Current balances across recent financial records." : `Rows from ${range.from} to ${range.to}.`}
+          {type === "outstanding" ? "Current balances across recent financial records." : `Rows from ${formatDate(range.from)} to ${formatDate(range.to)}.`}
         </div>
       </div>
       <table className="w-full min-w-[760px] text-[12px]">

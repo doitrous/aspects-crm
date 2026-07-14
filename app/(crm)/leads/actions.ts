@@ -18,6 +18,9 @@ import {
 } from "@/lib/data/leadMutations";
 import type { PipelineStage } from "@/lib/types";
 import { PermissionError } from "@/lib/auth/permissions";
+import { returnLeadToDatabase, LeadWorkflowError } from "@/lib/data/leadWorkflow";
+import { linkLeads, unlinkLeads, LeadRelationshipError } from "@/lib/data/leadRelationships";
+import type { LeadRelationship } from "@/lib/types";
 
 export interface LeadActionState {
   ok: string | null;
@@ -27,7 +30,7 @@ export interface LeadActionState {
 }
 
 function toState(err: unknown): LeadActionState {
-  if (err instanceof LeadMutationError) return { ok: null, error: err.message };
+  if (err instanceof LeadMutationError || err instanceof LeadWorkflowError || err instanceof LeadRelationshipError) return { ok: null, error: err.message };
   if (err instanceof PermissionError) return { ok: null, error: "You do not have permission to edit leads." };
   console.error("lead mutation failed", err);
   return { ok: null, error: "The change could not be saved. Please try again." };
@@ -96,6 +99,39 @@ export async function updateLeadStageAction(
   }
   refreshLeadLists();
   return { ok: "Status saved.", error: null };
+}
+
+export async function returnLeadToDatabaseAction(leadId: string): Promise<LeadActionState> {
+  try {
+    await returnLeadToDatabase(leadId);
+  } catch (err) {
+    return toState(err);
+  }
+  refreshLeadLists();
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: "Lead returned to Database. The patient record and history were retained.", error: null };
+}
+
+export async function linkLeadAction(leadId: string, formData: FormData): Promise<LeadActionState> {
+  const relationship = String(formData.get("relationship") ?? "") as LeadRelationship;
+  if (!["same_patient", "relative", "distant_relative", "other"].includes(relationship)) return { ok: null, error: "Choose a relationship type." };
+  try {
+    await linkLeads({ leadId, targetLeadId: String(formData.get("targetLeadId") ?? ""), relationship, notes: String(formData.get("notes") ?? "") });
+  } catch (err) {
+    return toState(err);
+  }
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: "Lead relationship saved.", error: null };
+}
+
+export async function unlinkLeadAction(leadId: string, linkId: string): Promise<LeadActionState> {
+  try {
+    await unlinkLeads({ leadId, linkId });
+  } catch (err) {
+    return toState(err);
+  }
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: "Leads unlinked. Both patient records were retained.", error: null };
 }
 
 export async function setLeadTagsAction(

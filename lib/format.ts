@@ -1,15 +1,19 @@
 /**
  * Display formatters. The clinic standard for ALL visible dates is
- * "Jun 06, 2026" (short month, zero-padded day, full year).
+ * "June 20, 2026" (full month, natural day, full year).
  */
 
 const MONTHS = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
 ];
 
 function toDate(input: string | Date): Date {
-  return input instanceof Date ? input : new Date(input);
+  if (input instanceof Date) return input;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input);
+  return dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(input);
 }
 
 /**
@@ -32,12 +36,12 @@ export function formatPct(pct: number): string {
   return `${Number(n.toFixed(2))}%`;
 }
 
-/** e.g. "Jun 06, 2026" */
+/** e.g. "June 20, 2026" */
 export function formatDate(input: string | Date): string {
   const d = toDate(input);
   if (Number.isNaN(d.getTime())) return "—";
   const mon = MONTHS[d.getMonth()];
-  const day = String(d.getDate()).padStart(2, "0");
+  const day = String(d.getDate());
   return `${mon} ${day}, ${d.getFullYear()}`;
 }
 
@@ -62,7 +66,7 @@ export function formatClock(hhmm: string): string {
   return `${h12}:${(mRaw ?? "00").padStart(2, "0")} ${ampm}`;
 }
 
-/** e.g. "Jun 06, 2026 · 9:35 AM" */
+/** e.g. "June 20, 2026 · 9:35 AM" */
 export function formatDateTime(input: string | Date): string {
   return `${formatDate(input)} · ${formatTime(input)}`;
 }

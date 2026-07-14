@@ -10,6 +10,7 @@ import {
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import type { BookingSchedulingSnapshot, BookingSchedule } from "@/lib/booking/service";
+import { formatDate } from "@/lib/format";
 
 const IDLE: SchedulingActionState = { ok: false };
 const DAY: Record<number, string> = {
@@ -229,7 +230,7 @@ export function SchedulingSettings({ snapshot }: { snapshot: BookingSchedulingSn
           ) : (
             snapshot.blockedTimes.map((block) => (
               <div key={block.id} className="grid gap-2 py-3 md:grid-cols-[130px_1fr_1fr_auto] md:items-center">
-                <div className="text-[12px] font-bold text-ink-900">{block.date}</div>
+                <div className="text-[12px] font-bold text-ink-900">{formatDate(block.date)}</div>
                 <div className="text-[12px] text-ink-700">
                   {block.fullDay ? "Full day" : `${block.startTime} - ${block.endTime}`}
                   {block.reason ? <span className="ms-2 text-ink-400">{block.reason}</span> : null}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import {
   type AuditorActionState,
   generateReportAction,
@@ -17,6 +17,9 @@ import type {
 } from "@/lib/data/auditor";
 import type { AuditorMetrics } from "@/lib/auditor/kpi";
 import { QuickCopy } from "@/components/reports/QuickCopy";
+import { DateField } from "@/components/ui/DateField";
+import { formatDate } from "@/lib/format";
+import { useRouter } from "next/navigation";
 
 type Fmt = "int" | "pct" | "egp";
 
@@ -207,7 +210,7 @@ function scopeLabel(
 function AuditorTrendChart({ rows }: { rows: AuditorTrendPoint[] }) {
   const max = Math.max(1, ...rows.flatMap((row) => [row.totalLeads, row.booked, row.dropped]));
   const width = 700;
-  const height = 190;
+  const height = 220;
   const left = 24;
   const top = 18;
   const plotWidth = width - left * 2;
@@ -232,7 +235,7 @@ function AuditorTrendChart({ rows }: { rows: AuditorTrendPoint[] }) {
         </div>
       </div>
       <div className="overflow-x-auto px-3 pb-2 pt-3">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-[190px] min-w-[620px] w-full" role="img" aria-label="Seven-day auditor lead trend">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-[220px] min-w-[760px] w-full" role="img" aria-label="Seven-day auditor lead trend">
           {[0, 0.5, 1].map((ratio) => (
             <g key={ratio}>
               <line x1={left} x2={width - left} y1={top + plotHeight * ratio} y2={top + plotHeight * ratio} stroke="#e5e7eb" strokeWidth="1" />
@@ -247,8 +250,8 @@ function AuditorTrendChart({ rows }: { rows: AuditorTrendPoint[] }) {
               <circle cx={x(index)} cy={y(row.totalLeads)} r="3.5" fill="#1e293b" />
               <circle cx={x(index)} cy={y(row.booked)} r="3.5" fill="#10b981" />
               <circle cx={x(index)} cy={y(row.dropped)} r="3.5" fill="#ef4444" />
-              <text x={x(index)} y={height - 18} textAnchor="middle" fill="#64748b" fontSize="10">
-                {new Date(`${row.date}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}
+              <text transform={`translate(${x(index) - 3} ${height - 12}) rotate(-32)`} textAnchor="end" fill="#64748b" fontSize="9">
+                {formatDate(row.date)}
               </text>
             </g>
           ))}
@@ -280,27 +283,44 @@ export function AuditorReport({
   trend: AuditorTrendPoint[];
 }) {
   const [showDropped, setShowDropped] = useState(false);
+  const reportRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const [applying, startApply] = useTransition();
+  const [applyMessage, setApplyMessage] = useState("");
   const editable = canGenerate && detail !== null && !finalized(detail.status);
   const selectCls =
     "rounded-control border border-line-soft bg-panel px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary";
-  const shareText = detail ? [`Auditor report — ${date}`, ...Object.entries(detail.metrics).map(([key,value]) => `${key}: ${value}${detail.overrides[key] ? ` [OVERRIDDEN — ${detail.overrides[key].reason}]` : ""}`)].join("\n") : "";
+  const shareText = detail ? [`Auditor report — ${formatDate(date)}`, ...Object.entries(detail.metrics).map(([key,value]) => `${key}: ${value}${detail.overrides[key] ? ` [OVERRIDDEN — ${detail.overrides[key].reason}]` : ""}`)].join("\n") : "";
+
+  function applyView(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const nextDate = String(formData.get("date") ?? date);
+    const params = new URLSearchParams();
+    params.set("date", nextDate);
+    const specialtyId = String(formData.get("specialtyId") ?? "");
+    const doctorId = String(formData.get("doctorId") ?? "");
+    if (specialtyId) params.set("specialtyId", specialtyId);
+    if (doctorId) params.set("doctorId", doctorId);
+    startApply(async () => {
+      const state = await generateReportAction(AUDITOR_IDLE, formData);
+      setApplyMessage(state.error ?? state.message ?? "");
+      router.push(`/auditor?${params.toString()}`);
+      router.refresh();
+    });
+  }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={reportRef} className="flex flex-col gap-4 bg-canvas">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-3">
         <div><h1 className="text-[24px] font-bold text-ink-950">Daily audit</h1><p className="mt-0.5 text-[12px] text-ink-500">Review evidence, explain overrides and lock one source of truth.</p></div>
-        <div className="flex items-center gap-2">{detail && <StatusBadge status={detail.status} />}<span className="text-[12px] font-bold text-ink-700">{date}</span></div>
+        <div className="flex items-center gap-2">{detail && <StatusBadge status={detail.status} />}<span className="rounded-lg border border-primary/20 bg-primary-soft px-3 py-2 text-[13px] font-black text-primary">Report date · {formatDate(date)}</span></div>
       </div>
 
       <Card className="flex flex-wrap items-center gap-3 p-3">
-        <form method="get" action="/auditor" className="flex flex-wrap items-center gap-2">
+        <form onSubmit={applyView} className="flex flex-wrap items-center gap-2">
           <label className="w-full text-[11px] font-bold uppercase tracking-wide text-ink-400 sm:w-auto">View date and scope</label>
-          <input
-            type="date"
-            name="date"
-            defaultValue={date}
-            className="rounded-control border border-line-soft px-2 py-1.5 text-[12px] outline-none focus:border-primary"
-          />
+          <DateField name="date" defaultValue={date} ariaLabel="Auditor report date" />
           {options.specialties.length > 0 && (
             <select name="specialtyId" defaultValue={selectedSpecialtyId} className={selectCls} title="Scope by specialty">
               <option value="">All specialties</option>
@@ -317,11 +337,11 @@ export function AuditorReport({
               ))}
             </select>
           )}
-          <button type="submit" className="h-8 rounded-control border border-line-soft px-3 text-[12px] font-semibold text-ink-700 hover:bg-line-faint/60">
-            Apply view
+          <button type="submit" disabled={applying} className="h-9 rounded-control bg-primary px-4 text-[12px] font-bold text-white hover:bg-primary-hover disabled:opacity-60">
+            {applying ? "Applying…" : "Apply view"}
           </button>
         </form>
-        <div className="ms-auto text-[11px] text-ink-500">{selectedDoctorId || selectedSpecialtyId ? `Filtered: ${scopeLabel(options, selectedDoctorId, selectedSpecialtyId)}` : "Clinic-wide view"}</div>
+        <div className="ms-auto text-right text-[11px] text-ink-500"><div>{selectedDoctorId || selectedSpecialtyId ? `Filtered: ${scopeLabel(options, selectedDoctorId, selectedSpecialtyId)}` : "Clinic-wide view"}</div><div className="mt-0.5 font-semibold text-primary">{applyMessage || "Apply view refreshes the live snapshot automatically."}</div></div>
       </Card>
 
       <Card className="p-3 sm:p-4">
@@ -331,12 +351,8 @@ export function AuditorReport({
               <span className="text-[11px] font-bold uppercase tracking-wide text-ink-500">1 · Snapshot</span>
               <span className={`rounded-pill px-2 py-0.5 text-[10px] font-bold ${detail ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{detail ? "Ready" : "Needed"}</span>
             </div>
-            <p className="my-2 text-[12px] leading-5 text-ink-600">Capture current CRM activity for this day. Refreshing keeps documented overrides intact.</p>
-            {canGenerate && (
-              <ActionForm action={generateReportAction} date={date} variant={detail ? "ghost" : "primary"}>
-                {detail ? "Refresh live snapshot" : "Create daily snapshot"}
-              </ActionForm>
-            )}
+            <p className="my-2 text-[12px] leading-5 text-ink-600">Apply View above captures the current CRM activity for this date and preserves documented overrides.</p>
+            <span className="text-[11px] font-bold text-primary">Automatically refreshed by Apply View</span>
           </div>
           <div className={`rounded-control border p-3 ${editable ? "border-amber-200 bg-amber-50" : "border-line-soft bg-panel"}`}>
             <div className="flex items-center justify-between gap-2">
@@ -344,7 +360,7 @@ export function AuditorReport({
               <span className="text-[10px] font-bold text-ink-500">{detail ? `${Object.keys(detail.overrides).length} override${Object.keys(detail.overrides).length === 1 ? "" : "s"}` : "Waiting"}</span>
             </div>
             <p className="my-2 text-[12px] leading-5 text-ink-600">Inspect flags and source metrics below. Override only a base value and always record the evidence.</p>
-            {detail && <QuickCopy text={shareText} />}
+            {detail && <QuickCopy text={shareText} target={reportRef} />}
           </div>
           <div className={`rounded-control border p-3 ${detail && finalized(detail.status) ? "border-emerald-200 bg-emerald-50" : "border-line-soft bg-panel"}`}>
             <div className="flex items-center justify-between gap-2">
@@ -371,7 +387,7 @@ export function AuditorReport({
             <span className="text-[12px] font-semibold text-ink-800">
               {scopeLabel(options, selectedDoctorId, selectedSpecialtyId)}
             </span>
-            <span className="text-[11px] text-ink-500">— live breakdown for {date}, not part of the saved clinic-wide report</span>
+            <span className="text-[11px] text-ink-500">— live breakdown for {formatDate(date)}, not part of the saved clinic-wide report</span>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
             {[
@@ -409,7 +425,7 @@ export function AuditorReport({
           <div className="text-[18px] font-bold text-ink-900">This day has no saved snapshot yet</div>
           <p className="mx-auto mt-1 max-w-md text-[12px] text-ink-500">
             {canGenerate
-              ? "Use Create daily snapshot above. The system will load CRM facts, then unlock review and finalization."
+              ? "Use Apply View above. The system will load CRM facts, then unlock review and finalization."
               : "Ask an auditor or administrator to create the daily snapshot."}
           </p>
         </Card>
@@ -460,7 +476,7 @@ export function AuditorReport({
             </div>
             {showDropped && (
               <Card className="mt-2 p-3">
-                <div className="mb-1 text-[12px] font-bold text-ink-800">Dropped / Lost leads — {date}</div>
+                <div className="mb-1 text-[12px] font-bold text-ink-800">Dropped / Lost leads — {formatDate(date)}</div>
                 {droppedLeads.length === 0 ? (
                   <p className="text-[12px] text-ink-400">No leads created this day are marked Lost.</p>
                 ) : (

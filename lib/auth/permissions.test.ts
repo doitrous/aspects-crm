@@ -44,11 +44,18 @@ test("lead mutations are server-authorized for operational roles only", () => {
   assert.equal(can("viewer", "leads.edit"), false);
 });
 
-test("only admin and auditor may permanently delete leads", () => {
-  assert.equal(can("admin", "leads.delete"), true);
-  assert.equal(can("auditor", "leads.delete"), true);
+test("the permanent patient Database cannot be deleted by any role", () => {
+  assert.equal(can("admin", "leads.delete"), false);
+  assert.equal(can("auditor", "leads.delete"), false);
   assert.equal(can("moderator", "leads.delete"), false);
   assert.equal(can("viewer", "leads.delete"), false);
+});
+
+test("only admin and auditor may return a lead to Database", () => {
+  assert.equal(can("admin", "leads.returnToDatabase"), true);
+  assert.equal(can("auditor", "leads.returnToDatabase"), true);
+  assert.equal(can("moderator", "leads.returnToDatabase"), false);
+  assert.equal(can("viewer", "leads.returnToDatabase"), false);
 });
 
 test("only admin and auditor may dismiss or delete website reservations", () => {

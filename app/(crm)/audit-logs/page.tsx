@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/data/session";
 import { listActivity, type ActivityRow } from "@/lib/audit/log";
 import { formatDateTime } from "@/lib/format";
 import { PaginationNav } from "@/components/ui/PaginationNav";
+import { DateField } from "@/components/ui/DateField";
 
 export const dynamic = "force-dynamic";
 
@@ -90,9 +91,9 @@ export default async function AuditLogsPage({ searchParams }: { searchParams: Pr
             <option value="moderator">Moderator</option>
             <option value="viewer">Viewer</option>
           </select>
-          <div className="flex gap-2">
-            <input name="from" type="date" defaultValue={sp.from ?? ""} className={`${fieldCls} min-w-0 flex-1`} aria-label="Date from" />
-            <input name="to" type="date" defaultValue={sp.to ?? ""} className={`${fieldCls} min-w-0 flex-1`} aria-label="Date to" />
+          <div className="flex gap-2 lg:col-span-2">
+            <DateField name="from" defaultValue={sp.from ?? ""} ariaLabel="Date from" />
+            <DateField name="to" defaultValue={sp.to ?? ""} ariaLabel="Date to" />
           </div>
           <button type="submit" className="h-[32px] rounded-control bg-primary px-3 text-[12px] font-semibold text-white hover:bg-primary-hover">
             Filter

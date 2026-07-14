@@ -41,6 +41,10 @@ export interface LeadFilters {
   moderator?: string;
   /** Hide canonical Database patients from a queue without deleting them. */
   excludeDatabasePatients?: boolean;
+  /** Hide records explicitly returned to Database from operational queues. */
+  excludeDatabaseOnly?: boolean;
+  /** Database source-of-truth view includes historical rows consolidated by a merge. */
+  includeMerged?: boolean;
   page?: number;
   pageSize?: number;
 }

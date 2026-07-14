@@ -3,11 +3,12 @@ import { bookingConfigured, bookingDb } from "@/lib/booking/client";
 import { bookingStatusForReservation } from "@/lib/booking/service";
 import { deriveLeadBookingSummary } from "@/lib/booking/leadSummary";
 import { refreshReplyOverdueFlags } from "@/lib/data/replySla";
-import { NON_DATABASE_PATIENT_FILTER } from "@/lib/data/databasePatientVisibility";
+import { NON_DATABASE_ONLY_FILTER, NON_DATABASE_PATIENT_FILTER } from "@/lib/data/databasePatientVisibility";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { nestComments } from "@/lib/data/comments";
 import { writeActor } from "@/lib/data/actor";
 import { assertCan } from "@/lib/auth/permissions";
+import { formatDateTime } from "@/lib/format";
 import type {
   AuditReport,
   Booking,
@@ -173,6 +174,7 @@ interface LeadRow {
   created_at: string;
   updated_at: string;
   metadata: Record<string, unknown> | null;
+  merged_into_lead_id: string | null;
 }
 
 /**
@@ -189,7 +191,7 @@ const LEAD_COLUMNS =
   "campaign,doctor_id,branch_id,coordinator_user_id,escalation_status,has_unread," +
   "is_reply_overdue,reply_overdue_at,booking_appointment_id,lost_reason_id,notes,medical_notes," +
   "medical_history,ai_summary,last_incoming_at,last_outgoing_at,last_contact_at," +
-  "created_at,updated_at,metadata";
+  "created_at,updated_at,metadata,merged_into_lead_id";
 
 interface Lookups {
   usersById: Map<string, string>; // crm_users.id -> full_name
@@ -226,6 +228,16 @@ async function loadDuplicateSet(): Promise<Set<string>> {
     if (f.duplicate_lead_id) set.add(f.duplicate_lead_id as string);
   }
   return set;
+}
+
+async function loadOperationalLeadIdSet(): Promise<Set<string>> {
+  const { data, error } = await supabaseAdmin()
+    .from("leads")
+    .select("id")
+    .is("merged_into_lead_id", null)
+    .or(NON_DATABASE_ONLY_FILTER);
+  if (error) throw new Error(`loadOperationalLeadIdSet: ${error.message}`);
+  return new Set((data ?? []).map((row) => row.id as string));
 }
 
 /** Duplicate flags touching only the leads currently rendered. */
@@ -364,6 +376,9 @@ function applyLeadFilters(query: any, filters: LeadFilters) {
   if (filters.excludeDatabasePatients) {
     q = q.or(NON_DATABASE_PATIENT_FILTER);
   }
+  if (filters.excludeDatabaseOnly) {
+    q = q.or(NON_DATABASE_ONLY_FILTER);
+  }
   if (filters.stages?.length) {
     q = q.in("status", filters.stages.map((stage) => UI_TO_DB_STAGE[stage]));
   } else if (filters.stage && filters.stage !== "all") {
@@ -422,6 +437,8 @@ function mapLead(row: LeadRow, lk: Lookups, tagRows: Array<{ name: string; color
     chatLink: row.chat_link ?? undefined,
     sourceId: row.source_id ?? undefined,
     sourceLabel: metadata.record_source === "database" ? "Database" : undefined,
+    databaseOnly: metadata.database_only === true,
+    mergedRecord: Boolean(row.merged_into_lead_id),
     campaignId: row.campaign ?? undefined,
     specialtyId: undefined,
     serviceName: row.service_name ?? undefined,
@@ -444,7 +461,7 @@ function mapLead(row: LeadRow, lk: Lookups, tagRows: Array<{ name: string; color
     attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab as Lead["attentionTab"] : undefined,
     incomingUnanswered: row.has_unread,
     overdue: row.is_reply_overdue,
-    overdueReason: row.is_reply_overdue ? `Unread patient message passed its reply deadline${row.reply_overdue_at ? ` at ${new Date(row.reply_overdue_at).toLocaleString("en-EG")}` : ""}.` : undefined,
+    overdueReason: row.is_reply_overdue ? `Unread patient message passed its reply deadline${row.reply_overdue_at ? ` at ${formatDateTime(row.reply_overdue_at)}` : ""}.` : undefined,
     escalated: ESCALATED_STATES.includes(row.escalation_status ?? "none"),
     duplicateStatus: lk.dupSet.has(row.id) ? "suspected" : "none",
     lastMessage: row.ai_summary ?? undefined,
@@ -504,6 +521,7 @@ function rowToSummary(r: SummaryRow, usersById: Map<string, string>): LeadSummar
       : undefined,
     attentionMessage: typeof metadata.moderator_notice === "string" ? metadata.moderator_notice : undefined,
     attentionTab: typeof metadata.moderator_notice_tab === "string" ? metadata.moderator_notice_tab : undefined,
+    databaseOnly: metadata.database_only === true,
   };
 }
 
@@ -575,6 +593,7 @@ async function enrichDuplicateRows(
       primary: row.lead_id ? summaries.get(row.lead_id) : undefined,
       duplicate: row.duplicate_lead_id ? summaries.get(row.duplicate_lead_id) : undefined,
     }))
+    .filter((pair) => !pair.primary?.databaseOnly && !pair.duplicate?.databaseOnly)
     .sort((left, right) =>
       (DUPLICATE_TYPE_PRIORITY[left.type] ?? 99) - (DUPLICATE_TYPE_PRIORITY[right.type] ?? 99) ||
       new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
@@ -618,8 +637,9 @@ export const supabaseProvider: DataProvider = {
       filters.duplicate ? loadDuplicateSet() : Promise.resolve(new Set<string>()),
     ]);
 
+    const baseQuery = supabaseAdmin().from("leads").select(LEAD_COLUMNS, { count: "exact" });
     let query = applyLeadFilters(
-      supabaseAdmin().from("leads").select(LEAD_COLUMNS, { count: "exact" }).is("merged_into_lead_id", null),
+      filters.includeMerged ? baseQuery : baseQuery.is("merged_into_lead_id", null),
       filters,
     );
     if (filters.duplicate) {
@@ -1099,7 +1119,8 @@ export const supabaseProvider: DataProvider = {
         .select("id", { count: "exact", head: true })
         .is("merged_into_lead_id", null)
         .eq("status", "new_lead")
-        .or(NON_DATABASE_PATIENT_FILTER),
+        .or(NON_DATABASE_PATIENT_FILTER)
+        .or(NON_DATABASE_ONLY_FILTER),
     ]);
     if (operationalNewLeads.error) {
       throw new Error(`dashboardMetrics(newLeads): ${operationalNewLeads.error.message}`);
@@ -1136,10 +1157,11 @@ export const supabaseProvider: DataProvider = {
 
     const leadCount = () => db
       .from("leads")
-      .select("id", { count: "exact", head: true });
+      .select("id", { count: "exact", head: true })
+      .or(NON_DATABASE_ONLY_FILTER);
     const n = async (p: PromiseLike<{ count: number | null }>) => (await p).count ?? 0;
 
-    const [unread, overdue, qualified, booked, followUp, lost, appointments, dupSet, escalations] =
+    const [unread, overdue, qualified, booked, followUp, lost, appointments, dupSet, escalationRows, operationalLeadIds] =
       await Promise.all([
         n(leadCount().is("merged_into_lead_id", null).eq("has_unread", true)),
         n(leadCount().is("merged_into_lead_id", null).eq("is_reply_overdue", true)),
@@ -1149,8 +1171,11 @@ export const supabaseProvider: DataProvider = {
         n(leadCount().is("merged_into_lead_id", null).eq("status", "lost")),
         n(leadCount().is("merged_into_lead_id", null).not("booking_appointment_id", "is", null)),
         loadDuplicateSet(),
-        n(db.from("escalations").select("id", { count: "exact", head: true }).neq("status", "resolved")),
+        db.from("escalations").select("lead_id").neq("status", "resolved"),
+        loadOperationalLeadIdSet(),
       ]);
+
+    if (escalationRows.error) throw new Error(`dashboardMetrics(escalations): ${escalationRows.error.message}`);
 
     return {
       newLeads,
@@ -1161,8 +1186,8 @@ export const supabaseProvider: DataProvider = {
       booked,
       followUp,
       lost,
-      duplicates: dupSet.size,
-      escalations,
+      duplicates: [...dupSet].filter((id) => operationalLeadIds.has(id)).length,
+      escalations: (escalationRows.data ?? []).filter((row) => operationalLeadIds.has(row.lead_id as string)).length,
       unconfirmedAppts: appointments,
     };
   },
@@ -1180,6 +1205,7 @@ export const supabaseProvider: DataProvider = {
     const statuses = ["new_lead", "qualified", "booked", "follow_up", "post_op_follow_up", "lost"] as const;
     const counts = await Promise.all(statuses.map(async (status) => {
       let query = db.from("leads").select("id", { count: "exact", head: true }).is("merged_into_lead_id", null).eq("status", status);
+      query = query.or(NON_DATABASE_ONLY_FILTER);
       if (status === "new_lead") {
         query = query.or(NON_DATABASE_PATIENT_FILTER);
       }
@@ -1217,7 +1243,7 @@ export const supabaseProvider: DataProvider = {
         resolvedAt: (e.resolved_at as string) ?? undefined,
         lead,
       };
-    });
+    }).filter((item) => !item.lead?.databaseOnly);
   },
 
   async duplicateQueue(): Promise<DuplicatePair[]> {
@@ -1241,24 +1267,22 @@ export const supabaseProvider: DataProvider = {
     const db = supabaseAdmin();
     const pageSize = Math.min(30, Math.max(1, Math.floor(requestedPageSize)));
     const page = Math.max(1, Math.floor(requestedPage));
-    const from = (page - 1) * pageSize;
     const columns = "id,lead_id,duplicate_lead_id,duplicate_type,identifier_value,status,notes,reviewed_by,confidence_score,match_priority,created_at";
-    let rowsQuery = db.from("lead_duplicate_flags").select(columns, { count: "exact" });
-    rowsQuery = view === "open" ? rowsQuery.eq("status", "pending") : rowsQuery.neq("status", "pending");
-    const [usersById, rowsResult, openCount, resolvedCount] = await Promise.all([
+    const [usersById, rowsResult] = await Promise.all([
       loadUserMap(),
-      rowsQuery.order("match_priority", { ascending: true }).order("created_at", { ascending: false }).range(from, from + pageSize - 1),
-      db.from("lead_duplicate_flags").select("id", { count: "exact", head: true }).eq("status", "pending"),
-      db.from("lead_duplicate_flags").select("id", { count: "exact", head: true }).neq("status", "pending"),
+      db.from("lead_duplicate_flags").select(columns).order("match_priority", { ascending: true }).order("created_at", { ascending: false }),
     ]);
     if (rowsResult.error) throw new Error(`duplicateQueuePage: ${rowsResult.error.message}`);
-    if (openCount.error) throw new Error(`duplicateQueuePage(open count): ${openCount.error.message}`);
-    if (resolvedCount.error) throw new Error(`duplicateQueuePage(resolved count): ${resolvedCount.error.message}`);
+    const all = await enrichDuplicateRows((rowsResult.data ?? []) as unknown as DuplicateFlagRow[], usersById);
+    const open = all.filter((pair) => pair.status === "suspected");
+    const resolved = all.filter((pair) => pair.status !== "suspected");
+    const selected = view === "open" ? open : resolved;
+    const from = (page - 1) * pageSize;
     return {
-      items: await enrichDuplicateRows((rowsResult.data ?? []) as unknown as DuplicateFlagRow[], usersById),
-      total: rowsResult.count ?? 0,
-      openTotal: openCount.count ?? 0,
-      resolvedTotal: resolvedCount.count ?? 0,
+      items: selected.slice(from, from + pageSize),
+      total: selected.length,
+      openTotal: open.length,
+      resolvedTotal: resolved.length,
       page,
       pageSize,
       view,
@@ -1280,6 +1304,7 @@ export const supabaseProvider: DataProvider = {
       .select(SUMMARY_COLUMNS, { count: "exact" })
       .in("status", statuses)
       .is("merged_into_lead_id", null)
+      .or(NON_DATABASE_ONLY_FILTER)
       .order("updated_at", { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) throw new Error(`followUpQueue: ${error.message}`);

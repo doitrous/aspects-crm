@@ -338,20 +338,31 @@ export async function updateLeadStage(params: {
 }): Promise<void> {
   const [actor, lead] = await Promise.all([writeLeadActor(), resolveLead(params.leadId)]);
   const nextStatus = UI_TO_DB_STAGE[params.stage];
-  const patch: Record<string, unknown> = { status: nextStatus };
+  const restoredMetadata = { ...(lead.metadata ?? {}) };
+  delete restoredMetadata.database_only;
+  delete restoredMetadata.database_only_at;
+  delete restoredMetadata.database_only_by;
+  delete restoredMetadata.database_previous_status;
+  const patch: Record<string, unknown> = { status: nextStatus, metadata: restoredMetadata };
 
   if (params.stage === "lost") {
-    if (!params.lostReasonId) throw new LeadMutationError("Choose a lost reason.");
-    const { data: reason, error: reasonError } = await supabaseAdmin()
-      .from("lost_reasons")
-      .select("id,label")
-      .eq("id", params.lostReasonId)
-      .eq("is_active", true)
-      .maybeSingle();
-    if (reasonError) throw new Error(`lostReason: ${reasonError.message}`);
-    if (!reason) throw new LeadMutationError("Lost reason is not available.");
-    patch.lost_reason_id = params.lostReasonId;
-    patch.lost_notes = params.lostNotes?.trim() || null;
+    const restoringExistingLost = lead.status === "lost" && lead.metadata?.database_only === true && Boolean(lead.lost_reason_id);
+    if (restoringExistingLost && !params.lostReasonId) {
+      patch.lost_reason_id = lead.lost_reason_id;
+      patch.lost_notes = lead.lost_notes;
+    } else {
+      if (!params.lostReasonId) throw new LeadMutationError("Choose a lost reason.");
+      const { data: reason, error: reasonError } = await supabaseAdmin()
+        .from("lost_reasons")
+        .select("id,label")
+        .eq("id", params.lostReasonId)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (reasonError) throw new Error(`lostReason: ${reasonError.message}`);
+      if (!reason) throw new LeadMutationError("Lost reason is not available.");
+      patch.lost_reason_id = params.lostReasonId;
+      patch.lost_notes = params.lostNotes?.trim() || null;
+    }
   } else {
     patch.lost_reason_id = null;
     patch.lost_notes = null;

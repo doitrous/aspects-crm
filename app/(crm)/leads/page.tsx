@@ -32,6 +32,7 @@ export default async function LeadsPage({
     q: str(sp.q),
     stage: "new",
     excludeDatabasePatients: true,
+    excludeDatabaseOnly: true,
     platform: channel?.startsWith("platform:") ? channel.slice("platform:".length) : str(sp.platform),
     doctorId: str(sp.doctor),
     specialtyId: str(sp.specialty),
