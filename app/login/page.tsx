@@ -28,12 +28,13 @@ function BrandPanel() {
       <div className={styles.markStage} aria-hidden="true">
         <span className={styles.markHalo} />
         <Image
-          src="/aspects-logo-mark.png"
+          src="/aspects-logo-mark-design.png"
           alt=""
           width={870}
           height={658}
           className={styles.brandMark}
           priority
+          unoptimized
         />
       </div>
 
