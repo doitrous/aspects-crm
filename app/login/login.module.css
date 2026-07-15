@@ -114,8 +114,10 @@
 
 .brandMark {
   position: relative;
-  width: min(82%, 570px);
+  width: min(112%, 940px);
+  max-width: none;
   height: auto;
+  justify-self: start;
   object-fit: contain;
   filter: drop-shadow(0 26px 40px rgba(2, 17, 46, 0.22));
 }
