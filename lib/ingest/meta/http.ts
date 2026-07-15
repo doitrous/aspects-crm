@@ -85,17 +85,27 @@ export async function handleIngest(req: Request, expect?: ExpectedRecord) {
   try {
     events = toEvents(body);
   } catch (err) {
-    // Return 200 so Meta stops retrying malformed input. Keep the diagnostic in
-    // server logs; database/stack details must not be reflected to callers.
+    // A valid Meta/n8n delivery must be retried if our normalizer fails. A 200
+    // here would make both senders treat an unpersisted patient event as done.
+    // Keep database/stack details out of the response.
     console.error("Meta ingest normalization failed", err);
     return NextResponse.json(
       { ok: false, error: "normalize_failed" },
-      { status: 200 },
+      { status: 500 },
     );
   }
 
   if (events.length === 0) {
-    return NextResponse.json({ ok: true, received: 0, results: [] }, { status: 200 });
+    // Empty arrays are valid no-op batches. A non-empty object that produced no
+    // events is almost always a wrapper/shape regression and must be visible to
+    // n8n instead of silently acknowledging a lost comment.
+    const intentionalEmpty = Array.isArray(body) && body.length === 0;
+    return NextResponse.json(
+      intentionalEmpty
+        ? { ok: true, received: 0, results: [] }
+        : { ok: false, error: "no_events_normalized", received: 0, results: [] },
+      { status: intentionalEmpty ? 200 : 422 },
+    );
   }
   if (events.length > MAX_EVENTS) {
     return NextResponse.json({ ok: false, error: "too_many_events", maximum: MAX_EVENTS }, { status: 413 });
@@ -135,7 +145,9 @@ export async function handleIngest(req: Request, expect?: ExpectedRecord) {
       })),
       errors: errors.map((item) => ({ eventKey: item.eventKey, error: "ingest_failed" })),
     },
-    { status: 200 },
+    // Partial batches are idempotent: successful items will dedupe when Meta or
+    // n8n retries, while failed items get another chance instead of vanishing.
+    { status: errors.length === 0 ? 200 : 500 },
   );
 }
 

@@ -1063,6 +1063,181 @@ test("44 — multiple changes in one entry become separate comments", async () =
   assert.equal(s.leads.length, 2);
 });
 
+test("45 — n8n Webhook body wrapper preserves an entry-level Instagram comment", async () => {
+  const s = newStore();
+  await ingest(s, {
+    headers: { "user-agent": "facebookplatform/1.0" },
+    body: {
+      object: "instagram",
+      entry: [{
+        id: "IGACC1",
+        time: ms(0),
+        field: "comments",
+        value: {
+          id: "igc_wrapped",
+          from: { id: "IGSID_WRAPPED", username: "wrapped.patient" },
+          text: "This comment must not disappear",
+          media: { id: "MEDIA_WRAPPED", media_product_type: "FEED" },
+        },
+      }],
+    },
+  });
+
+  assert.equal(s.comments.length, 1);
+  assert.equal(s.comments[0].commentId, "igc_wrapped");
+  assert.equal(s.comments[0].text, "This comment must not disappear");
+  assert.equal(s.comments[0].instagramAccountId, "IGACC1");
+  assert.equal(s.leads.length, 1);
+});
+
+test("46 — documented Instagram self comment is captured as outgoing clinic work", async () => {
+  const s = newStore();
+  await ingest(s, {
+    object: "instagram",
+    entry: [{
+      id: "IGACC1",
+      time: ms(0),
+      changes: [{
+        field: "comments",
+        value: {
+          id: "igc_self",
+          from: { id: "IGACC1", username: "aspectsclinica", self_ig_scoped_id: "SELF_IGSID" },
+          text: "Clinic reply",
+          media: { id: "MEDIA1", media_product_type: "FEED" },
+        },
+      }],
+    }],
+  });
+
+  assert.equal(s.comments.length, 1);
+  assert.equal(s.comments[0].direction, "outgoing");
+  assert.equal(s.comments[0].isPageOrBusinessReply, true);
+  assert.equal(s.leads.length, 0, "our own public reply cannot create a patient lead");
+});
+
+test("47 — a partial n8n comment recovers all native fields from raw_payload", async () => {
+  const s = newStore();
+  await ingest(s, {
+    record_type: "comment",
+    platform: "facebook",
+    page_id: "PAGE1",
+    webhook_object: "page",
+    webhook_change_field: "feed",
+    raw_payload: {
+      field: "feed",
+      value: {
+        item: "comment",
+        verb: "add",
+        comment_id: "fbc_recovered",
+        post_id: "POST_RECOVERED",
+        from: { id: "FB_RECOVERED", name: "Recovered Patient" },
+        message: "Recovered comment text",
+        created_time: Math.floor(ms(0) / 1000),
+      },
+    },
+  });
+
+  assert.equal(s.comments.length, 1);
+  assert.equal(s.comments[0].commentId, "fbc_recovered");
+  assert.equal(s.comments[0].commenterId, "FB_RECOVERED");
+  assert.equal(s.comments[0].text, "Recovered comment text");
+  assert.equal(s.leads.length, 1);
+});
+
+test("48 — an empty data property cannot hide a valid Meta entry envelope", async () => {
+  const s = newStore();
+  await ingest(s, {
+    object: "page",
+    data: [],
+    entry: [{
+      id: "PAGE1",
+      time: ms(0),
+      changes: [{
+        field: "feed",
+        value: {
+          item: "comment",
+          verb: "add",
+          comment_id: "fbc_entry_wins",
+          from: { id: "FB_ENTRY", name: "Entry Patient" },
+          message: "Entry must win",
+        },
+      }],
+    }],
+  });
+  assert.equal(s.comments.length, 1);
+  assert.equal(s.comments[0].commentId, "fbc_entry_wins");
+});
+
+test("49 — later n8n events repair broken conversation links on an existing lead", async () => {
+  const s = newStore();
+  await ingest(s, fbIncoming({ chat_link: "https://broken.invalid/PSID_1" }));
+  await ingest(s, fbIncoming({
+    // Same webhook replayed after n8n resolves the Meta conversation. The
+    // bubble dedupes, but the richer link metadata must still be applied.
+    platform_message_id: "mid.in1",
+    message_timestamp: at(1),
+    conversation_link: "https://www.facebook.com/PAGE1/inbox/THREAD1/?section=messages",
+    fallback_inbox_link: "https://business.facebook.com/latest/inbox/all",
+  }));
+
+  assert.equal(s.leads.length, 1);
+  assert.equal(s.contentMessages().length, 1);
+  assert.equal(s.leads[0].conversationLink, "https://www.facebook.com/PAGE1/inbox/THREAD1/?section=messages");
+  assert.equal(s.leads[0].fallbackInboxLink, "https://business.facebook.com/latest/inbox/all");
+});
+
+test("50 — Instagram is_self messages are outgoing and never create patient leads", async () => {
+  const s = newStore();
+  await ingest(s, {
+    object: "instagram",
+    entry: [{
+      id: "IGACC1",
+      time: ms(0),
+      messaging: [{
+        sender: { id: "IGACC1" },
+        recipient: { id: "IGSID_TEST" },
+        timestamp: ms(0),
+        message: { mid: "mid.self", text: "Test reply", is_self: true },
+      }],
+    }],
+  });
+
+  assert.equal(s.contentMessages().length, 1);
+  assert.equal(s.contentMessages()[0].direction, "outgoing");
+  assert.equal(s.leads.length, 0);
+});
+
+test("51 — Instagram username-only comment remains visible through a safe medium identity", async () => {
+  const s = newStore();
+  await ingest(s, {
+    object: "instagram",
+    entry: [{
+      id: "IGACC1",
+      time: ms(0),
+      field: "comments",
+      value: {
+        id: "igc_username_only",
+        from: { username: "username.only" },
+        text: "Meta omitted my scoped id",
+        media: { id: "MEDIA1", media_product_type: "FEED" },
+      },
+    }],
+  });
+
+  assert.equal(s.comments.length, 1);
+  assert.equal(s.comments[0].platformUserId, "instagram_username:username.only");
+  assert.equal(s.comments[0].identityConfidence, "medium");
+  assert.equal(s.leads.length, 1, "the comment must be attached to a searchable lead");
+});
+
+test("52 — Meta echo truth overrides a stale incoming direction from n8n", async () => {
+  const s = newStore();
+  await ingest(s, fbOutgoing({ direction: "incoming" }));
+  assert.equal(s.contentMessages().length, 1);
+  assert.equal(s.contentMessages()[0].direction, "outgoing");
+  assert.equal(s.leads.length, 0, "our sent echo cannot fabricate an incoming lead");
+});
+
 /* ══ dashboard-level invariant ═════════════════════════════════════════ */
 
 test("status events never inflate Total Messages, Total Leads, unread or SLA", async () => {

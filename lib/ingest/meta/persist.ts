@@ -77,12 +77,34 @@ async function resolveLead(
 
   if (identifiable && identity.platformUserId) {
     const found = await store.findLeadByPlatformUser(platform, identity.platformUserId);
-    if (found) return { lead: found, created: false };
+    if (found) {
+      await store.updateLeadConversation(found.id, {
+        conversationKey,
+        chatLink: isMessageEvent(event) ? event.chatLink : null,
+        conversationLink: isMessageEvent(event) ? event.conversationLink : null,
+        fallbackInboxLink: event.fallbackInboxLink,
+        pageInboxLink: isMessageEvent(event) ? event.pageInboxLink : null,
+        pageId: event.pageId,
+        instagramAccountId: event.instagramAccountId,
+      });
+      return { lead: found, created: false };
+    }
   }
 
   if (conversationKey) {
     const found = await store.findLeadByConversationKey(conversationKey);
-    if (found) return { lead: found, created: false };
+    if (found) {
+      await store.updateLeadConversation(found.id, {
+        conversationKey,
+        chatLink: isMessageEvent(event) ? event.chatLink : null,
+        conversationLink: isMessageEvent(event) ? event.conversationLink : null,
+        fallbackInboxLink: event.fallbackInboxLink,
+        pageInboxLink: isMessageEvent(event) ? event.pageInboxLink : null,
+        pageId: event.pageId,
+        instagramAccountId: event.instagramAccountId,
+      });
+      return { lead: found, created: false };
+    }
   }
 
   // Creating a lead is the one irreversible act here. Both gates must pass.
@@ -193,6 +215,23 @@ async function handleContentMessage(
     ? await store.findMessageByPlatformId(event.platform, event.platformMessageId)
     : await store.findMessageByEventKey(key);
   if (existing) {
+    // A raw webhook may be captured first and then replayed by n8n with a
+    // Conversations-API link. Dedupe the message itself, but still let that
+    // richer replay repair the lead's broken/stale chat destination.
+    if (existing.leadId && (
+      event.conversationKey || event.chatLink || event.conversationLink ||
+      event.fallbackInboxLink || event.pageInboxLink
+    )) {
+      await store.updateLeadConversation(existing.leadId, {
+        conversationKey: event.conversationKey,
+        chatLink: event.chatLink,
+        conversationLink: event.conversationLink,
+        fallbackInboxLink: event.fallbackInboxLink,
+        pageInboxLink: event.pageInboxLink,
+        pageId: event.pageId,
+        instagramAccountId: event.instagramAccountId,
+      });
+    }
     return outcome(event, key, {
       skipped: true,
       skipReason: "duplicate",

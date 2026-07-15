@@ -24,6 +24,11 @@ Normalized conversation content is stored in the canonical CRM
 conversation/message tables; receipts, reactions, and referrals remain distinct
 event records.
 
+The production-safe, node-by-node n8n configuration is documented in
+`docs/META_N8N_SETUP.md`. The CRM accepts the complete n8n Webhook item, a raw
+Meta body, or normalized records. A partial database failure returns HTTP 500 so
+n8n/Meta retries the idempotent batch rather than acknowledging lost content.
+
 There is currently no interactive Instagram OAuth flow or
 `/api/auth/instagram/callback` route. Production uses server-managed Meta tokens,
 so an `INSTAGRAM_REDIRECT_URI` variable is neither read nor required.

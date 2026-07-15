@@ -193,6 +193,16 @@ export interface LeadCreate {
   adName: string | null;
 }
 
+export interface LeadConversationUpdate {
+  conversationKey: string | null;
+  chatLink: string | null;
+  conversationLink: string | null;
+  fallbackInboxLink: string | null;
+  pageInboxLink: string | null;
+  pageId: string | null;
+  instagramAccountId: string | null;
+}
+
 export interface ConversationEventInsert {
   leadId: string | null;
   conversationId: string | null;
@@ -303,6 +313,8 @@ export interface MetaStore {
   findLeadByPlatformUser(platform: Platform, platformUserId: string): Promise<LeadRef | null>;
   findLeadByConversationKey(conversationKey: string): Promise<LeadRef | null>;
   createLead(input: LeadCreate): Promise<LeadRef>;
+  /** Backfills fresher n8n/Meta conversation links onto an existing lead. */
+  updateLeadConversation(leadId: string, input: LeadConversationUpdate): Promise<void>;
   /** Applies the unread/SLA transition for a genuine incoming message. */
   markLeadIncoming(leadId: string, at: string, messageId: string | null): Promise<void>;
   /** Clears unread/SLA because the clinic replied. */

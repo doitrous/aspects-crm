@@ -148,10 +148,12 @@ function toMessageEventType(o: Rec): MessageEventType {
 }
 
 function toDirection(o: Rec, isEcho: boolean): Direction {
+  // Platform echo/self flags are authoritative. A stale n8n `direction` value
+  // must never turn the clinic's own sent message into incoming patient work.
+  if (isEcho) return "outgoing";
   const d = (str(o, "direction") ?? "").toLowerCase();
   if (d === "outgoing" || d === "outbound") return "outgoing";
   if (d === "incoming" || d === "inbound") return "incoming";
-  if (isEcho) return "outgoing";
   const sentBy = (str(o, "sent_by_type") ?? "").toLowerCase();
   if (sentBy === "page" || sentBy === "business" || sentBy === "admin") return "outgoing";
   return "incoming";
@@ -299,23 +301,35 @@ function normalizeMessage(input: Rec, now: () => Date): MetaMessageEvent {
     o["platform_user_id"] = recovered["platform_user_id"];
   }
   const platform = toPlatform(o);
-  const isEcho = bool(o, "is_echo");
+  // Instagram test/self messages may use `is_self` instead of `is_echo`.
+  // Both mean the clinic sent the message and must never become incoming work.
+  const isEcho = bool(o, "is_echo", "is_self");
   const attachments = toAttachments(o);
   const text = str(o, "message_text", "text");
   const eventType = toMessageEventType(o);
   const direction = toDirection(o, isEcho);
+  const senderUsername = str(o, "sender_username");
+  const senderName = str(o, "sender_name");
+  const explicitPlatformUserId =
+    str(o, "platform_user_id") ??
+    str(o, "customer_psid") ??
+    str(o, "customer_instagram_id") ??
+    // For outgoing/echo events the customer is the RECIPIENT, not the sender.
+    (direction === "outgoing" ? str(o, "recipient_id") : str(o, "sender_id"));
+  const safeFallbackId = explicitPlatformUserId ?? (
+    platform === "instagram" && senderUsername
+      ? `instagram_username:${senderUsername.toLowerCase()}`
+      : platform === "facebook" && senderName
+        ? `facebook_name:${senderName}`
+        : null
+  );
 
   const identity = resolveIdentity({
     platform,
-    platformUserId:
-      str(o, "platform_user_id") ??
-      str(o, "customer_psid") ??
-      str(o, "customer_instagram_id") ??
-      // For outgoing/echo events the customer is the RECIPIENT, not the sender.
-      (direction === "outgoing" ? str(o, "recipient_id") : str(o, "sender_id")),
+    platformUserId: safeFallbackId,
     declaredConfidence: str(o, "identity_confidence"),
-    name: str(o, "sender_name"),
-    username: str(o, "sender_username"),
+    name: senderName,
+    username: senderUsername,
     phone: str(o, "sender_phone"),
     psid: str(o, "customer_psid"),
     instagramId: str(o, "customer_instagram_id"),
@@ -393,22 +407,59 @@ function normalizeMessage(input: Rec, now: () => Date): MetaMessageEvent {
   };
 }
 
-function normalizeComment(o: Rec, now: () => Date): MetaCommentEvent {
+function normalizeComment(input: Rec, now: () => Date): MetaCommentEvent {
+  // n8n often preserves the native Meta change under `raw_payload` while
+  // flattening only some fields. Recover omitted IDs/text/account metadata
+  // first, then let explicit n8n fields win.
+  const raw = isRec(input["raw_payload"]) ? (input["raw_payload"] as Rec) : null;
+  const rawValue = raw && isRec(raw["value"]) ? (raw["value"] as Rec) : raw;
+  const rawLooksNative = rawValue && (
+    isRec(rawValue["from"]) || isRec(rawValue["media"]) ||
+    rawValue["comment_id"] !== undefined || rawValue["id"] !== undefined ||
+    rawValue["message"] !== undefined || rawValue["text"] !== undefined
+  );
+  const recovered = rawLooksNative
+    ? changeToFlat(
+        raw && isRec(raw["value"])
+          ? raw
+          : { field: str(input, "webhook_change_field", "event_source_field"), value: rawValue },
+        { id: str(input, "instagram_account_id", "page_id"), time: input["comment_timestamp"] ?? input["timestamp"] },
+        str(input, "webhook_object") ?? (toPlatform(input) === "instagram" ? "instagram" : "page"),
+      )
+    : {};
+  const o: Rec = { ...recovered };
+  for (const [field, value] of Object.entries(input)) {
+    if (value !== null && value !== undefined && value !== "") o[field] = value;
+  }
+
   const platform = toPlatform(o);
   const attachments = toAttachments(o);
-  const isBusiness = bool(o, "is_page_or_business_reply");
+  const actorId = str(o, "commenter_id", "platform_user_id");
+  const accountId = platform === "instagram" ? str(o, "instagram_account_id") : str(o, "page_id");
+  const isBusiness = bool(o, "is_page_or_business_reply", "is_self") || Boolean(actorId && accountId && actorId === accountId);
 
   const parentCommentId = str(o, "parent_comment_id");
   const declaredIsReply = o["is_reply"] !== undefined ? bool(o, "is_reply") : !!parentCommentId;
   const commentId = str(o, "comment_id");
   const action = toCommentAction(o);
 
+  const commenterUsername = str(o, "commenter_username");
+  const commenterName = str(o, "commenter_name");
+  const explicitCommenterId = str(o, "platform_user_id", "commenter_id");
+  const safeCommenterId = explicitCommenterId ?? (
+    platform === "instagram" && commenterUsername
+      ? `instagram_username:${commenterUsername.toLowerCase()}`
+      : platform === "facebook" && commenterName
+        ? `facebook_name:${commenterName}`
+        : null
+  );
+
   const identity = resolveIdentity({
     platform,
-    platformUserId: str(o, "platform_user_id", "commenter_id"),
+    platformUserId: safeCommenterId,
     declaredConfidence: str(o, "identity_confidence"),
-    name: str(o, "commenter_name"),
-    username: str(o, "commenter_username"),
+    name: commenterName,
+    username: commenterUsername,
   });
 
   return {
@@ -492,7 +543,7 @@ function messagingToFlat(m: Rec, entry: Rec, webhookObject: string | null): Rec 
   const quickReply = message && isRec(message["quick_reply"]) ? (message["quick_reply"] as Rec) : null;
   const replyTo = message && isRec(message["reply_to"]) ? (message["reply_to"] as Rec) : null;
 
-  const isEcho = !!(message && message["is_echo"] === true);
+  const isEcho = !!(message && (message["is_echo"] === true || message["is_self"] === true));
 
   let eventType: MessageEventType = "unknown";
   if (message) eventType = "message";
@@ -515,7 +566,8 @@ function messagingToFlat(m: Rec, entry: Rec, webhookObject: string | null): Rec 
     webhook_object: webhookObject,
     webhook_event_keys: Object.keys(m),
     platform: webhookObject === "instagram" ? "instagram" : "facebook",
-    page_id: pageId,
+    page_id: webhookObject === "instagram" ? null : pageId,
+    instagram_account_id: webhookObject === "instagram" ? pageId : null,
     sender_id: str(sender, "id"),
     recipient_id: str(recipient, "id"),
     platform_user_id: customerId,
@@ -531,6 +583,7 @@ function messagingToFlat(m: Rec, entry: Rec, webhookObject: string | null): Rec 
     flat["attachments"] = message["attachments"] ?? [];
     flat["message_is_deleted"] = message["is_deleted"] ?? false;
     flat["message_is_unsupported"] = message["is_unsupported"] ?? false;
+    flat["is_self"] = message["is_self"] ?? false;
     if (quickReply) {
       flat["quick_reply_payload"] = quickReply["payload"] ?? null;
       flat["quick_reply_text"] = message["text"] ?? null;
@@ -579,6 +632,14 @@ function changeToFlat(c: Rec, entry: Rec, webhookObject: string | null): Rec {
   const parent = isRec(value["parent"]) ? (value["parent"] as Rec) : null;
   const media = isRec(value["media"]) ? (value["media"] as Rec) : null;
   const post = isRec(value["post"]) ? (value["post"] as Rec) : null;
+  const accountId = str(entry, "id");
+  const actorId = str(from, "id");
+  const isInstagram = webhookObject === "instagram";
+  const isBusinessReply = Boolean(
+    bool(value, "is_page_or_business_reply", "is_self") ||
+    str(from, "self_ig_scoped_id") ||
+    (accountId && actorId && accountId === actorId),
+  );
 
   return {
     record_type: "comment",
@@ -587,7 +648,8 @@ function changeToFlat(c: Rec, entry: Rec, webhookObject: string | null): Rec {
     webhook_change_field: str(c, "field"),
     event_source_field: str(c, "field"),
     platform: webhookObject === "instagram" ? "instagram" : "facebook",
-    page_id: str(entry, "id"),
+    page_id: isInstagram ? null : accountId,
+    instagram_account_id: isInstagram ? accountId : null,
     facebook_verb: str(value, "verb"),
     comment_id: str(value, "comment_id", "id"),
     parent_comment_id: parent ? str(parent, "id") : str(value, "parent_id"),
@@ -599,6 +661,8 @@ function changeToFlat(c: Rec, entry: Rec, webhookObject: string | null): Rec {
     commenter_name: str(from, "name"),
     commenter_username: str(from, "username"),
     platform_user_id: str(from, "id"),
+    is_page_or_business_reply: isBusinessReply,
+    direction: isBusinessReply ? "outgoing" : "incoming",
     comment_text: str(value, "message", "text"),
     comment_timestamp: value["created_time"] ?? entry["time"] ?? null,
     comment_link: str(value, "permalink_url"),
@@ -611,10 +675,6 @@ export function collectRecords(body: unknown): Rec[] {
   if (Array.isArray(body)) return body.filter(isRec).flatMap((b) => collectRecords(b));
   if (!isRec(body)) return [];
 
-  for (const k of ["records", "events", "data", "items"]) {
-    if (Array.isArray(body[k])) return (body[k] as unknown[]).filter(isRec).flatMap((b) => collectRecords(b));
-  }
-
   // Raw Meta webhook envelope.
   if (Array.isArray(body["entry"])) {
     const webhookObject = str(body, "object");
@@ -626,8 +686,32 @@ export function collectRecords(body: unknown): Rec[] {
       for (const c of list(e, "changes").filter(isRec)) {
         out.push(changeToFlat(c, e, webhookObject));
       }
+      // Meta also sends Instagram comments as entry-level `{field, value}`
+      // notifications with no `changes` array. This is the documented shape
+      // for some comments/live_comments deliveries.
+      if (list(e, "changes").length === 0 && str(e, "field") && isRec(e["value"])) {
+        out.push(changeToFlat({ field: e["field"], value: e["value"] }, e, webhookObject));
+      }
     }
     return out;
+  }
+
+  // The n8n Webhook node wraps the incoming request under `body`. Accept the
+  // complete n8n item as well as `$json.body`; older flows used `payload` or
+  // `webhook` for the same purpose.
+  for (const k of ["body", "payload", "webhook"]) {
+    if (isRec(body[k])) return collectRecords(body[k]);
+    if (typeof body[k] === "string") {
+      try {
+        return collectRecords(JSON.parse(body[k] as string));
+      } catch {
+        // Preserve the outer record below instead of throwing ingestion away.
+      }
+    }
+  }
+
+  for (const k of ["records", "events", "data", "items"]) {
+    if (Array.isArray(body[k])) return (body[k] as unknown[]).filter(isRec).flatMap((b) => collectRecords(b));
   }
 
   return [body];

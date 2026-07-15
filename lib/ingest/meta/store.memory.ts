@@ -14,6 +14,7 @@ import type {
   ConversationRef,
   ConversationUpsert,
   IngestLogInsert,
+  LeadConversationUpdate,
   LeadCreate,
   LeadRef,
   MessageInsert,
@@ -39,6 +40,10 @@ export interface MemLead extends LeadRef {
   replyOverdueAt: string | null;
   campaign: string | null;
   adName: string | null;
+  chatLink: string | null;
+  conversationLink: string | null;
+  fallbackInboxLink: string | null;
+  pageInboxLink: string | null;
 }
 
 export interface MemAttribution {
@@ -110,9 +115,23 @@ export class MemoryStore implements MetaStore {
       replyOverdueAt: null,
       campaign: input.campaign,
       adName: input.adName,
+      chatLink: input.chatLink,
+      conversationLink: input.conversationLink,
+      fallbackInboxLink: input.fallbackInboxLink,
+      pageInboxLink: input.pageInboxLink,
     };
     this.leads.push(lead);
     return lead;
+  }
+
+  async updateLeadConversation(leadId: string, input: LeadConversationUpdate): Promise<void> {
+    const lead = this.leads.find((l) => l.id === leadId);
+    if (!lead) return;
+    if (input.conversationKey) lead.conversationKey = input.conversationKey;
+    if (input.chatLink) lead.chatLink = input.chatLink;
+    if (input.conversationLink) lead.conversationLink = input.conversationLink;
+    if (input.fallbackInboxLink) lead.fallbackInboxLink = input.fallbackInboxLink;
+    if (input.pageInboxLink) lead.pageInboxLink = input.pageInboxLink;
   }
 
   async markLeadIncoming(leadId: string, at: string): Promise<void> {

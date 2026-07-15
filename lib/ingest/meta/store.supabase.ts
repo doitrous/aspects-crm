@@ -9,6 +9,7 @@ import type {
   ConversationRef,
   ConversationUpsert,
   IngestLogInsert,
+  LeadConversationUpdate,
   LeadCreate,
   LeadRef,
   MessageInsert,
@@ -213,6 +214,22 @@ export class SupabaseMetaStore implements MetaStore {
     return lead;
   }
 
+  async updateLeadConversation(leadId: string, input: LeadConversationUpdate): Promise<void> {
+    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    // Only non-empty values overwrite the lead. A later status webhook often
+    // carries fewer fields and must not erase a working link learned earlier.
+    if (input.conversationKey) patch.conversation_key = input.conversationKey;
+    if (input.chatLink) patch.chat_link = input.chatLink;
+    if (input.conversationLink) patch.conversation_link = input.conversationLink;
+    if (input.fallbackInboxLink) patch.fallback_inbox_link = input.fallbackInboxLink;
+    if (input.pageInboxLink) patch.page_inbox_link = input.pageInboxLink;
+    if (input.pageId) patch.page_id = input.pageId;
+    if (input.instagramAccountId) patch.instagram_account_id = input.instagramAccountId;
+    if (Object.keys(patch).length === 1) return;
+    const { error } = await this.db.from(LEADS).update(patch).eq("id", leadId);
+    if (error) throw new Error(`updateLeadConversation: ${error.message}`);
+  }
+
   async markLeadIncoming(leadId: string, at: string, messageId: string | null): Promise<void> {
     const { data: lead } = await this.db
       .from(LEADS)
@@ -314,7 +331,16 @@ export class SupabaseMetaStore implements MetaStore {
       // here — merges are a deliberate, audited action elsewhere.
       if (input.leadId && !existing.lead_id) patch.lead_id = input.leadId;
       if (input.identityConfidence) patch.identity_confidence = input.identityConfidence;
-      await this.db.from(CONVERSATIONS).update(patch).eq("id", existing.id);
+      if (input.pageId) patch.page_id = input.pageId;
+      if (input.instagramAccountId) patch.instagram_account_id = input.instagramAccountId;
+      if (input.customerPsid) patch.customer_psid = input.customerPsid;
+      if (input.customerInstagramId) patch.customer_instagram_id = input.customerInstagramId;
+      if (input.chatLink) patch.chat_link = input.chatLink;
+      if (input.conversationLink) patch.conversation_link = input.conversationLink;
+      if (input.fallbackInboxLink) patch.fallback_inbox_link = input.fallbackInboxLink;
+      if (input.pageInboxLink) patch.page_inbox_link = input.pageInboxLink;
+      const { error } = await this.db.from(CONVERSATIONS).update(patch).eq("id", existing.id);
+      if (error) throw new Error(`upsertConversation(update): ${error.message}`);
       return { id: existing.id as string, leadId: (existing.lead_id as string | null) ?? input.leadId ?? null };
     }
 

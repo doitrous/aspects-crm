@@ -50,7 +50,7 @@ function buildPhone(row: { phone_country_code: string | null; phone_number: stri
 }
 
 const SHELL_COLUMNS =
-  "id,lead_id,mrn,name,status,platform,platform_id,chat_link,gender," +
+  "id,lead_id,mrn,name,status,platform,platform_id,chat_link,conversation_link,fallback_inbox_link,page_inbox_link,gender," +
   "phone_country_code,phone_number,normalized_phone,source_id,service_name," +
   "campaign,doctor_id,coordinator_user_id,escalation_status,has_unread," +
   "is_reply_overdue,reply_overdue_at,booking_appointment_id,lost_reason_id,notes,medical_notes," +
@@ -66,6 +66,9 @@ type ShellRow = {
   platform: string | null;
   platform_id: string | null;
   chat_link: string | null;
+  conversation_link: string | null;
+  fallback_inbox_link: string | null;
+  page_inbox_link: string | null;
   gender: string | null;
   phone_country_code: string | null;
   phone_number: string | null;
@@ -146,7 +149,10 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     gender: row.gender === "male" || row.gender === "female" ? row.gender : undefined,
     platform: toUiPlatform(row.platform),
     platformId: row.platform_id ?? undefined,
-    chatLink: row.chat_link ?? undefined,
+    // Prefer the exact thread URL resolved through Meta's Conversations API.
+    // A generic inbox remains a safe fallback when a platform exposes no
+    // supported browser deep link (notably some Instagram conversations).
+    chatLink: row.conversation_link ?? row.chat_link ?? row.fallback_inbox_link ?? row.page_inbox_link ?? undefined,
     sourceId: row.source_id ?? undefined,
     sourceLabel: metadata.record_source === "database" ? "Database" : undefined,
     databaseOnly: metadata.database_only === true,
