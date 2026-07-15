@@ -80,10 +80,10 @@ export async function createOperationalReportAction(_prev: ReportActionState, fd
     const { data, error } = await supabaseAdmin().from("operational_summary_reports").insert({ report_type: type, report_date: date, generated_text: body.join("\n"), generated_by: actor.id, status: "final" }).select("id").single();
     if (error) throw error;
     revalidatePath("/reports");
-    return { ok: true, message: "Report finalized. Automatically calculated values are locked into this copy.", reportId: String(data.id) };
+    return { ok: true, message: "Report submitted. Automatically calculated values are locked into this copy.", reportId: String(data.id) };
   } catch (err) {
     console.error("create operational report failed", err);
-    return { ok: false, error: "The report could not be finalized. Please try again." };
+    return { ok: false, error: "The report could not be submitted. Please try again." };
   }
 }
 

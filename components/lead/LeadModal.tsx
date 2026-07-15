@@ -33,7 +33,7 @@ export function LeadModal({ data }: { data: LeadDetailData }) {
   }, [router]);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div className="fixed inset-0 z-[100] flex justify-end">
       <button
         type="button"
         aria-label="Close lead details"

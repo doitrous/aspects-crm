@@ -56,6 +56,19 @@ async function renderElement(node: HTMLElement): Promise<Blob> {
   }
 }
 
+/**
+ * Start the clipboard write while the click still owns browser activation.
+ * Rendering can take long enough for Chromium/Safari to revoke that activation,
+ * so ClipboardItem receives the pending PNG instead of an already-awaited blob.
+ */
+export async function copyElementImage(node: HTMLElement): Promise<void> {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+    throw new Error("Image clipboard is not supported by this browser");
+  }
+  const png = renderElement(node);
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+}
+
 export function QuickCopy({ text, target }: { text: string; target: RefObject<HTMLElement | null> }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -77,8 +90,7 @@ export function QuickCopy({ text, target }: { text: string; target: RefObject<HT
     <button disabled={busy} onClick={() => void run(() => navigator.clipboard.writeText(text), "Text copied")} className="h-8 rounded-control border border-line-soft bg-white px-3 text-[11.5px] font-bold text-ink-700 disabled:opacity-60">Copy text</button>
     <button disabled={busy || !target.current} onClick={() => void run(async () => {
       if (!target.current) throw new Error("Report unavailable");
-      const blob = await renderElement(target.current);
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      await copyElementImage(target.current);
     }, "Full report image copied")} className="h-8 rounded-control bg-primary px-3 text-[11.5px] font-bold text-white disabled:opacity-60">{busy ? "Copying…" : "Copy image"}</button>
     {message && <span className="text-[10.5px] font-bold text-ink-500">{message}</span>}
   </div>;

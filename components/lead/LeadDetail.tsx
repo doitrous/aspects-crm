@@ -809,6 +809,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
 
         {tab === "Messenger / IG DM" && (
           <MessageThread
+            leadId={lead.id}
             messages={data.messages.filter(
               (m) => m.channel === "facebook" || m.channel === "instagram",
             )}
@@ -823,6 +824,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
           loadedTabs.has("WhatsApp") ? (
             data.whatsappConfigured ? (
               <MessageThread
+                leadId={lead.id}
                 messages={data.messages.filter((m) => m.channel === "whatsapp")}
                 title="WhatsApp conversation"
                 chatLink={lead.chatLink}

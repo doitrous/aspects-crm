@@ -78,7 +78,7 @@ export async function finalizeReportAction(
     return fail(err);
   }
   refresh(date);
-  return { ok: true, message: "Report finalized and locked." };
+  return { ok: true, message: "Report submitted and locked." };
 }
 
 export async function reopenReportAction(

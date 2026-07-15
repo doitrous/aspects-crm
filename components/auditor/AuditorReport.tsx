@@ -364,12 +364,12 @@ export function AuditorReport({
           </div>
           <div className={`rounded-control border p-3 ${detail && finalized(detail.status) ? "border-emerald-200 bg-emerald-50" : "border-line-soft bg-panel"}`}>
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-ink-500">3 · Finalize</span>
+              <span className="text-[11px] font-bold uppercase tracking-wide text-ink-500">3 · Submit report</span>
               <span className="text-[10px] font-bold text-ink-500">{detail && finalized(detail.status) ? "Locked" : "Open"}</span>
             </div>
-            <p className="my-2 text-[12px] leading-5 text-ink-600">Finalize publishes the report and locks edits. Reopen only when the audit record must change.</p>
+            <p className="my-2 text-[12px] leading-5 text-ink-600">Submitting publishes the report and locks edits. Reopen only when the audit record must change.</p>
             {canGenerate && detail && !finalized(detail.status) && (
-              <ActionForm action={finalizeReportAction} date={date}>Finalize &amp; lock</ActionForm>
+              <ActionForm action={finalizeReportAction} date={date}>Submit Report of {formatDate(date)}</ActionForm>
             )}
             {canGenerate && detail && finalized(detail.status) && (
               <ActionForm action={reopenReportAction} date={date} variant="ghost">Reopen for correction</ActionForm>

@@ -1,6 +1,7 @@
 import type { Message, MessageAttachment } from "@/lib/types";
 import { formatDateTime, formatTime } from "@/lib/format";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { AiReplyAssistant } from "@/components/lead/AiReplyAssistant";
 
 const CHANNEL_LABEL: Record<Message["channel"], string> = {
   facebook: "Messenger",
@@ -121,12 +122,14 @@ export function MessageThread({
   title = "Conversation",
   chatLink,
   channelTone = "blue",
+  leadId,
 }: {
   messages: Message[];
   emptyHint?: string;
   title?: string;
   chatLink?: string;
   channelTone?: "blue" | "green" | "pink";
+  leadId: string;
 }) {
   if (messages.length === 0) {
     return <EmptyState icon="✉" title="No messages yet" hint={emptyHint} />;
@@ -243,6 +246,7 @@ export function MessageThread({
           );
         })}
       </div>
+      <AiReplyAssistant leadId={leadId} messages={messages} />
       <div className="sticky bottom-0 border-t border-line bg-panel px-4 py-3">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
           <div>
