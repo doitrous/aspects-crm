@@ -6,6 +6,8 @@ import {
   addDoctorFundedAction,
   addExternalCostAction,
   addFinancialServicesAction,
+  addBundleToBillAction,
+  addUnlockedAddonToBillAction,
   addTransactionAction,
   clearQuoteAction,
   deleteTransactionAction,
@@ -16,6 +18,8 @@ import {
   setTransactionStatusAction,
   updateTransactionAction,
   updateFinancialLineAction,
+  updateBillServicePriceAction,
+  removeBillServiceAction,
   type FinancialActionState,
 } from "@/app/(crm)/leads/financial-actions";
 import { Badge } from "@/components/ui/Badge";
@@ -27,6 +31,7 @@ import type {
   PaymentLine,
 } from "@/lib/data/financials";
 import { evaluateQuote } from "@/lib/financial/quote";
+import { discountPresets } from "@/lib/financial/discountPresets";
 import { cn } from "@/lib/cn";
 import { formatDate, formatDateTime, formatMoney, formatPct } from "@/lib/format";
 
@@ -179,11 +184,39 @@ function AddPanel({ label, children, tone = "default" }: { label: string; childr
 
 function FinancialServicePicker({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () => void }) {
   const [state, action, pending] = useActionState(addFinancialServicesAction, IDLE);
+  const [editState, editAction, editing] = useActionState(updateBillServicePriceAction, IDLE);
+  const [removeState, removeAction, removing] = useActionState(removeBillServiceAction, IDLE);
+  const [bundleState, bundleAction, addingBundle] = useActionState(addBundleToBillAction, IDLE);
+  const [addonState, addonAction, addingAddon] = useActionState(addUnlockedAddonToBillAction, IDLE);
   const [query, setQuery] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
   useNotifyChanged(state, onChanged);
+  useNotifyChanged(editState, onChanged);
+  useNotifyChanged(removeState, onChanged);
+  useNotifyChanged(bundleState, onChanged);
+  useNotifyChanged(addonState, onChanged);
+  useEffect(() => { if (state.ok) formRef.current?.reset(); }, [state.ok]);
   const existing = new Set(fin.bundleItems.map((item) => item.serviceName));
   const options = fin.serviceOptions.filter((option) => !existing.has(option.name) && option.name.toLowerCase().includes(query.trim().toLowerCase()));
-  return <section className="border-s-4 border-s-primary"><div className="flex flex-wrap items-end justify-between gap-3"><div><SectionLabel>Services on this bill</SectionLabel><p className="text-[11px] text-ink-500">Select one or more services first. Their live list prices build the base price above the patient quote.</p></div>{fin.bundleItems.length > 0 && <div className="flex flex-wrap gap-1.5">{fin.bundleItems.map((item) => <span key={item.id} className="rounded-md bg-primary-soft px-2 py-1 text-[10.5px] font-bold text-primary">{item.serviceName} · {formatMoney(item.basePrice, fin.currency)}</span>)}</div>}</div><form action={action} className="mt-3"><input type="hidden" name="leadId" value={fin.leadId}/><input type="search" value={query} onChange={(event)=>setQuery(event.target.value)} placeholder="Type to filter available services…" className="calm-field h-10 w-full px-3 text-[12px]"/><div className="mt-2 grid max-h-40 gap-1 overflow-auto border border-line bg-panel p-2 sm:grid-cols-2">{options.map((option)=><label key={option.id} className="flex items-center justify-between gap-2 p-2 text-[11.5px] hover:bg-line-faint"><span className="flex items-center gap-2"><input type="checkbox" name="serviceSettingIds" value={option.id}/><b className="text-ink-800">{option.name}</b></span><span className="tabular-nums text-ink-500">{formatMoney(option.basePrice, fin.currency)}</span></label>)}{options.length===0&&<div className="p-2 text-[11px] text-ink-400">No matching services remain.</div>}</div><div className="mt-2 flex items-center justify-between"><Feedback state={state}/><button disabled={pending || !fin.canEdit} className={btnCls}>{pending?"Adding…":"Add selected services"}</button></div></form></section>;
+  return <section className="border-s-4 border-s-amber-500">
+    <div><SectionLabel>Added services</SectionLabel><p className="text-[11px] text-ink-500">Catalogue prices are frozen for history. Bill-price edits apply only to this patient and require the quote to be confirmed again.</p></div>
+    {fin.bundleItems.length === 0 ? <EmptyState icon="＋" title="No services added" hint="Search below and add every service included in this bill." /> : <div className="mt-3 space-y-2">
+      <div className="hidden grid-cols-[minmax(0,1fr)_130px_150px_170px] gap-3 px-3 text-[10px] font-bold uppercase text-ink-400 md:grid"><span>Service</span><span>List price</span><span>Bill price</span><span>Actions</span></div>
+      {fin.bundleItems.map((item) => <div key={item.id} className="grid gap-2 rounded-lg border border-line-soft bg-panel p-3 md:grid-cols-[minmax(0,1fr)_130px_150px_170px] md:items-center">
+        <div className="min-w-0"><div className="font-bold text-ink-900">{item.serviceName}</div>{item.sourceLabel && <div className="mt-0.5 text-[10.5px] font-semibold text-primary">{item.sourceKind === "addon" ? "Unlocked add-on" : "Bundle"} · {item.sourceLabel}</div>}</div>
+        <div><span className="me-2 text-[10px] uppercase text-ink-400 md:hidden">List</span><span className="tabular-nums text-[12px] text-ink-600">{formatMoney(item.listPrice, fin.currency)}</span></div>
+        <form action={editAction} className="flex items-center gap-1"><input type="hidden" name="itemId" value={item.id}/><label className="sr-only" htmlFor={`bill-price-${item.id}`}>Bill price for {item.serviceName}</label><input id={`bill-price-${item.id}`} name="billPrice" type="number" min="0" step="0.01" defaultValue={item.billPrice} disabled={!fin.canEdit} className="w-28 rounded-control border border-line px-2 py-1.5 text-[12px] tabular-nums disabled:opacity-50"/><button disabled={editing || !fin.canEdit} className="text-[11px] font-bold text-primary disabled:opacity-40">Save</button></form>
+        <form action={removeAction} onSubmit={(event) => { if (!window.confirm(`Remove ${item.serviceName} from this bill? The saved quote will be cleared and totals recalculated.`)) event.preventDefault(); }}><input type="hidden" name="itemId" value={item.id}/><input type="hidden" name="reason" value="Removed from Added Services"/><button disabled={removing || !fin.canEdit} className="rounded-control border border-danger/30 px-2.5 py-1.5 text-[11px] font-bold text-danger disabled:opacity-40">Remove service</button></form>
+      </div>)}
+      <Feedback state={editState}/><Feedback state={removeState}/>
+    </div>}
+
+    {fin.unlockedAddons.length > 0 && <div role="status" className="mt-4 rounded-lg border border-cyan-300 bg-cyan-50 p-3 text-cyan-950 dark:border-cyan-700 dark:bg-cyan-950/30 dark:text-cyan-100"><div className="flex items-center gap-2 text-[12px] font-black"><span aria-hidden="true">🔓</span> Conditional add-on unlocked</div><p className="mt-1 text-[11px]">The patient now qualifies for the following option.</p>{fin.unlockedAddons.map((addon) => <form key={addon.id} action={addonAction} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-control bg-white/70 p-2 dark:bg-slate-900/50"><input type="hidden" name="leadId" value={fin.leadId}/><input type="hidden" name="ruleId" value={addon.id}/><span className="text-[11.5px]"><b>{addon.addonServiceName}</b> · {formatMoney(addon.addonPrice, fin.currency)} · unlocked by {addon.triggerServiceName}</span><button disabled={addingAddon || !fin.canEdit} className={btnCls}>{addingAddon ? "Adding…" : "Add unlocked option"}</button></form>)}<Feedback state={addonState}/></div>}
+
+    {fin.availableBundles.length > 0 && <details className="mt-4 rounded-lg border border-line-soft p-3"><summary className="cursor-pointer text-[12px] font-black text-ink-800">Available bundles &amp; packages</summary><div className="mt-2 grid gap-2 sm:grid-cols-2">{fin.availableBundles.map((bundle) => <form key={bundle.id} action={bundleAction} className="rounded-control border border-line-soft p-3"><input type="hidden" name="leadId" value={fin.leadId}/><input type="hidden" name="bundleId" value={bundle.id}/><div className="font-bold text-ink-900">{bundle.name}</div><div className="mt-1 text-[10.5px] text-ink-500">{bundle.serviceNames.join(" + ") || "Services configured in bundle"}</div><div className="mt-2 flex items-center justify-between"><b className="text-[12px]">{formatMoney(bundle.price, bundle.currency)}</b><button disabled={addingBundle || !fin.canEdit} className={btnCls}>{addingBundle ? "Adding…" : "Add bundle"}</button></div></form>)}</div><Feedback state={bundleState}/></details>}
+
+    <form ref={formRef} action={action} className="mt-4 border-t border-line-soft pt-3"><input type="hidden" name="leadId" value={fin.leadId}/><input type="search" value={query} onChange={(event)=>setQuery(event.target.value)} placeholder="Type to filter available services…" className="calm-field h-10 w-full px-3 text-[12px]"/><div className="mt-2 grid max-h-48 gap-1 overflow-auto border border-line bg-panel p-2 sm:grid-cols-2">{options.map((option)=><label key={option.id} className="flex items-center justify-between gap-2 p-2 text-[11.5px] hover:bg-line-faint"><span className="flex items-center gap-2"><input type="checkbox" name="serviceSettingIds" value={option.id}/><b className="text-ink-800">{option.name}</b></span><span className="tabular-nums text-ink-500">{formatMoney(option.basePrice, fin.currency)}</span></label>)}{options.length===0&&<div className="p-2 text-[11px] text-ink-400">No matching services remain.</div>}</div><div className="mt-2 flex items-center justify-between"><Feedback state={state}/><button disabled={pending || !fin.canEdit} className={btnCls}>{pending?"Adding…":"Add selected services"}</button></div></form>
+  </section>;
 }
 
 /* ── §5 quote editor ──────────────────────────────────────────── */
@@ -207,6 +240,9 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
   const [raw, setRaw] = useState(fin.summary.hasQuote ? String(fin.summary.quotedPrice) : "");
   const [confirming, setConfirming] = useState(false);
   const [escalatingOpen, setEscalatingOpen] = useState(false);
+  useEffect(() => {
+    setRaw(fin.summary.hasQuote ? String(fin.summary.quotedPrice) : "");
+  }, [fin.recordId, fin.summary.hasQuote, fin.summary.quotedPrice, fin.summary.baseServicePrice]);
 
   const parsed = raw.trim() === "" ? null : Number(raw);
   const verdict = evaluateQuote({
@@ -218,14 +254,15 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
 
   const below = verdict.status === "below_allowed";
   const cur = fin.currency;
-  const halfPrivilege = Math.round(fin.summary.maxAllowedDiscountPct / 2 * 10) / 10;
-  const availableDiscounts = [...new Set([0, halfPrivilege, fin.summary.maxAllowedDiscountPct])]
-    .filter((value) => value >= 0 && value <= fin.summary.maxAllowedDiscountPct)
-    .sort((a, b) => a - b);
+  const availableDiscounts = discountPresets(fin.summary.maxAllowedDiscountPct);
   const chooseDiscount = (pct: number) => {
     const quoted = Math.round(fin.summary.baseServicePrice * (1 - pct / 100) * 100) / 100;
     setRaw(String(quoted));
   };
+  const selectedPreset = availableDiscounts.find((pct) => {
+    const price = Math.round(fin.summary.baseServicePrice * (1 - pct / 100) * 100) / 100;
+    return parsed !== null && Math.abs(parsed - price) < 0.005;
+  });
 
   return (
     <section>
@@ -248,7 +285,8 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
                 type="button"
                 disabled={!fin.canEdit || fin.summary.baseServicePrice <= 0}
                 onClick={() => chooseDiscount(discount)}
-                className="rounded-control border border-primary/25 bg-white px-3 py-2 text-[11.5px] font-black text-primary hover:border-primary hover:bg-primary hover:text-white disabled:opacity-40"
+                aria-pressed={selectedPreset === discount}
+                className={cn("rounded-control border px-3 py-2 text-[11.5px] font-black disabled:opacity-40", selectedPreset === discount ? "border-primary bg-primary text-white" : "border-primary/25 bg-white text-primary hover:border-primary hover:bg-primary hover:text-white")}
               >
                 {discount === fin.summary.maxAllowedDiscountPct && discount > 0 ? `Use max · ${formatPct(discount)}` : formatPct(discount)}
               </button>
@@ -265,7 +303,7 @@ function QuoteEditor({ fin, onChanged }: { fin: LeadFinancials; onChanged?: () =
               {formatMoney(fin.summary.baseServicePrice, cur)}
             </div>
             <p className="mt-1 text-[11px] text-ink-400">
-              Frozen when this record was created. Re-pricing the service later does not change it.
+              Current total of the services on this bill. Each catalogue list-price snapshot remains frozen on its service row.
             </p>
           </div>
 
@@ -1110,28 +1148,30 @@ export function PaymentsTab({
   const fin = financials;
   const s = fin.summary;
   const cur = fin.currency;
-  const isOverpaid = s.outstanding < 0;
-  const balanceValue = isOverpaid ? Math.abs(s.outstanding) : s.outstanding;
+  const hasCredit = s.patientCredit > 0;
+  const hasNeutralBill = !s.hasQuote && s.baseServicePrice === 0 && s.totalCollected === 0;
+  const balanceValue = hasCredit ? s.patientCredit : s.balanceDue;
 
   return (
     <div className="flex flex-col gap-4 bg-toolbar/30 p-3 sm:p-5 [&>section]:rounded-xl [&>section]:border [&>section]:border-line-soft [&>section]:bg-panel [&>section]:p-4 [&>section]:shadow-sm">
       <section className="section-hero !p-5">
         <div className="grid gap-5 sm:grid-cols-[1.25fr_1fr] sm:items-end">
           <div>
-            <div className="section-hero-eyebrow text-[10.5px] font-black uppercase tracking-[0.16em]">{isOverpaid ? "Patient credit" : "Patient balance"}</div>
-            <div className={"mt-2 text-[30px] font-black tabular-nums sm:text-[36px] " + (s.outstanding > 0 ? "text-ink-950" : "text-emerald-600")}>
+            <div className="section-hero-eyebrow text-[10.5px] font-black uppercase tracking-[0.16em]">{hasCredit ? "Patient credit" : "Patient balance"}</div>
+            <div className={"mt-2 text-[30px] font-black tabular-nums sm:text-[36px] " + (s.balanceDue > 0 ? "text-amber-700" : hasCredit ? "text-teal-600" : "text-ink-950")}>
               {formatMoney(balanceValue, cur)}
             </div>
             <div className="section-hero-muted mt-2 text-[12px]">
-              {s.outstanding > 0 ? "Still due from the patient" : isOverpaid ? `Paid in advance · the patient paid ${formatMoney(Math.abs(s.outstanding), cur)} extra` : "Paid in full · no balance remains"}
+              {hasNeutralBill ? "No billable services or agreed price yet" : s.balanceDue > 0 ? `Patient balance: ${formatMoney(s.balanceDue, cur)}` : hasCredit ? <span className="font-bold text-teal-700"><span aria-hidden="true">✦</span> Patient has extra credit · {formatMoney(s.patientCredit, cur)} available</span> : "Paid in full · no balance remains"}
               {s.pendingTotal > 0 ? ` · ${formatMoney(s.pendingTotal, cur)} pending settlement` : ""}
             </div>
           </div>
           <div className="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-line pt-4 text-ink-950 sm:border-s sm:border-t-0 sm:ps-5 sm:pt-0">
             <div><div className="text-[10px] uppercase text-ink-500">Agreed price</div><div className="mt-1 text-[15px] font-bold">{s.hasQuote ? formatMoney(s.quotedPrice, cur) : "Not set"}</div></div>
             <div><div className="text-[10px] uppercase text-ink-500">Collected</div><div className="mt-1 text-[15px] font-bold text-emerald-600">{formatMoney(s.totalCollected, cur)}</div></div>
-            <div><div className="text-[10px] uppercase text-ink-500">Discount</div><div className="mt-1 text-[15px] font-bold">{formatPct(s.effectiveDiscountPct)}</div></div>
+            <div><div className="text-[10px] uppercase text-ink-500">Discount</div><div className="mt-1 text-[15px] font-bold">{s.hasQuote && s.baseServicePrice > 0 ? formatPct(s.effectiveDiscountPct) : "Not applicable"}</div></div>
             <div><div className="text-[10px] uppercase text-ink-500">Total bill</div><div className="mt-1 text-[15px] font-bold">{formatMoney(s.amountDue, cur)}</div></div>
+            <div className="col-span-2 rounded-control border border-teal-200 bg-teal-50 px-2.5 py-2 dark:border-teal-800 dark:bg-teal-950/30"><div className="text-[10px] uppercase text-teal-700">Patient credit</div><div className="mt-1 text-[15px] font-bold text-teal-700">{hasCredit ? `✦ ${formatMoney(s.patientCredit, cur)}` : "None"}</div></div>
           </div>
         </div>
       </section>

@@ -312,7 +312,7 @@ export interface Lead {
   patientName: string;
   phone: string;
   phones?: Array<{ id: string; number: string; label: string; primary: boolean }>;
-  linkedLeads?: Array<{ linkId: string; id: string; name: string; phone: string; relationship: LeadRelationship }>;
+  linkedLeads?: Array<{ linkId: string; id: string; name: string; phone: string; relationship: LeadRelationship; notes?: string }>;
   familyMembers?: Array<{ id: string; name: string; phone: string; sharedPhone: string }>;
   /** True when an admin/auditor removed this record from operational queues
    *  while retaining it permanently in the patient Database. */
@@ -323,6 +323,8 @@ export interface Lead {
   platform: Platform;
   platformId?: string; // messenger/ig/whatsapp id
   chatLink?: string;
+  /** Moderator-managed shortcut. Kept separate from provider/fallback inbox links. */
+  conversationLink?: string;
   sourceId?: string;
   sourceLabel?: string;
   campaignId?: string;
@@ -364,7 +366,7 @@ export interface Lead {
   followUp: FollowUp;
 }
 
-export type LeadRelationship = "same_patient" | "relative" | "distant_relative" | "other";
+export type LeadRelationship = "same_patient" | "parent" | "child" | "spouse" | "sibling" | "relative" | "same_household" | "guardian" | "caregiver" | "related_contact" | "other";
 
 export interface TreatingDoctorAssignment {
   id: string;

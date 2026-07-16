@@ -10,6 +10,7 @@ export type FinancialServiceSetting = {
   serviceCode: string | null;
   specialtyId: string | null;
   specialtyName: string | null;
+  specialtyIds: string[];
   basePrice: number;
   currency: string;
   defaultConsumablesCost: number;
@@ -184,12 +185,12 @@ export async function financialSettingsData(): Promise<FinancialSettingsData> {
     db.from("crm_consumable_components").select("id,name,unit_cost,active").order("name"),
     db.from("crm_service_consumable_defaults").select("*").order("service_name"),
     db.from("crm_service_external_cost_defaults").select("*").order("service_name"),
-    db.from("crm_users").select("id,full_name,email").in("role", ["moderator", "manager", "owner_admin"]).eq("is_active", true).order("full_name"),
+    db.from("crm_users").select("id,full_name,email").eq("role", "moderator").eq("is_active", true).order("full_name"),
     db.from("crm_financial_bundles").select("*").order("created_at", { ascending: false }).limit(30),
     db.from("crm_financial_bundle_components").select("*").order("display_order").limit(300),
     db.from("crm_service_addon_rules").select("*").order("created_at", { ascending: false }).limit(30),
     db.from("crm_payment_method_settings").select("*").order("display_order").limit(30),
-    db.from("crm_staff_commission_rules").select("*").order("created_at", { ascending: false }).limit(30),
+    db.from("crm_staff_commission_rules").select("*").order("created_at", { ascending: false }),
   ]);
 
   for (const [name, res] of Object.entries({ serviceSettings, discountRules, compRules, components, moderatorsRes })) {
@@ -220,6 +221,7 @@ export async function financialSettingsData(): Promise<FinancialSettingsData> {
       serviceCode: svc.code,
       specialtyId: svc.specialtyId,
       specialtyName: svc.specialtyId ? specialtyName.get(svc.specialtyId) ?? null : null,
+      specialtyIds: (setting?.specialty_ids as string[] | undefined) ?? (svc.specialtyId ? [svc.specialtyId] : []),
       basePrice: num(setting?.base_price ?? svc.fee),
       currency: (setting?.currency as string | undefined) ?? "EGP",
       defaultConsumablesCost: num(setting?.default_consumables_cost),
@@ -238,6 +240,7 @@ export async function financialSettingsData(): Promise<FinancialSettingsData> {
       serviceCode: null,
       specialtyId: null,
       specialtyName: null,
+      specialtyIds: (setting.specialty_ids as string[] | null) ?? [],
       basePrice: num(setting.base_price),
       currency: (setting.currency as string | null) ?? "EGP",
       defaultConsumablesCost: num(setting.default_consumables_cost),

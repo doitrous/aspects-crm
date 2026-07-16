@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { DuplicatePair, LeadSummary } from "@/lib/types";
 import { Badge } from "@/components/ui/Badge";
 import { STAGE_META, PLATFORM_META } from "@/lib/badges";
 import { formatDate } from "@/lib/format";
-import { ResolveButton } from "@/components/queues/ResolveButton";
-import { resolveDuplicateAction } from "@/app/(crm)/duplicates/actions";
+import { relatedDuplicateAction, resolveDuplicateAction, samePatientDuplicateAction } from "@/app/(crm)/duplicates/actions";
+import type { LeadRelationship } from "@/lib/types";
 
 function Side({ lead, tag }: { lead?: LeadSummary; tag: string }) {
   if (!lead) {
@@ -113,9 +113,25 @@ export function DuplicateCard({
   const [keepStatus, setKeepStatus] = useState(pair.primary?.stage ?? "new");
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [mergePending, startMerge] = useTransition();
+  const [decisionOpen, setDecisionOpen] = useState<"same" | "family" | "contact" | null>(null);
+  const [relationship, setRelationship] = useState<LeadRelationship>("parent");
+  const [decisionNote, setDecisionNote] = useState("");
+  const [canonicalLeadId, setCanonicalLeadId] = useState(pair.primary?.id ?? pair.duplicate?.id ?? "");
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [decisionPending, startDecision] = useTransition();
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const resolved = pair.status === "linked" || pair.status === "merged" || pair.status === "not_duplicate";
   const rm = RESOLVED_META[pair.status];
-  const conflictingStages = pair.primary && pair.duplicate && pair.primary.stage !== pair.duplicate.stage;
+
+  useEffect(() => {
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
+    if (dialog) dialog.querySelector<HTMLElement>("button, input, select, textarea, a[href]")?.focus();
+    if (!decisionOpen && !mergeOpen) returnFocusRef.current?.focus();
+  }, [decisionOpen, mergeOpen]);
+
+  function rememberFocus() {
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
 
   function merge() {
     startMerge(async () => {
@@ -126,6 +142,29 @@ export function DuplicateCard({
         return;
       }
       setMergeOpen(false);
+      router.refresh();
+    });
+  }
+
+  function decideRelationship() {
+    if (!decisionOpen) return;
+    startDecision(async () => {
+      setDecisionError(null);
+      const result = decisionOpen === "same"
+        ? await samePatientDuplicateAction(pair.id, canonicalLeadId, decisionNote)
+        : await relatedDuplicateAction(pair.id, relationship, decisionNote);
+      if (result.error) { setDecisionError(result.error); return; }
+      setDecisionOpen(null); setDecisionNote(""); router.refresh();
+    });
+  }
+
+  function dismissSuggestion(differentPeople: boolean) {
+    const note = window.prompt("Optional moderator note", differentPeople ? "Reviewed as different people" : "");
+    if (note === null) return;
+    startDecision(async () => {
+      setDecisionError(null);
+      const result = await resolveDuplicateAction(pair.id, "dismissed", note.trim() || (differentPeople ? "Reviewed as different people" : undefined));
+      if (result.error) { setDecisionError(result.error); return; }
       router.refresh();
     });
   }
@@ -168,31 +207,25 @@ export function DuplicateCard({
       </div>
 
       {!resolved && (
-        <div className="mt-3 flex items-center justify-end gap-2 border-t border-line-faint pt-3">
-          <ResolveButton
-            action={resolveDuplicateAction.bind(null, pair.id, "dismissed")}
-            label="Not a duplicate"
-            pendingLabel="Saving…"
-            tone="ghost"
-          />
-          <ResolveButton
-            action={resolveDuplicateAction.bind(null, pair.id, "linked")}
-            label="Link records"
-            pendingLabel="Linking…"
-            tone="ghost"
-          />
-          <button type="button" onClick={() => conflictingStages ? setMergeOpen(true) : merge()} className="rounded-control bg-primary px-3 py-1.5 text-[11.5px] font-semibold text-white hover:bg-primary-hover">
-            Merge duplicate
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-line-faint pt-3">
+          <button type="button" disabled={decisionPending} onClick={() => dismissSuggestion(false)} className="rounded-control border border-line px-3 py-1.5 text-[11.5px] font-semibold text-ink-700 disabled:opacity-50">Dismiss suggestion</button>
+          <button type="button" disabled={decisionPending} onClick={() => dismissSuggestion(true)} className="rounded-control border border-line px-3 py-1.5 text-[11.5px] font-semibold text-ink-700 disabled:opacity-50">Different people</button>
+          <button type="button" onClick={() => { rememberFocus(); setDecisionOpen("contact"); setRelationship("guardian"); }} className="rounded-control border border-line px-3 py-1.5 text-[11.5px] font-semibold text-ink-700">Guardian / caregiver</button>
+          <button type="button" onClick={() => { rememberFocus(); setDecisionOpen("family"); setRelationship("parent"); }} className="rounded-control border border-line px-3 py-1.5 text-[11.5px] font-semibold text-ink-700">Family members</button>
+          <button type="button" onClick={() => { rememberFocus(); setDecisionOpen("same"); }} className="rounded-control border border-primary bg-primary-soft px-3 py-1.5 text-[11.5px] font-semibold text-primary">Same patient</button>
+          <button type="button" onClick={() => { rememberFocus(); setMergeOpen(true); }} className="rounded-control bg-primary px-3 py-1.5 text-[11.5px] font-semibold text-white hover:bg-primary-hover">
+            Merge records
           </button>
         </div>
       )}
+      {decisionOpen && pair.primary && pair.duplicate && <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/35 p-4" role="dialog" aria-modal="true" aria-label="Record duplicate decision"><div className="w-full max-w-lg rounded-card border border-line bg-panel p-5 shadow-xl"><h3 className="text-[16px] font-black text-ink-900">{decisionOpen === "same" ? "Link as the same patient" : decisionOpen === "family" ? "Record family relationship" : "Record guardian, caregiver or related contact"}</h3><p className="mt-1 text-[11.5px] text-ink-500">Both original leads remain openable. No messages, appointments, payments, notes or history are deleted.</p>{decisionOpen === "same" ? <fieldset className="mt-4 grid gap-2"><legend className="mb-1 text-[11px] font-bold text-ink-600">Canonical patient record</legend>{[pair.primary, pair.duplicate].map((lead) => <label key={lead.id} className={`rounded-control border p-3 text-[12px] ${canonicalLeadId === lead.id ? "border-primary bg-primary-soft" : "border-line"}`}><input className="me-2" type="radio" checked={canonicalLeadId === lead.id} onChange={() => setCanonicalLeadId(lead.id)}/><b>{lead.id}</b> · {lead.name} · MRN {lead.mrn || "missing"}</label>)}</fieldset> : <label className="mt-4 block text-[11px] font-bold text-ink-600">Relationship type<select value={relationship} onChange={(event) => setRelationship(event.target.value as LeadRelationship)} className="mt-1 h-10 w-full rounded-control border border-line bg-panel px-3 text-[12px]">{(decisionOpen === "family" ? [["parent","Parent"],["child","Child"],["spouse","Spouse"],["sibling","Sibling"],["relative","Relative"],["same_household","Same household"],["other","Other"]] : [["guardian","Guardian"],["caregiver","Caregiver"],["related_contact","Related contact"],["other","Other"]]).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>}<label className="mt-3 block text-[11px] font-bold text-ink-600">Optional moderator note<textarea value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} rows={2} className="mt-1 w-full rounded-control border border-line p-2 text-[12px]"/></label>{decisionError && <p role="alert" className="mt-2 text-[11px] font-semibold text-danger">{decisionError}</p>}<div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setDecisionOpen(null)} className="rounded-control border border-line px-3 py-2 text-[12px]">Cancel</button><button type="button" disabled={decisionPending} onClick={decideRelationship} className="rounded-control bg-primary px-3 py-2 text-[12px] font-bold text-white">{decisionPending ? "Saving…" : "Confirm decision"}</button></div></div></div>}
       {mergeOpen && pair.primary && pair.duplicate && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/30 p-4" role="dialog" aria-modal="true" aria-label="Choose merged lead status">
           <div className="w-full max-w-md rounded-card border border-line bg-panel p-5 shadow-xl">
             <h3 className="text-[16px] font-bold text-ink-900">Which status should the merged lead keep?</h3>
-            <p className="mt-1 text-[12px] text-ink-500">These records have different primary stages. The selected status determines where the surviving lead appears.</p>
+            <p className="mt-1 text-[12px] text-ink-500">Confirm the status the surviving lead will keep. All linked history is retained and this merge cannot be undone automatically.</p>
             <div className="mt-4 grid gap-2">
-              {[pair.primary.stage, pair.duplicate.stage].map((status) => (
+              {[...new Set([pair.primary.stage, pair.duplicate.stage])].map((status) => (
                 <label key={status} className={`flex cursor-pointer items-center gap-3 rounded-control border p-3 text-[12.5px] font-semibold ${keepStatus === status ? "border-primary bg-primary-soft text-primary" : "border-line text-ink-700"}`}>
                   <input type="radio" checked={keepStatus === status} onChange={() => setKeepStatus(status)} />
                   {STAGE_LABEL[status]}

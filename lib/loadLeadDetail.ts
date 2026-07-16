@@ -17,7 +17,7 @@ import { loadFollowUpPlan } from "@/lib/data/followupPlans";
 import { whatsappConfigured } from "@/lib/whatsapp/config";
 import { deriveLeadBookingSummary } from "@/lib/booking/leadSummary";
 import { refreshReplyOverdueFlags } from "@/lib/data/replySla";
-import type { Lead, PipelineStage, Platform, TreatingDoctorAssignment } from "@/lib/types";
+import type { Lead, LeadRelationship, PipelineStage, Platform, TreatingDoctorAssignment } from "@/lib/types";
 import { getSessionUser } from "@/lib/data/session";
 import { can } from "@/lib/auth/permissions";
 import { formatDateTime } from "@/lib/format";
@@ -153,6 +153,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     // A generic inbox remains a safe fallback when a platform exposes no
     // supported browser deep link (notably some Instagram conversations).
     chatLink: row.conversation_link ?? row.chat_link ?? row.fallback_inbox_link ?? row.page_inbox_link ?? undefined,
+    conversationLink: row.conversation_link ?? undefined,
     sourceId: row.source_id ?? undefined,
     sourceLabel: metadata.record_source === "database" ? "Database" : undefined,
     databaseOnly: metadata.database_only === true,
@@ -198,7 +199,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
 async function patientConnectionsFor(leadUid: string): Promise<Pick<Lead, "linkedLeads" | "familyMembers">> {
   const db = supabaseAdmin();
   const [{ data: links, error: linksError }, { data: ownPhones, error: phonesError }] = await Promise.all([
-    db.from("crm_lead_links").select("id,lead_a_id,lead_b_id,relationship").or(`lead_a_id.eq.${leadUid},lead_b_id.eq.${leadUid}`),
+    db.from("crm_lead_links").select("id,lead_a_id,lead_b_id,relationship,relationship_source_lead_id,notes").or(`lead_a_id.eq.${leadUid},lead_b_id.eq.${leadUid}`),
     db.from("crm_lead_phones").select("normalized_phone").eq("lead_id", leadUid),
   ]);
   if (linksError) throw new Error(`patientConnections(links): ${linksError.message}`);
@@ -217,8 +218,12 @@ async function patientConnectionsFor(leadUid: string): Promise<Pick<Lead, "linke
     linkedLeads: (links ?? []).map((link) => {
       const uid = (link.lead_a_id === leadUid ? link.lead_b_id : link.lead_a_id) as string;
       const member = byId.get(uid);
-      const relationship = link.relationship === "family" ? "relative" : link.relationship;
-      return member ? { linkId: link.id as string, id: member.lead_id as string, name: (member.name as string | null) || "Unnamed", phone: buildPhone(member as never), relationship: relationship as "same_patient" | "relative" | "distant_relative" | "other" } : null;
+      let relationship = link.relationship === "family" || link.relationship === "distant_relative" ? "relative" : link.relationship;
+      if (link.relationship_source_lead_id !== leadUid) {
+        if (relationship === "parent") relationship = "child";
+        else if (relationship === "child") relationship = "parent";
+      }
+      return member ? { linkId: link.id as string, id: member.lead_id as string, name: (member.name as string | null) || "Unnamed", phone: buildPhone(member as never), relationship: relationship as LeadRelationship, notes: (link.notes as string | null) ?? undefined } : null;
     }).filter((member): member is NonNullable<typeof member> => Boolean(member)),
     familyMembers: (familyPhoneRows.data ?? []).map((phoneRow) => {
       const member = byId.get(phoneRow.lead_id as string);

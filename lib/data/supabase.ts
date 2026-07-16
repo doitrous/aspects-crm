@@ -593,7 +593,6 @@ async function enrichDuplicateRows(
       primary: row.lead_id ? summaries.get(row.lead_id) : undefined,
       duplicate: row.duplicate_lead_id ? summaries.get(row.duplicate_lead_id) : undefined,
     }))
-    .filter((pair) => !pair.primary?.databaseOnly && !pair.duplicate?.databaseOnly)
     .sort((left, right) =>
       (DUPLICATE_TYPE_PRIORITY[left.type] ?? 99) - (DUPLICATE_TYPE_PRIORITY[right.type] ?? 99) ||
       new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
@@ -1268,21 +1267,24 @@ export const supabaseProvider: DataProvider = {
     const pageSize = Math.min(30, Math.max(1, Math.floor(requestedPageSize)));
     const page = Math.max(1, Math.floor(requestedPage));
     const columns = "id,lead_id,duplicate_lead_id,duplicate_type,identifier_value,status,notes,reviewed_by,confidence_score,match_priority,created_at";
-    const [usersById, rowsResult] = await Promise.all([
+    const from = (page - 1) * pageSize;
+    const rowsQuery = db.from("lead_duplicate_flags").select(columns)
+      .order("match_priority", { ascending: true }).order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+    const selectedQuery = view === "open" ? rowsQuery.eq("status", "pending") : rowsQuery.neq("status", "pending");
+    const [usersById, rowsResult, openCount, resolvedCount] = await Promise.all([
       loadUserMap(),
-      db.from("lead_duplicate_flags").select(columns).order("match_priority", { ascending: true }).order("created_at", { ascending: false }),
+      selectedQuery,
+      db.from("lead_duplicate_flags").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      db.from("lead_duplicate_flags").select("id", { count: "exact", head: true }).neq("status", "pending"),
     ]);
     if (rowsResult.error) throw new Error(`duplicateQueuePage: ${rowsResult.error.message}`);
-    const all = await enrichDuplicateRows((rowsResult.data ?? []) as unknown as DuplicateFlagRow[], usersById);
-    const open = all.filter((pair) => pair.status === "suspected");
-    const resolved = all.filter((pair) => pair.status !== "suspected");
-    const selected = view === "open" ? open : resolved;
-    const from = (page - 1) * pageSize;
+    const selected = await enrichDuplicateRows((rowsResult.data ?? []) as unknown as DuplicateFlagRow[], usersById);
     return {
-      items: selected.slice(from, from + pageSize),
-      total: selected.length,
-      openTotal: open.length,
-      resolvedTotal: resolved.length,
+      items: selected,
+      total: view === "open" ? (openCount.count ?? 0) : (resolvedCount.count ?? 0),
+      openTotal: openCount.count ?? 0,
+      resolvedTotal: resolvedCount.count ?? 0,
       page,
       pageSize,
       view,
@@ -1415,6 +1417,17 @@ export const supabaseProvider: DataProvider = {
         merge_note: notes?.trim() || null,
       });
       if (error) throw new Error(`resolveDuplicate(merge): ${error.message}`);
+      return;
+    }
+    if (decision === "dismissed") {
+      const decisionKind = notes?.toLowerCase().includes("different people") ? "different_people" : "dismissed";
+      const { error } = await supabaseAdmin().rpc("crm_dismiss_duplicate_review", {
+        target_flag_id: flagId,
+        decision_kind: decisionKind,
+        actor_id: actor.id,
+        moderator_note: notes?.trim() || null,
+      });
+      if (error) throw new Error(`resolveDuplicate(dismiss): ${error.message}`);
       return;
     }
     const db = supabaseAdmin();

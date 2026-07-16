@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { PermissionError } from "@/lib/auth/permissions";
-import { ActorError } from "@/lib/data/actor";
+import { PermissionError, assertCan } from "@/lib/auth/permissions";
+import { ActorError, writeActor } from "@/lib/data/actor";
+import { supabaseAdmin } from "@/lib/supabase/server";
+import { logActivity } from "@/lib/audit/log";
 import {
   SettingsError,
   upsertTag,
@@ -24,6 +26,24 @@ export interface SettingsActionState {
   ok: boolean;
   error?: string;
   message?: string;
+  cursor?: string | null;
+  complete?: boolean;
+}
+
+export async function backfillDuplicatesAction(_prev: SettingsActionState, formData: FormData): Promise<SettingsActionState> {
+  try {
+    const actor = await writeActor();
+    assertCan(actor.role, "settings.manage");
+    const cursor = String(formData.get("cursor") ?? "").trim() || null;
+    const { data, error } = await supabaseAdmin().rpc("crm_backfill_duplicate_flags_batch", { after_lead_id: cursor, batch_size: 500 });
+    if (error) throw new SettingsError(error.message);
+    const result = data as { processed?: number; created?: number; next_cursor?: string | null; complete?: boolean };
+    await logActivity({ actorId: actor.id, action: "duplicates.backfill_batch_run", entityType: "duplicate_backfill", entityId: result.next_cursor ?? cursor ?? "start", newValues: result as Record<string, unknown> });
+    revalidatePath("/duplicates");
+    return { ok: true, cursor: result.complete ? null : result.next_cursor ?? null, complete: Boolean(result.complete), message: result.complete ? "Duplicate backfill is complete." : `Processed ${result.processed ?? 0} records and created ${result.created ?? 0} new review flags. Run the next batch to continue.` };
+  } catch (err) {
+    return fail(err);
+  }
 }
 
 /** Map settings errors to form state so production RSC does not become a digest page. */

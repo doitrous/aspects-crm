@@ -13,6 +13,7 @@ import {
   deleteFollowUpStageAction,
   updateAuditorTargetsAction,
   updateAiPromptAction,
+  backfillDuplicatesAction,
 } from "@/app/(crm)/settings/actions";
 import { Card } from "@/components/ui/Card";
 import type {
@@ -28,6 +29,7 @@ import type {
 } from "@/lib/data/settingsData";
 import type { LeadSourceInfo } from "@/lib/types";
 import { formatDateTime } from "@/lib/format";
+import { EmailAutomationManager } from "@/components/email/EmailAutomationManager";
 
 const PatientBulkImport = dynamic(
   () => import("@/components/leads/PatientBulkImport").then((module) => module.PatientBulkImport),
@@ -61,6 +63,11 @@ function SaveButton({ pending, children = "Save" }: { pending: boolean; children
       {pending ? "Saving…" : children}
     </button>
   );
+}
+
+function DuplicateBackfill({ canManage }: { canManage: boolean }) {
+  const [state, action, pending] = useActionState(backfillDuplicatesAction, SETTINGS_IDLE);
+  return <form action={action} className="mt-4 rounded-control border border-primary/20 bg-primary-soft/30 p-3"><input type="hidden" name="cursor" value={state.cursor ?? ""}/><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[12px] font-black text-ink-900">Backfill existing database records</div><p className="mt-1 text-[11px] text-ink-500">Runs the same live detector in idempotent batches of 500; it never merges patients automatically.</p></div>{canManage && <SaveButton pending={pending}>{state.cursor ? "Run next batch" : state.complete ? "Run safety check again" : "Start duplicate backfill"}</SaveButton>}</div><Feedback state={state}/></form>;
 }
 
 function PagedItems<T>({ items, render }: { items: T[]; render: (item: T) => ReactNode }) {
@@ -621,6 +628,7 @@ export function SettingsManager({
                 { label: "Name similarity", value: "3+ name parts only", hint: "Both patient names must contain at least three meaningful parts. Two-part names are never matched by name alone." },
               ]}
             />
+            <DuplicateBackfill canManage={canManage}/>
           </Card>
         )}
 
@@ -673,17 +681,7 @@ export function SettingsManager({
         {tab === "financial" && <div>{financial}</div>}
 
         {tab === "email" && (
-          <Card className="overflow-hidden p-0">
-            <div className="section-hero p-5">
-              <div className="section-hero-eyebrow text-[11px] font-bold uppercase tracking-[0.16em]">Email system</div>
-              <h3 className="mt-2 text-[22px] font-bold text-ink-950">Automations now live beside their delivery history.</h3>
-              <p className="section-hero-muted mt-2 max-w-2xl text-[12px] leading-5">Build event conditions, recipients, messages, reminder timing, and on/off state in one workspace. This settings page remains the map; the Emails page is the control room.</p>
-            </div>
-            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div><div className="text-[18px] font-bold text-ink-950">{emailRules.filter((rule) => rule.isActive).length} active of {emailRules.length}</div><div className="text-[12px] text-ink-500">All sends retain provider status and error evidence.</div></div>
-              <Link href="/emails" className="inline-flex h-10 items-center justify-center rounded-control bg-primary px-4 text-[13px] font-bold text-white hover:bg-primary-hover">Open email automation</Link>
-            </div>
-          </Card>
+          <div><EmailAutomationManager rules={emailRules} canManage={canManage}/><Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-[14px] font-black text-ink-900">Delivery history stays in Emails</div><div className="text-[11.5px] text-ink-500">Settings and automation logic are edited here; provider outcomes remain in the delivery log.</div></div><Link href="/emails" className="inline-flex h-9 items-center justify-center rounded-control border border-primary px-3 text-[12px] font-bold text-primary">Open delivery history</Link></Card></div>
         )}
 
         {tab === "scheduling" && <div>{scheduling}</div>}

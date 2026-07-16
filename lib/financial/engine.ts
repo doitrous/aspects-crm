@@ -131,6 +131,10 @@ export interface FinancialSummary {
   totalCollected: number;
   /** `amountDue - totalCollected`. Positive = still owed; negative = overpaid. */
   outstanding: number;
+  /** Positive amount still due. Never negative. */
+  balanceDue: number;
+  /** Positive overpayment retained for future accounting. Never negative. */
+  patientCredit: number;
 
   // ── costs & profitability (§8, §9, §11) ───────────────────
   consumablesTotal: number;
@@ -164,8 +168,9 @@ export function computeFinancials(input: FinancialInput): FinancialSummary {
   const quoted = hasQuote ? roundMoney(input.quotedPrice as number) : 0;
 
   // Pricing & discount
-  const discountAmount = subMoney(base, quoted);
-  const effectiveDiscountPct = pctRatio(discountAmount, base);
+  // An absent quote is a neutral state, not a deliberate 100% discount.
+  const discountAmount = hasQuote ? subMoney(base, quoted) : 0;
+  const effectiveDiscountPct = hasQuote ? pctRatio(discountAmount, base) : 0;
   const maxAllowedDiscountPct = clamp(input.maxAllowedDiscountPct, 0, 100);
   const minAllowedQuotedPrice = roundMoney(
     base * (1 - maxAllowedDiscountPct / 100),
@@ -185,9 +190,14 @@ export function computeFinancials(input: FinancialInput): FinancialSummary {
   const actualPaid = subMoney(grossPaid, reversalsTotal);
   const creditsTotal = sumByKind(txns, CREDIT_KINDS);
   const doctorFundedTotal = sumByKind(txns, ["doctor_funded"]);
-  const amountDue = subMoney(quoted, creditsTotal);
+  // The saved quote is final once present; until then, the current service
+  // total is the amount due. This keeps a new bill financially meaningful
+  // without pretending the moderator has already agreed a quote.
+  const amountDue = subMoney(hasQuote ? quoted : base, creditsTotal);
   const totalCollected = addMoney(actualPaid, doctorFundedTotal);
   const outstanding = subMoney(amountDue, totalCollected);
+  const balanceDue = Math.max(0, outstanding);
+  const patientCredit = Math.max(0, roundMoney(totalCollected - amountDue));
 
   // Costs & profitability
   const consumablesTotal = roundMoney(input.consumablesTotal ?? 0);
@@ -233,6 +243,8 @@ export function computeFinancials(input: FinancialInput): FinancialSummary {
     amountDue,
     totalCollected,
     outstanding,
+    balanceDue,
+    patientCredit,
     consumablesTotal,
     doctorCompensations,
     doctorCompensationTotal,

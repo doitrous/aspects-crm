@@ -77,7 +77,18 @@ test("not-yet-quoted lead has hasQuote=false and is not flagged", () => {
   const s = computeFinancials({ ...baseInput, quotedPrice: null });
   assert.equal(s.hasQuote, false);
   assert.equal(s.quotedPrice, 0);
+  assert.equal(s.discountAmount, 0);
+  assert.equal(s.effectiveDiscountPct, 0);
+  assert.equal(s.amountDue, 1000);
   assert.equal(s.isBelowAllowed, false);
+});
+
+test("a zero bill with no quote is neutral, not a false 100 percent discount", () => {
+  const s = computeFinancials({ baseServicePrice: 0, quotedPrice: null, maxAllowedDiscountPct: 20 });
+  assert.equal(s.hasQuote, false);
+  assert.equal(s.discountAmount, 0);
+  assert.equal(s.effectiveDiscountPct, 0);
+  assert.equal(s.patientCredit, 0);
 });
 
 test("quote above list price is a negative discount (surcharge)", () => {
@@ -123,6 +134,21 @@ test("outstanding reflects amount due minus everything collected", () => {
   });
   assert.equal(s.amountDue, 800);
   assert.equal(s.outstanding, 200);
+});
+
+test("patient settlement states distinguish due, paid exactly and extra credit", () => {
+  const due = computeFinancials({ ...baseInput, quotedPrice: 800, transactions: [{ kind: "payment", amount: 300 }] });
+  assert.equal(due.balanceDue, 500);
+  assert.equal(due.patientCredit, 0);
+
+  const paid = computeFinancials({ ...baseInput, quotedPrice: 800, transactions: [{ kind: "payment", amount: 800 }] });
+  assert.equal(paid.balanceDue, 0);
+  assert.equal(paid.patientCredit, 0);
+
+  const overpaid = computeFinancials({ ...baseInput, quotedPrice: 800, transactions: [{ kind: "payment", amount: 950 }] });
+  assert.equal(overpaid.balanceDue, 0);
+  assert.equal(overpaid.outstanding, -150);
+  assert.equal(overpaid.patientCredit, 150);
 });
 
 test("credit note reduces amount due without being cash", () => {

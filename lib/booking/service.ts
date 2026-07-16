@@ -38,6 +38,7 @@ export interface AdminDoctor extends BookingName {
   specialtyId: string | null;
   titleEn?: string;
   consultationFee?: number | null;
+  photoUrl?: string | null;
   active: boolean;
 }
 
@@ -327,7 +328,7 @@ export async function financialDoctorCatalog(): Promise<FinancialDoctorCatalog> 
     db.from("specialties").select("id,name_en,name_ar").order("display_order"),
     db
       .from("doctors")
-      .select("id,name_en,name_ar,title_en,specialty_id,consultation_fee,is_active")
+      .select("id,name_en,name_ar,title_en,specialty_id,consultation_fee,photo_url,is_active")
       .order("display_order"),
   ]);
   for (const res of [specialtiesRes, doctorsRes]) {
@@ -344,6 +345,7 @@ export async function financialDoctorCatalog(): Promise<FinancialDoctorCatalog> 
       title_en: string | null;
       specialty_id: string | null;
       consultation_fee: number | null;
+      photo_url: string | null;
       is_active: boolean | null;
     }[]).map((r) => ({
       id: r.id,
@@ -352,6 +354,7 @@ export async function financialDoctorCatalog(): Promise<FinancialDoctorCatalog> 
       titleEn: r.title_en ?? undefined,
       specialtyId: r.specialty_id,
       consultationFee: r.consultation_fee,
+      photoUrl: r.photo_url,
       active: Boolean(r.is_active),
     })),
   };

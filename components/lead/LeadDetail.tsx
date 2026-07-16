@@ -49,13 +49,14 @@ import {
   updateLeadStageAction,
   markLeadReadAction,
   updateLeadProfileAction,
+  updateLeadConversationLinkAction,
   returnLeadToDatabaseAction,
 } from "@/app/(crm)/leads/actions";
 import {
   resolveEscalationAction,
   returnEscalationAction,
 } from "@/app/(crm)/escalations/actions";
-import { linkDuplicateWithChoicesAction, resolveDuplicateAction } from "@/app/(crm)/duplicates/actions";
+import { resolveDuplicateAction } from "@/app/(crm)/duplicates/actions";
 import { EscalationResolutionControls } from "@/components/queues/EscalationResolutionControls";
 import { mergeMessages } from "@/lib/messages/merge";
 import { deriveLeadBookingSummary } from "@/lib/booking/leadSummary";
@@ -73,6 +74,17 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number];
 type LoadableTab = "Overview" | "Messenger / IG DM" | "WhatsApp" | "Comments" | "Follow-Up" | "Booking" | "Payments" | "Timeline";
+const TAB_SECTION: Record<Tab, string> = {
+  Overview: "identity",
+  "Messenger / IG DM": "contact",
+  WhatsApp: "contact",
+  Comments: "comments",
+  Notes: "clinical",
+  "Follow-Up": "appointments",
+  Booking: "appointments",
+  Payments: "payments",
+  Timeline: "timeline",
+};
 
 const TAB_CACHE_TTL_MS = 5 * 60_000;
 const MAX_TAB_CACHE_ENTRIES = 100;
@@ -234,12 +246,19 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
   const [serviceSearch, setServiceSearch] = useState("");
   const [doctorSearch, setDoctorSearch] = useState("");
   const [returnDatabaseModal, setReturnDatabaseModal] = useState(false);
+  const [conversationLink, setConversationLink] = useState(lead.conversationLink ?? "");
+  const [editingConversationLink, setEditingConversationLink] = useState(false);
 
   const pm = PLATFORM_META[lead.platform];
 
   useEffect(() => {
     if (requestedTab && TABS.includes(requestedTab as Tab)) setTab(requestedTab as Tab);
   }, [requestedTab]);
+
+  useEffect(() => {
+    setConversationLink(lead.conversationLink ?? "");
+    setEditingConversationLink(false);
+  }, [lead.id, lead.conversationLink]);
 
   useEffect(() => {
     const loadable: LoadableTab[] = ["Overview", "Messenger / IG DM", "WhatsApp", "Comments", "Follow-Up", "Booking", "Payments", "Timeline"];
@@ -281,6 +300,20 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
     };
   }, [lead.id, loadedTabs, tab]);
 
+  useEffect(() => {
+    if (tab !== "Payments") return;
+    const refreshCurrentAllowance = () => {
+      tabCache.delete(`${lead.id}:Payments`);
+      setLoadedTabs((current) => {
+        const next = new Set(current);
+        next.delete("Payments");
+        return next;
+      });
+    };
+    window.addEventListener("focus", refreshCurrentAllowance);
+    return () => window.removeEventListener("focus", refreshCurrentAllowance);
+  }, [lead.id, tab]);
+
   function invalidateTab(nextTab: LoadableTab) {
     tabCache.delete(`${lead.id}:${nextTab}`);
     setLoadedTabs((current) => {
@@ -290,7 +323,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
     });
   }
 
-  function run(action: () => Promise<{ ok: string | null; error: string | null }>, onOk?: () => void) {
+  function run<T extends { ok: string | null; error: string | null }>(action: () => Promise<T>, onOk?: (result: T) => void) {
     startTransition(async () => {
       setActionError(null);
       setActionOk(null);
@@ -301,7 +334,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
           return;
         }
         setActionOk(result.ok);
-        onOk?.();
+        onOk?.(result);
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Action failed.");
       }
@@ -496,15 +529,21 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
       </div>
 
       {/* Tabs */}
-      <div className="flex flex-none items-center gap-0.5 overflow-x-auto border-b border-line-soft bg-panel px-2">
+      <div role="tablist" aria-label="Lead details" className="flex flex-none items-center gap-0.5 overflow-x-auto border-b border-line-soft bg-panel px-2">
         {TABS.map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            role="tab"
+            aria-selected={tab === t}
+            data-section={TAB_SECTION[t]}
+            onClick={() => {
+              if (t === "Payments") invalidateTab("Payments");
+              setTab(t);
+            }}
             className={
-              "whitespace-nowrap border-b-2 px-2.5 py-2 text-[11.5px] font-semibold transition-colors " +
+              "lead-drawer-tab whitespace-nowrap border-b-2 px-2.5 py-2 text-[11.5px] font-semibold transition-colors " +
               (tab === t
-                ? "border-primary text-primary"
+                ? "lead-drawer-tab-active"
                 : "border-transparent text-ink-500 hover:text-ink-700")
             }
           >
@@ -514,7 +553,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div role="tabpanel" data-section={TAB_SECTION[tab]} className="lead-drawer-pane min-h-0 flex-1 overflow-auto">
         {loadingTab === tab && (
           <div className="border-b border-line-soft bg-toolbar px-5 py-2 text-[12px] font-medium text-ink-500">
             Loading {tab}...
@@ -625,11 +664,13 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                         <input name="additionalPhone" placeholder="Optional additional number" className="calm-field mt-1 h-8 w-full px-3 text-[11.5px]" />
                       </label>
                     </div>
-                    <label className="text-[11.5px] font-semibold text-ink-500">
-                      MRN <span className="font-normal text-ink-400">(clinic record)</span>
-                      <input name="mrn" inputMode="numeric" pattern="\d{1,9}" minLength={1} maxLength={9} defaultValue={lead.mrn ?? ""} placeholder="1–9 digits" className="calm-field mt-1 h-9 w-full px-3 font-mono text-[12.5px]" />
+                    <div className="text-[11.5px] font-semibold text-ink-500">
+                      <label htmlFor={`mrn-${lead.id}`}>MRN <span className="font-normal text-ink-400">(clinic record)</span></label>
+                      <input id={`mrn-${lead.id}`} name="mrn" inputMode="numeric" pattern="\d{1,9}" minLength={1} maxLength={9} defaultValue={lead.mrn ?? ""} placeholder="1–9 digits" className="calm-field mt-1 h-9 w-full px-3 font-mono text-[12.5px]" />
                       <span className="mt-1 block text-[10px] font-normal leading-tight text-ink-400">A repeated MRN opens the identity-link review.</span>
-                    </label>
+                      <span className="mt-3 block text-[11.5px] font-semibold text-cyan-700">Conversation Link</span>
+                      {editingConversationLink ? <span className="mt-1 block rounded-control border border-cyan-200 bg-cyan-50 p-2"><label htmlFor={`conversation-${lead.id}`} className="sr-only">Conversation Link URL</label><input id={`conversation-${lead.id}`} type="url" value={conversationLink} onChange={(event) => setConversationLink(event.target.value)} placeholder="https://…" className="calm-field h-9 w-full px-3 text-[11.5px]"/><span className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={pending} onClick={() => run(async () => { const result = await updateLeadConversationLinkAction(lead.id, conversationLink); return { ok: result.ok, error: result.error }; }, () => { setData((current) => ({ ...current, lead: { ...current.lead, conversationLink: conversationLink || undefined, chatLink: conversationLink || current.lead.chatLink } })); setEditingConversationLink(false); })} className="rounded-control bg-cyan-700 px-2.5 py-1.5 text-[10.5px] font-bold text-white">Save link</button><button type="button" onClick={() => { setConversationLink(lead.conversationLink ?? ""); setEditingConversationLink(false); }} className="rounded-control border border-line px-2.5 py-1.5 text-[10.5px]">Cancel</button></span></span> : lead.conversationLink ? <span className="mt-1 flex flex-wrap gap-2"><a href={lead.conversationLink} target="_blank" rel="noopener noreferrer" className="rounded-control border border-cyan-300 bg-cyan-50 px-2.5 py-1.5 text-[10.5px] font-bold text-cyan-800">Open conversation ↗</a><button type="button" onClick={() => setEditingConversationLink(true)} className="text-[10.5px] font-bold text-primary">Edit link</button><button type="button" disabled={pending} onClick={() => run(async () => { const result = await updateLeadConversationLinkAction(lead.id, ""); return { ok: result.ok, error: result.error }; }, () => { setConversationLink(""); setData((current) => ({ ...current, lead: { ...current.lead, conversationLink: undefined } })); })} className="text-[10.5px] font-bold text-danger">Remove link</button></span> : <span className="mt-1 flex items-center justify-between rounded-control border border-dashed border-cyan-200 bg-cyan-50/50 px-2.5 py-2"><span className="text-[10.5px] font-normal text-ink-500">No conversation link added.</span><button type="button" onClick={() => setEditingConversationLink(true)} className="text-[10.5px] font-bold text-cyan-700">Add conversation link</button></span>}
+                    </div>
                   </div>
                 </div>
 
@@ -1508,7 +1549,6 @@ function DuplicatesPanel({
             <Link href="/duplicates" className="rounded-control border border-primary bg-primary-soft px-2.5 py-1.5 text-[11.5px] font-semibold text-primary hover:bg-primary-softer">
               Review and merge
             </Link>
-            <LinkIdentityButton group={g} />
             <DuplicateActionButton
               action={() => resolveDuplicateAction(g.id, "dismissed")}
               label="Not a duplicate"
@@ -1519,24 +1559,6 @@ function DuplicatesPanel({
       ))}
     </div>
   );
-}
-
-function LinkIdentityButton({ group }: { group: LeadDetailData["duplicateGroups"][number] }) {
-  const [open, setOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
-  const [first, second] = group.members;
-  const [nameFrom, setNameFrom] = useState(first?.id ?? "");
-  const [mrnFrom, setMrnFrom] = useState(first?.mrn ? first.id : second?.id ?? first?.id ?? "");
-  const [phoneFrom, setPhoneFrom] = useState("both");
-  if (!first || !second) return null;
-  const submit = () => startTransition(async () => {
-    setError(null);
-    const result = await linkDuplicateWithChoicesAction(group.id, { nameFrom, mrnFrom, phoneFrom });
-    if (result.error) setError(result.error); else { setOpen(false); router.refresh(); }
-  });
-  return <><button type="button" onClick={() => setOpen(true)} className="rounded-control border border-primary bg-primary-soft px-2.5 py-1.5 text-[11.5px] font-semibold text-primary">Link identities</button>{open&&<Modal title="Link patient records" onClose={()=>setOpen(false)}><p className="mb-3 text-[11.5px] leading-5 text-ink-600">Both records, conversations and timelines remain intact. Choose the canonical identity shown in combined views.</p><div className="grid grid-cols-[90px_1fr_1fr] gap-2 text-[11px]"><b className="text-ink-400">Field</b><b>{first.id}</b><b>{second.id}</b><span>Name</span>{[first,second].map((m)=><label key={`n-${m.id}`} className="border border-line p-2"><input type="radio" checked={nameFrom===m.id} onChange={()=>setNameFrom(m.id)}/> {m.name}</label>)}<span>MRN</span>{[first,second].map((m)=><label key={`m-${m.id}`} className="border border-line p-2"><input type="radio" checked={mrnFrom===m.id} onChange={()=>setMrnFrom(m.id)}/> {m.mrn||"Missing"}</label>)}<span>Phone</span>{[first,second].map((m)=><label key={`p-${m.id}`} className="border border-line p-2"><input type="radio" checked={phoneFrom===m.id} onChange={()=>setPhoneFrom(m.id)}/> {m.phone||"Missing"}</label>)}</div><label className="mt-2 flex items-center gap-2 border border-primary/25 bg-primary-soft p-2 text-[11.5px] font-semibold text-primary"><input type="radio" checked={phoneFrom==="both"} onChange={()=>setPhoneFrom("both")}/> Keep both phone numbers</label>{error&&<p className="mt-2 text-[11px] text-danger">{error}</p>}<div className="mt-4 flex justify-end gap-2"><button type="button" onClick={()=>setOpen(false)} className="rounded-md border border-line px-3 py-2 text-[11.5px]">Cancel</button><button type="button" disabled={pending} onClick={submit} className="rounded-md bg-primary px-3 py-2 text-[11.5px] font-bold text-white">{pending?"Linking…":"Confirm link"}</button></div></Modal>}</>;
 }
 
 function DuplicateActionButton({

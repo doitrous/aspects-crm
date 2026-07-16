@@ -23,20 +23,16 @@ export function DuplicateReviewList({ items, view }: { items: DuplicatePair[]; v
     });
   }
 
-  function run(decision: "merged" | "linked") {
+  function run() {
     const chosen = openItems.filter((pair) => selected.has(pair.id));
     if (!chosen.length) return;
-    if (decision === "merged") {
-      if (!window.confirm(`Merge ${chosen.length} selected duplicate pair${chosen.length === 1 ? "" : "s"}? The duplicate records will be consolidated into each Primary record.`)) return;
-      if (!window.confirm("Final warning: merging moves related history and cannot be automatically undone. Continue?")) return;
-    } else if (!window.confirm(`Link ${chosen.length} selected pair${chosen.length === 1 ? "" : "s"} without combining their records?`)) {
-      return;
-    }
+    if (!window.confirm(`Merge ${chosen.length} selected duplicate pair${chosen.length === 1 ? "" : "s"}? The duplicate records will be consolidated into each Primary record.`)) return;
+    if (!window.confirm("Final warning: merging moves related history and cannot be automatically undone. Continue?")) return;
     startTransition(async () => {
       setMessage({});
       const result = await bulkResolveDuplicatesAction(
         chosen.map((pair) => ({ flagId: pair.id, keepStatus: pair.primary?.stage })),
-        decision,
+        "merged",
       );
       setMessage({ ok: result.ok ?? undefined, error: result.error ?? undefined });
       setSelected(new Set());
@@ -57,10 +53,7 @@ export function DuplicateReviewList({ items, view }: { items: DuplicatePair[]; v
             Select all {openItems.length} on this page
           </label>
           <span className="text-[11.5px] font-semibold text-ink-500">{selected.size} selected</span>
-          <button type="button" disabled={pending || selected.size === 0} onClick={() => run("linked")} className="min-h-9 rounded-control border border-primary/30 bg-primary-soft px-3 text-[12px] font-bold text-primary disabled:opacity-40">
-            {pending ? "Processing…" : "Bulk-Link"}
-          </button>
-          <button type="button" disabled={pending || selected.size === 0} onClick={() => run("merged")} className="min-h-9 rounded-control bg-primary px-3 text-[12px] font-bold text-white disabled:opacity-40">
+          <button type="button" disabled={pending || selected.size === 0} onClick={run} className="min-h-9 rounded-control bg-primary px-3 text-[12px] font-bold text-white disabled:opacity-40">
             {pending ? "Processing…" : "Bulk-Merge"}
           </button>
         </div>

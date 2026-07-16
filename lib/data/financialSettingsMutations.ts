@@ -43,6 +43,7 @@ export async function upsertServicePrice(input: {
   id?: string | null;
   serviceId?: string | null;
   serviceName: string;
+  specialtyIds?: string[];
   basePrice: number;
   currency?: string;
   defaultConsumablesCost?: number;
@@ -57,6 +58,7 @@ export async function upsertServicePrice(input: {
   const patch = {
     service_id: input.serviceId || null,
     service_name: serviceName,
+    specialty_ids: [...new Set(input.specialtyIds ?? [])],
     base_price: money(input.basePrice),
     currency: input.currency?.trim() || "EGP",
     default_consumables_cost: money(input.defaultConsumablesCost ?? 0),
@@ -153,9 +155,21 @@ export async function upsertDoctorCompRule(input: {
     if (error) throw new FinancialSettingsError(error.message);
     await auditSetting({ actorId: a.id, action: "financial.doctor_comp_rule_updated", entityType: "doctor_compensation_rule", entityId: input.id, oldValues: (before ?? {}) as Record<string, unknown>, newValues: patch });
   } else {
-    const { data, error } = await db.from("crm_doctor_compensation_rules").insert(patch).select("id").single();
-    if (error || !data) throw new FinancialSettingsError(error?.message ?? "Could not create doctor compensation rule.");
-    await auditSetting({ actorId: a.id, action: "financial.doctor_comp_rule_created", entityType: "doctor_compensation_rule", entityId: data.id as string, newValues: patch });
+    const { data: candidates, error: lookupError } = await db.from("crm_doctor_compensation_rules").select("*").eq("doctor_id", input.doctorId);
+    if (lookupError) throw new FinancialSettingsError(lookupError.message);
+    const existing = (candidates ?? []).find((candidate) => {
+      if (input.serviceId) return candidate.service_id === input.serviceId;
+      return !candidate.service_id && String(candidate.service_name ?? "").toLowerCase() === String(input.serviceName ?? "").toLowerCase();
+    });
+    if (existing) {
+      const { error } = await db.from("crm_doctor_compensation_rules").update(patch).eq("id", existing.id);
+      if (error) throw new FinancialSettingsError(error.message);
+      await auditSetting({ actorId: a.id, action: "financial.doctor_comp_rule_updated", entityType: "doctor_compensation_rule", entityId: existing.id as string, oldValues: existing as Record<string, unknown>, newValues: patch });
+    } else {
+      const { data, error } = await db.from("crm_doctor_compensation_rules").insert(patch).select("id").single();
+      if (error || !data) throw new FinancialSettingsError(error?.message ?? "Could not create doctor compensation rule.");
+      await auditSetting({ actorId: a.id, action: "financial.doctor_comp_rule_created", entityType: "doctor_compensation_rule", entityId: data.id as string, newValues: patch });
+    }
   }
   revalidatePath("/financial/settings");
   revalidatePath("/financial");
@@ -185,6 +199,7 @@ export async function upsertConsumableComponent(input: {
 }
 
 export async function upsertServiceConsumableDefault(input: {
+  id?: string | null;
   serviceId?: string | null;
   serviceName: string;
   description: string;
@@ -203,10 +218,28 @@ export async function upsertServiceConsumableDefault(input: {
     active: input.active,
     created_by: a.id,
   };
-  const { data, error } = await supabaseAdmin().from("crm_service_consumable_defaults").insert(patch).select("id").single();
-  if (error || !data) throw new FinancialSettingsError(error?.message ?? "Could not create service consumable default.");
-  await auditSetting({ actorId: a.id, action: "financial.service_consumable_default_created", entityType: "service_consumable_default", entityId: data.id as string, newValues: patch });
+  const db = supabaseAdmin();
+  if (input.id) {
+    const { data: before } = await db.from("crm_service_consumable_defaults").select("*").eq("id", input.id).maybeSingle();
+    const { error } = await db.from("crm_service_consumable_defaults").update(patch).eq("id", input.id);
+    if (error) throw new FinancialSettingsError(error.message);
+    await auditSetting({ actorId: a.id, action: "financial.service_consumable_default_updated", entityType: "service_consumable_default", entityId: input.id, oldValues: (before ?? {}) as Record<string, unknown>, newValues: patch });
+  } else {
+    const { data, error } = await db.from("crm_service_consumable_defaults").insert(patch).select("id").single();
+    if (error || !data) throw new FinancialSettingsError(error?.message ?? "Could not create service consumable default.");
+    await auditSetting({ actorId: a.id, action: "financial.service_consumable_default_created", entityType: "service_consumable_default", entityId: data.id as string, newValues: patch });
+  }
   revalidatePath("/financial/settings");
+}
+
+export async function deleteServiceConsumableDefault(id: string): Promise<void> {
+  const a = await actor();
+  const db = supabaseAdmin();
+  const { data: before, error: readError } = await db.from("crm_service_consumable_defaults").select("*").eq("id", id).maybeSingle();
+  if (readError || !before) throw new FinancialSettingsError("Consumable default not found.");
+  const { error } = await db.from("crm_service_consumable_defaults").delete().eq("id", id);
+  if (error) throw new FinancialSettingsError(error.message);
+  await auditSetting({ actorId: a.id, action: "financial.service_consumable_default_deleted", entityType: "service_consumable_default", entityId: id, oldValues: before as Record<string, unknown> });
 }
 
 export type FinancialRuleTarget = { id: string | null; name: string };
@@ -428,11 +461,21 @@ export async function upsertBundle(input: {
   }
 }
 
-export async function addBundleComponent(input: { bundleId: string; serviceId: string | null; serviceName: string; quantity: number; doctorId: string; doctorName: string; compensationKind: "percentage" | "fixed"; compensationValue: number; compensationBasis: "quoted_price" | "net_after_consumables" }): Promise<void> {
+export async function addBundleComponent(input: { bundleId: string; serviceId: string | null; serviceName: string; quantity: number; doctorId: string; doctorName: string; compensationKind: "percentage" | "fixed"; compensationValue: number | null; compensationBasis: "quoted_price" | "net_after_consumables" }): Promise<void> {
   const a = await actor();
   if (!input.bundleId || !input.serviceName || !input.doctorId || !input.doctorName) throw new FinancialSettingsError("Choose a bundle, service, and treating doctor.");
-  if (input.compensationValue < 0 || (input.compensationKind === "percentage" && input.compensationValue > 100)) throw new FinancialSettingsError("Compensation value is outside the allowed range.");
-  const row = { bundle_id: input.bundleId, service_id: input.serviceId, service_name: input.serviceName, quantity: Math.max(0.01, input.quantity), doctor_id: input.doctorId, doctor_name: input.doctorName, compensation_kind: input.compensationKind, compensation_value: money(input.compensationValue), compensation_basis: input.compensationBasis };
+  let compensation = input.compensationValue === null ? null : { kind: input.compensationKind, value: input.compensationValue, basis: input.compensationBasis };
+  if (!compensation) {
+    const { data: rules } = await supabaseAdmin().from("crm_doctor_compensation_rules").select("kind,value,basis,service_id,service_name,effective_from,effective_to").eq("doctor_id", input.doctorId).eq("active", true);
+    const day = new Date().toISOString().slice(0, 10);
+    const effectiveRules = (rules ?? []).filter((candidate) => (!candidate.effective_from || candidate.effective_from <= day) && (!candidate.effective_to || candidate.effective_to >= day));
+    const rule = effectiveRules.find((candidate) => (candidate.service_id && candidate.service_id === input.serviceId) || candidate.service_name?.toLowerCase() === input.serviceName.toLowerCase())
+      ?? effectiveRules.find((candidate) => !candidate.service_id && !candidate.service_name);
+    if (!rule) throw new FinancialSettingsError("This doctor has no compensation rule for the selected service. Create the rule first or enter an override.");
+    compensation = { kind: rule.kind as "percentage" | "fixed", value: Number(rule.value), basis: rule.basis as "quoted_price" | "net_after_consumables" };
+  }
+  if (compensation.value < 0 || (compensation.kind === "percentage" && compensation.value > 100)) throw new FinancialSettingsError("Compensation value is outside the allowed range.");
+  const row = { bundle_id: input.bundleId, service_id: input.serviceId, service_name: input.serviceName, quantity: Math.max(0.01, input.quantity), doctor_id: input.doctorId, doctor_name: input.doctorName, compensation_kind: compensation.kind, compensation_value: money(compensation.value), compensation_basis: compensation.basis };
   const { data, error } = await supabaseAdmin().from("crm_financial_bundle_components").insert(row).select("id").single();
   if (error || !data) throw new FinancialSettingsError(error?.message ?? "Could not add bundle service.");
   await auditSetting({ actorId: a.id, action: "financial.bundle_component_created", entityType: "financial_bundle_component", entityId: data.id as string, newValues: row });
@@ -487,11 +530,23 @@ export async function upsertStaffCommission(input: {
 }): Promise<void> {
   const a = await actor();
   if (input.commissionPct < 0 || input.commissionPct > 100) throw new FinancialSettingsError("Commission must be between 0 and 100%.");
-  if (!input.moderatorId && !input.doctorId) throw new FinancialSettingsError("Choose a moderator or doctor.");
   const patch = { moderator_id: input.moderatorId || null, doctor_id: input.doctorId || null, service_id: input.serviceId || null, service_name: input.serviceName || null, specialty_id: input.specialtyId || null, commission_pct: input.commissionPct, active: input.active, created_by: a.id };
-  const { data, error } = await supabaseAdmin().from("crm_staff_commission_rules").insert(patch).select("id").single();
+  const db = supabaseAdmin();
+  if (!input.moderatorId && !input.doctorId && !input.serviceId && !input.serviceName && !input.specialtyId) {
+    const { data: global } = await db.from("crm_staff_commission_rules").select("id,*").is("moderator_id", null).is("doctor_id", null).is("service_id", null).is("specialty_id", null).limit(1).maybeSingle();
+    if (global) {
+      const { error } = await db.from("crm_staff_commission_rules").update(patch).eq("id", global.id);
+      if (error) throw new FinancialSettingsError(error.message);
+      await auditSetting({ actorId: a.id, action: "financial.staff_commission_global_applied", entityType: "staff_commission_rule", entityId: global.id as string, oldValues: global as Record<string, unknown>, newValues: { ...patch, affected_moderators: "all" } });
+      revalidatePath("/settings");
+      revalidatePath("/financial");
+      return;
+    }
+  }
+  const { data, error } = await db.from("crm_staff_commission_rules").insert(patch).select("id").single();
   if (error || !data) throw new FinancialSettingsError(error?.message ?? "Could not create commission rule.");
-  await auditSetting({ actorId: a.id, action: "financial.staff_commission_created", entityType: "staff_commission_rule", entityId: data.id as string, newValues: patch });
+  const global = !input.moderatorId && !input.doctorId && !input.serviceId && !input.serviceName && !input.specialtyId;
+  await auditSetting({ actorId: a.id, action: global ? "financial.staff_commission_global_applied" : "financial.staff_commission_created", entityType: "staff_commission_rule", entityId: data.id as string, newValues: global ? { ...patch, affected_moderators: "all" } : patch });
 }
 
 export async function setFinancialSettingActive(table: "crm_service_consumable_defaults" | "crm_service_external_cost_defaults" | "crm_financial_bundles" | "crm_service_addon_rules" | "crm_payment_method_settings" | "crm_staff_commission_rules", id: string, active: boolean): Promise<void> {

@@ -9,6 +9,8 @@ import {
   addExternalCost,
   addTransaction,
   addServicesToLeadFinancials,
+  addBundleToLeadFinancials,
+  addUnlockedAddonToLeadFinancials,
   clearQuote,
   deleteTransaction,
   deleteFinancialLine,
@@ -19,6 +21,8 @@ import {
   setTransactionStatus,
   updateTransaction,
   updateFinancialLine,
+  updateBillServicePrice,
+  removeBillService,
   type ExternalCostCategory,
   type PaymentMethod,
 } from "@/lib/data/financials";
@@ -37,6 +41,26 @@ export async function clearQuoteAction(_prev: FinancialActionState, formData: Fo
 export async function addFinancialServicesAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
   try { await addServicesToLeadFinancials(str(formData, "leadId"), formData.getAll("serviceSettingIds").map(String)); } catch (err) { return toState(err); }
   return { error: null, ok: "Services added to this bill." };
+}
+
+export async function updateBillServicePriceAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
+  try { await updateBillServicePrice(str(formData, "itemId"), money(formData, "billPrice")); } catch (err) { return toState(err); }
+  return { error: null, ok: "Service bill price updated; confirm the patient quote again." };
+}
+
+export async function removeBillServiceAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
+  try { await removeBillService(str(formData, "itemId"), str(formData, "reason") || undefined); } catch (err) { return toState(err); }
+  return { error: null, ok: "Service removed and bill totals recalculated." };
+}
+
+export async function addBundleToBillAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
+  try { await addBundleToLeadFinancials(str(formData, "leadId"), str(formData, "bundleId")); } catch (err) { return toState(err); }
+  return { error: null, ok: "Bundle and its doctor compensation were added." };
+}
+
+export async function addUnlockedAddonToBillAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {
+  try { await addUnlockedAddonToLeadFinancials(str(formData, "leadId"), str(formData, "ruleId")); } catch (err) { return toState(err); }
+  return { error: null, ok: "Unlocked add-on and its compensation were added." };
 }
 
 export async function updateTransactionAction(_prev: FinancialActionState, formData: FormData): Promise<FinancialActionState> {

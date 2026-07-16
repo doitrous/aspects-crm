@@ -15,6 +15,7 @@ import {
   updateLeadStage,
   updateLeadProfile,
   LeadMutationError,
+  updateLeadConversationLink,
 } from "@/lib/data/leadMutations";
 import type { PipelineStage } from "@/lib/types";
 import { PermissionError } from "@/lib/auth/permissions";
@@ -63,6 +64,16 @@ export async function markLeadReadAction(leadId: string): Promise<LeadActionStat
   }
   refreshLeadLists();
   return { ok: "Marked as read.", error: null };
+}
+
+export async function updateLeadConversationLinkAction(leadId: string, url: string): Promise<LeadActionState & { url?: string }> {
+  try {
+    const saved = await updateLeadConversationLink(leadId, url);
+    revalidatePath(`/leads/${leadId}`);
+    return { ok: saved ? "Conversation link saved." : "Conversation link removed.", error: null, url: saved };
+  } catch (err) {
+    return toState(err);
+  }
 }
 
 export async function updateLeadProfileAction(leadId: string, formData: FormData): Promise<LeadActionState> {
@@ -114,7 +125,7 @@ export async function returnLeadToDatabaseAction(leadId: string): Promise<LeadAc
 
 export async function linkLeadAction(leadId: string, formData: FormData): Promise<LeadActionState> {
   const relationship = String(formData.get("relationship") ?? "") as LeadRelationship;
-  if (!["same_patient", "relative", "distant_relative", "other"].includes(relationship)) return { ok: null, error: "Choose a relationship type." };
+  if (!["same_patient", "parent", "child", "spouse", "sibling", "relative", "same_household", "guardian", "caregiver", "related_contact", "other"].includes(relationship)) return { ok: null, error: "Choose a relationship type." };
   try {
     await linkLeads({ leadId, targetLeadId: String(formData.get("targetLeadId") ?? ""), relationship, notes: String(formData.get("notes") ?? "") });
   } catch (err) {

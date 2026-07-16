@@ -10,6 +10,7 @@ import {
   type TransactionStatus,
 } from "@/lib/financial/engine";
 import { addMoney, roundMoney } from "@/lib/financial/money";
+import { serviceBillTotal } from "@/lib/financial/serviceLines";
 import { evaluateQuote, type QuoteEvaluation } from "@/lib/financial/quote";
 import {
   isEffective,
@@ -62,6 +63,7 @@ interface LeadRow {
   coordinator_user_id: string | null;
   doctor_id: string | null;
   initial_price: number | null;
+  metadata: Record<string, unknown> | null;
 }
 
 interface RecordRow {
@@ -145,6 +147,7 @@ export interface DoctorFundedLine {
 export interface FinancialDoctorOption {
   id: string;
   name: string;
+  photoUrl: string | null;
   active: boolean;
 }
 
@@ -171,8 +174,29 @@ export interface ExternalCostLine {
 
 export interface BundleItem {
   id: string;
+  serviceSettingsId: string | null;
+  serviceId: string | null;
   serviceName: string;
-  basePrice: number;
+  listPrice: number;
+  billPrice: number;
+  sourceKind: "service" | "bundle" | "addon";
+  sourceLabel: string | null;
+}
+
+export interface AvailableBundle {
+  id: string;
+  name: string;
+  price: number;
+  currency: string;
+  serviceNames: string[];
+}
+
+export interface UnlockedAddon {
+  id: string;
+  triggerServiceName: string;
+  addonServiceName: string;
+  addonPrice: number;
+  redeemWithinDays: number;
 }
 
 export interface FinancialServiceOption {
@@ -237,6 +261,8 @@ export interface LeadFinancials {
   doctorFunded: DoctorFundedLine[];
   externalCosts: ExternalCostLine[];
   bundleItems: BundleItem[];
+  availableBundles: AvailableBundle[];
+  unlockedAddons: UnlockedAddon[];
   serviceOptions: FinancialServiceOption[];
   approvals: ApprovalRequest[];
   auditTrail: AuditEntry[];
@@ -253,6 +279,14 @@ export interface LeadFinancials {
 
 const num = (v: unknown): number => (typeof v === "number" ? v : Number(v ?? 0) || 0);
 const today = (): string => new Date().toISOString().slice(0, 10);
+const leadSpecialtyId = (lead: LeadRow): string | null => typeof lead.metadata?.specialty_id === "string" ? lead.metadata.specialty_id : null;
+function addonWithinRedemptionWindow(serviceDate: string | null, redeemWithinDays: number): boolean {
+  if (!serviceDate) return true;
+  const expiry = new Date(`${serviceDate}T23:59:59.999Z`);
+  if (Number.isNaN(expiry.getTime())) return true;
+  expiry.setUTCDate(expiry.getUTCDate() + Math.max(0, Math.trunc(redeemWithinDays)));
+  return Date.now() <= expiry.getTime();
+}
 
 /** Resolve `crm_users.id` → display name for a set of ids, in one round trip. */
 async function nameMap(ids: (string | null)[]): Promise<Map<string, string>> {
@@ -275,6 +309,7 @@ async function financialDoctorOptions(): Promise<FinancialDoctorOption[]> {
   return catalog.doctors.map((doctor) => ({
     id: doctor.id,
     name: doctor.nameEn || doctor.nameAr || doctor.id,
+    photoUrl: doctor.photoUrl ?? null,
     active: doctor.active,
   }));
 }
@@ -286,11 +321,35 @@ async function financialServiceOptions(): Promise<FinancialServiceOption[]> {
   return (data ?? []).map((row) => ({ id: row.id as string, serviceId: (row.service_id as string | null) ?? null, name: row.service_name as string, basePrice: num(row.base_price) }));
 }
 
+async function loadOfferOptions(existing: Array<{ serviceId: string | null; serviceName: string }>, specialtyId: string | null): Promise<{ bundles: AvailableBundle[]; addons: UnlockedAddon[] }> {
+  const db = supabaseAdmin();
+  const [offers, components, rules] = await Promise.all([
+    db.from("crm_financial_bundles").select("id,name,price,currency,specialty_id,starts_on,expires_on").eq("active", true),
+    db.from("crm_financial_bundle_components").select("bundle_id,service_name").order("display_order"),
+    db.from("crm_service_addon_rules").select("id,trigger_service_id,trigger_service_name,addon_service_name,addon_price,redeem_within_days").eq("active", true),
+  ]);
+  const day = today();
+  return {
+    bundles: ((offers.data ?? []) as Array<{ id: string; name: string; price: number; currency: string; specialty_id: string | null; starts_on: string | null; expires_on: string | null }>)
+      .filter((offer) => (!offer.specialty_id || offer.specialty_id === specialtyId) && (!offer.starts_on || offer.starts_on <= day) && (!offer.expires_on || offer.expires_on >= day))
+      .map((offer) => ({
+        id: offer.id,
+        name: offer.name,
+        price: num(offer.price),
+        currency: offer.currency,
+        serviceNames: ((components.data ?? []) as Array<{ bundle_id: string; service_name: string }>).filter((component) => component.bundle_id === offer.id).map((component) => component.service_name),
+      })),
+    addons: ((rules.data ?? []) as Array<{ id: string; trigger_service_id: string | null; trigger_service_name: string; addon_service_name: string; addon_price: number; redeem_within_days: number }>)
+      .filter((rule) => existing.some((item) => item.serviceId === rule.trigger_service_id || item.serviceName.toLowerCase() === rule.trigger_service_name.toLowerCase()))
+      .map((rule) => ({ id: rule.id, triggerServiceName: rule.trigger_service_name, addonServiceName: rule.addon_service_name, addonPrice: num(rule.addon_price), redeemWithinDays: num(rule.redeem_within_days) })),
+  };
+}
+
 /** Look a lead up by the human id the route carries (`L0001`), never by uuid. */
 async function leadRow(humanId: string): Promise<LeadRow> {
   const { data } = await supabaseAdmin()
     .from("leads")
-    .select("id, lead_id, service_name, booking_service_id, coordinator_user_id, doctor_id, initial_price")
+    .select("id, lead_id, service_name, booking_service_id, coordinator_user_id, doctor_id, initial_price, metadata")
     .eq("lead_id", humanId)
     .maybeSingle<LeadRow>();
   if (!data) throw new FinancialError("That lead no longer exists.");
@@ -308,6 +367,7 @@ async function leadRow(humanId: string): Promise<LeadRow> {
 async function resolveCeiling(
   lead: LeadRow,
   onDate: string,
+  moderatorId: string | null,
 ): Promise<{ maxPct: number; scope: DiscountScope | null }> {
   const { data } = await supabaseAdmin()
     .from("crm_discount_rules")
@@ -335,7 +395,7 @@ async function resolveCeiling(
     }));
 
   const resolved = resolveMaxDiscount(rules, {
-    moderatorId: lead.coordinator_user_id,
+    moderatorId,
     serviceId: serviceKey(lead.booking_service_id, lead.service_name),
   });
   return { maxPct: resolved.maxDiscountPct, scope: resolved.rule?.scope ?? null };
@@ -473,7 +533,7 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
   const lead = await leadRow(leadId);
   const record = await fetchRecord(lead.id);
   const onDate = record?.service_date ?? today();
-  const ceiling = await resolveCeiling(lead, onDate);
+  const ceiling = await resolveCeiling(lead, onDate, viewer.id);
   const canEdit = can(viewer.role, "financial.editLeadRecord");
   const canForce = can(viewer.role, "financial.forceExceptionalPrice");
   const canEditRules = can(viewer.role, "financial.editRules");
@@ -481,6 +541,7 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
   const serviceOptions = await financialServiceOptions();
 
   if (!record) {
+    const offerOptions = await loadOfferOptions([], leadSpecialtyId(lead));
     const { basePrice } = await lookupBasePrice(lead);
     const summary = computeFinancials({
       baseServicePrice: basePrice,
@@ -512,6 +573,8 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
       doctorFunded: [],
       externalCosts: [],
       bundleItems: [],
+      availableBundles: offerOptions.bundles,
+      unlockedAddons: offerOptions.addons,
       serviceOptions,
       approvals: [],
       auditTrail: [],
@@ -524,7 +587,7 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
   }
 
   const db = supabaseAdmin();
-  const [txns, consumables, comps, funded, external, bundle, approvals, auditRows] =
+  const [txns, consumables, comps, funded, external, bundle, offers, offerComponents, addonRules, approvals, auditRows] =
     await Promise.all([
       db
         .from("crm_financial_transactions")
@@ -556,9 +619,18 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
         .order("occurred_on", { ascending: false }),
       db
         .from("crm_lead_bundle_items")
-        .select("id, service_name, base_price")
+        .select("id, service_settings_id, service_id, service_name, list_price, base_price, source_kind, source_rule_id, source_label")
         .eq("lead_financials_id", record.id)
         .order("created_at", { ascending: true }),
+      db.from("crm_financial_bundles")
+        .select("id,name,price,currency,specialty_id,starts_on,expires_on")
+        .eq("active", true),
+      db.from("crm_financial_bundle_components")
+        .select("bundle_id,service_name")
+        .order("display_order", { ascending: true }),
+      db.from("crm_service_addon_rules")
+        .select("id,trigger_service_id,trigger_service_name,addon_service_id,addon_service_name,addon_price,redeem_within_days")
+        .eq("active", true),
       db
         .from("crm_discount_approvals")
         .select(
@@ -569,7 +641,7 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
       db
         .from("crm_financial_audit_log")
         .select("id, entity_type, entity_id, action, field, old_value, new_value, actor_user_id, actor_role, reason, created_at")
-        .in("entity_type", ["lead_financials", "financial_transaction", "lead_consumable", "external_cost", "doctor_funded_payment", "lead_doctor_compensation", "discount_approval"])
+        .in("entity_type", ["lead_financials", "financial_transaction", "lead_consumable", "external_cost", "doctor_funded_payment", "lead_doctor_compensation", "lead_bundle_item", "discount_approval"])
         .order("created_at", { ascending: false })
         .limit(200),
     ]);
@@ -646,6 +718,7 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
     ...(consumables.data ?? []).map((c) => (c as { id: string }).id),
     ...(external.data ?? []).map((e) => (e as { id: string }).id),
     ...compRows.map((c) => c.id),
+    ...(bundle.data ?? []).map((item) => (item as { id: string }).id),
     ...approvalRows.map((a) => a.id),
   ]);
   const ownedAudit = auditList.filter((a) => a.entity_id && ownedIds.has(a.entity_id));
@@ -770,9 +843,18 @@ export async function leadFinancials(leadId: string): Promise<LeadFinancials> {
       };
     }),
     bundleItems: (bundle.data ?? []).map((b) => {
-      const r = b as { id: string; service_name: string; base_price: number };
-      return { id: r.id, serviceName: r.service_name, basePrice: num(r.base_price) };
+      const r = b as { id: string; service_settings_id: string | null; service_id: string | null; service_name: string; list_price: number; base_price: number; source_kind: BundleItem["sourceKind"]; source_label: string | null };
+      return { id: r.id, serviceSettingsId: r.service_settings_id, serviceId: r.service_id, serviceName: r.service_name, listPrice: num(r.list_price), billPrice: num(r.base_price), sourceKind: r.source_kind, sourceLabel: r.source_label };
     }),
+    availableBundles: ((offers.data ?? []) as Array<{ id: string; name: string; price: number; currency: string; specialty_id: string | null; starts_on: string | null; expires_on: string | null }>)
+      .filter((offer) => (!offer.specialty_id || offer.specialty_id === leadSpecialtyId(lead)) && (!offer.starts_on || offer.starts_on <= today()) && (!offer.expires_on || offer.expires_on >= today()))
+      .filter((offer) => !((bundle.data ?? []) as Array<{ source_kind: string; source_rule_id: string | null }>).some((item) => item.source_kind === "bundle" && item.source_rule_id === offer.id))
+      .map((offer) => ({ id: offer.id, name: offer.name, price: num(offer.price), currency: offer.currency, serviceNames: ((offerComponents.data ?? []) as Array<{ bundle_id: string; service_name: string }>).filter((component) => component.bundle_id === offer.id).map((component) => component.service_name) })),
+    unlockedAddons: ((addonRules.data ?? []) as Array<{ id: string; trigger_service_id: string | null; trigger_service_name: string; addon_service_name: string; addon_price: number; redeem_within_days: number }>)
+      .filter((rule) => ((bundle.data ?? []) as Array<{ service_id: string | null; service_name: string }>).some((item) => (rule.trigger_service_id && item.service_id === rule.trigger_service_id) || item.service_name.toLowerCase() === rule.trigger_service_name.toLowerCase()))
+      .filter((rule) => !((bundle.data ?? []) as Array<{ source_kind: string; source_rule_id: string | null }>).some((item) => item.source_kind === "addon" && item.source_rule_id === rule.id))
+      .filter((rule) => addonWithinRedemptionWindow(record.service_date, rule.redeem_within_days))
+      .map((rule) => ({ id: rule.id, triggerServiceName: rule.trigger_service_name, addonServiceName: rule.addon_service_name, addonPrice: num(rule.addon_price), redeemWithinDays: num(rule.redeem_within_days) })),
     serviceOptions,
     approvals: approvalRows.map((a) => ({
       id: a.id,
@@ -827,20 +909,182 @@ export async function addServicesToLeadFinancials(leadId: string, serviceSetting
   const present = new Set((existing ?? []).map((row) => row.service_settings_id as string));
   const additions = (services ?? []).filter((service) => !present.has(service.id as string));
   if (!additions.length) throw new FinancialError("Those services are already on this bill.");
-  const { error: insertError } = await db.from("crm_lead_bundle_items").insert(additions.map((service) => ({
+  const { data: inserted, error: insertError } = await db.from("crm_lead_bundle_items").insert(additions.map((service) => ({
     lead_financials_id: record.id,
     service_settings_id: service.id,
+    service_id: service.service_id,
     service_name: service.service_name,
+    list_price: service.base_price,
     base_price: service.base_price,
+    source_kind: "service",
     created_by: actor.id,
-  })));
+  }))).select("id,service_settings_id,service_name,list_price,base_price");
   if (insertError) throw new FinancialError(`Could not add services: ${insertError.message}`);
-  const { data: allItems, error: sumError } = await db.from("crm_lead_bundle_items").select("base_price").eq("lead_financials_id", record.id);
-  if (sumError) throw new FinancialError(`Could not total services: ${sumError.message}`);
-  const baseTotal = (allItems ?? []).reduce((sum, item) => sum + num(item.base_price), 0);
-  const { error: updateError } = await db.from("crm_lead_financials").update({ base_service_price: baseTotal, updated_at: new Date().toISOString() }).eq("id", record.id);
-  if (updateError) throw new FinancialError(`Could not update bill total: ${updateError.message}`);
+  await applyCompensationRules(actor, lead, record.id, (inserted ?? []).map((item) => ({
+    id: item.id as string,
+    serviceId: ((additions.find((service) => service.id === item.service_settings_id)?.service_id as string | null | undefined) ?? null),
+    serviceName: item.service_name as string,
+  })));
+  const baseTotal = await recalculateServiceTotal(record.id, true);
+  for (const item of inserted ?? []) {
+    await audit(actor, { entityType: "lead_bundle_item", entityId: item.id as string, action: "service_added", newValue: item });
+  }
   await audit(actor, { entityType: "lead_financials", entityId: record.id, action: "services_added", field: "base_service_price", oldValue: record.base_service_price, newValue: baseTotal });
+  await leadLog(actor, { leadUid: lead.id, action: "lead.payment_services_added", title: "Services added to bill", oldValue: record.base_service_price, newValue: baseTotal, metadata: { lead_id: lead.lead_id, service_names: additions.map((service) => service.service_name) } });
+}
+
+async function recalculateServiceTotal(recordId: string, clearSavedQuote: boolean): Promise<number> {
+  const db = supabaseAdmin();
+  const { data: allItems, error: sumError } = await db.from("crm_lead_bundle_items").select("base_price").eq("lead_financials_id", recordId);
+  if (sumError) throw new FinancialError(`Could not total services: ${sumError.message}`);
+  const baseTotal = serviceBillTotal((allItems ?? []).map((item) => ({ billPrice: num(item.base_price) })));
+  const patch: Record<string, unknown> = { base_service_price: baseTotal, updated_at: new Date().toISOString() };
+  if (clearSavedQuote) Object.assign(patch, { quoted_price: null, is_exceptional: false, exceptional_reason: null, exceptional_by: null, exceptional_at: null });
+  const { error } = await db.from("crm_lead_financials").update(patch).eq("id", recordId);
+  if (error) throw new FinancialError(`Could not update bill total: ${error.message}`);
+  return baseTotal;
+}
+
+async function applyCompensationRules(
+  actor: SessionUser,
+  lead: LeadRow,
+  recordId: string,
+  items: Array<{ id: string; serviceId: string | null; serviceName: string }>,
+): Promise<void> {
+  if (!items.length) return;
+  const db = supabaseAdmin();
+  const { data: assigned } = await db.from("crm_lead_treating_doctors")
+    .select("doctor_id,doctor_name").eq("lead_id", lead.id).eq("active", true);
+  let doctors = ((assigned ?? []) as Array<{ doctor_id: string; doctor_name: string | null }>);
+  if (!doctors.length && lead.doctor_id) {
+    const option = (await financialDoctorOptions()).find((doctor) => doctor.id === lead.doctor_id);
+    doctors = [{ doctor_id: lead.doctor_id, doctor_name: option?.name ?? null }];
+  }
+  if (!doctors.length) return;
+  const { data: rules, error } = await db.from("crm_doctor_compensation_rules")
+    .select("doctor_id,doctor_name,service_id,service_name,kind,value,basis,effective_from,effective_to")
+    .in("doctor_id", doctors.map((doctor) => doctor.doctor_id)).eq("active", true);
+  if (error) throw new FinancialError(`Could not load doctor compensation rules: ${error.message}`);
+  const rows: Array<Record<string, unknown>> = [];
+  for (const item of items) {
+    for (const doctor of doctors) {
+      const candidates = ((rules ?? []) as Array<{ doctor_id: string; doctor_name: string | null; service_id: string | null; service_name: string | null; kind: "percentage" | "fixed"; value: number; basis: "quoted_price" | "net_after_consumables"; effective_from: string | null; effective_to: string | null }>)
+        .filter((rule) => rule.doctor_id === doctor.doctor_id && isEffective({ effectiveFrom: rule.effective_from, effectiveTo: rule.effective_to }, today()));
+      const rule = candidates.find((candidate) => (candidate.service_id && candidate.service_id === item.serviceId) || candidate.service_name?.toLowerCase() === item.serviceName.toLowerCase())
+        ?? candidates.find((candidate) => !candidate.service_id && !candidate.service_name);
+      if (!rule) continue;
+      rows.push({ lead_financials_id: recordId, bundle_item_id: item.id, doctor_id: doctor.doctor_id, doctor_name: doctor.doctor_name ?? rule.doctor_name, kind: rule.kind, value: rule.value, basis: rule.basis, computed_amount: 0, created_by: actor.id });
+    }
+  }
+  if (rows.length) {
+    const { error: insertError } = await db.from("crm_lead_doctor_compensation").insert(rows);
+    if (insertError) throw new FinancialError(`Could not apply doctor compensation: ${insertError.message}`);
+  }
+}
+
+export async function updateBillServicePrice(itemId: string, billPrice: number): Promise<void> {
+  const actor = await writeActor();
+  assertCan(actor.role, "financial.editLeadRecord");
+  const amount = roundMoney(billPrice);
+  if (!Number.isFinite(amount) || amount < 0) throw new FinancialError("Enter a valid bill price.");
+  const db = supabaseAdmin();
+  const { data: before, error } = await db.from("crm_lead_bundle_items").select("*,crm_lead_financials!inner(lead_id)").eq("id", itemId).maybeSingle();
+  if (error || !before) throw new FinancialError("Service line not found.");
+  const { count } = await db.from("crm_financial_transactions").select("id", { count: "exact", head: true }).eq("lead_financials_id", before.lead_financials_id).eq("status", "completed");
+  if ((count ?? 0) > 0) throw new FinancialError("This bill has finalized financial activity. Reverse or reconcile the payment before editing a service price.");
+  const { error: updateError } = await db.from("crm_lead_bundle_items").update({ base_price: amount }).eq("id", itemId);
+  if (updateError) throw new FinancialError(updateError.message);
+  const total = await recalculateServiceTotal(before.lead_financials_id as string, true);
+  await audit(actor, { entityType: "lead_bundle_item", entityId: itemId, action: "service_bill_price_changed", field: "base_price", oldValue: before.base_price, newValue: amount });
+  await leadLog(actor, { leadUid: (before.crm_lead_financials as { lead_id: string }).lead_id, action: "lead.payment_service_price_changed", title: "Service bill price changed", field: "bill_price", oldValue: before.base_price, newValue: amount, metadata: { service_name: before.service_name, new_bill_total: total } });
+}
+
+export async function removeBillService(itemId: string, reason?: string): Promise<void> {
+  const actor = await writeActor();
+  assertCan(actor.role, "financial.editLeadRecord");
+  const db = supabaseAdmin();
+  const { data: before, error } = await db.from("crm_lead_bundle_items").select("*,crm_lead_financials!inner(lead_id)").eq("id", itemId).maybeSingle();
+  if (error || !before) throw new FinancialError("Service line not found.");
+  const { count } = await db.from("crm_financial_transactions").select("id", { count: "exact", head: true }).eq("lead_financials_id", before.lead_financials_id).eq("status", "completed");
+  if ((count ?? 0) > 0) throw new FinancialError("This bill has finalized financial activity. Reverse or reconcile the payment before removing a service.");
+  const { error: compError } = await db.from("crm_lead_doctor_compensation").delete().eq("bundle_item_id", itemId);
+  if (compError) throw new FinancialError(`Could not remove linked compensation: ${compError.message}`);
+  const { error: deleteError } = await db.from("crm_lead_bundle_items").delete().eq("id", itemId);
+  if (deleteError) throw new FinancialError(deleteError.message);
+  const total = await recalculateServiceTotal(before.lead_financials_id as string, true);
+  await audit(actor, { entityType: "lead_bundle_item", entityId: itemId, action: "service_removed", oldValue: before, newValue: null, reason });
+  await leadLog(actor, { leadUid: (before.crm_lead_financials as { lead_id: string }).lead_id, action: "lead.payment_service_removed", title: "Service removed from bill", body: reason?.trim() || null, oldValue: before, newValue: { bill_total: total } });
+}
+
+export async function addBundleToLeadFinancials(leadId: string, bundleId: string): Promise<void> {
+  const actor = await writeActor();
+  assertCan(actor.role, "financial.editLeadRecord");
+  const lead = await leadRow(leadId);
+  const record = await ensureRecord(actor, lead);
+  const db = supabaseAdmin();
+  const day = today();
+  const { data: offer, error } = await db.from("crm_financial_bundles").select("id,name,price,currency,specialty_id,starts_on,expires_on").eq("id", bundleId).eq("active", true).maybeSingle();
+  if (error || !offer) throw new FinancialError("This bundle is no longer available.");
+  if (offer.specialty_id && offer.specialty_id !== leadSpecialtyId(lead)) throw new FinancialError("This bundle is not available for the lead's specialty.");
+  if ((offer.starts_on && offer.starts_on > day) || (offer.expires_on && offer.expires_on < day)) throw new FinancialError("This bundle is outside its availability window.");
+  const { count: existing } = await db.from("crm_lead_bundle_items").select("id", { count: "exact", head: true }).eq("lead_financials_id", record.id).eq("source_kind", "bundle").eq("source_rule_id", bundleId);
+  if ((existing ?? 0) > 0) throw new FinancialError("This bundle is already on the bill.");
+  const { data: components, error: componentError } = await db.from("crm_financial_bundle_components").select("service_id,service_name,quantity,doctor_id,doctor_name,compensation_kind,compensation_value,compensation_basis").eq("bundle_id", bundleId).order("display_order");
+  if (componentError || !components?.length) throw new FinancialError("This bundle has no configured services.");
+  const serviceIds = components.map((component) => component.service_id).filter(Boolean) as string[];
+  const { data: settings } = serviceIds.length ? await db.from("crm_financial_service_settings").select("id,service_id,service_name,base_price").in("service_id", serviceIds) : { data: [] };
+  const listPrices = components.map((component) => {
+    const setting = (settings ?? []).find((candidate) => candidate.service_id === component.service_id) as { id: string; base_price: number } | undefined;
+    return { component, setting, listPrice: roundMoney(num(setting?.base_price) * Math.max(0.01, num(component.quantity) || 1)) };
+  });
+  const listTotal = listPrices.reduce((sum, item) => sum + item.listPrice, 0);
+  let allocated = 0;
+  const rows = listPrices.map((item, index) => {
+    const billPrice = index === listPrices.length - 1
+      ? roundMoney(num(offer.price) - allocated)
+      : roundMoney(listTotal > 0 ? num(offer.price) * item.listPrice / listTotal : num(offer.price) / listPrices.length);
+    allocated = roundMoney(allocated + billPrice);
+    return { lead_financials_id: record.id, service_settings_id: item.setting?.id ?? null, service_id: item.component.service_id ?? null, service_name: item.component.service_name, list_price: item.listPrice, base_price: billPrice, source_kind: "bundle", source_rule_id: bundleId, source_label: offer.name, created_by: actor.id };
+  });
+  const { data: inserted, error: insertError } = await db.from("crm_lead_bundle_items").insert(rows).select("id,service_name");
+  if (insertError || !inserted) throw new FinancialError(insertError?.message ?? "Could not add bundle.");
+  const compensations = inserted.flatMap((item, index) => {
+    const component = components[index];
+    if (!component.doctor_id || !component.compensation_kind || component.compensation_value == null) return [];
+    return [{ lead_financials_id: record.id, bundle_item_id: item.id, doctor_id: component.doctor_id, doctor_name: component.doctor_name, kind: component.compensation_kind, value: component.compensation_value, basis: component.compensation_basis ?? "quoted_price", computed_amount: 0, created_by: actor.id }];
+  });
+  if (compensations.length) {
+    const { error: compError } = await db.from("crm_lead_doctor_compensation").insert(compensations);
+    if (compError) throw new FinancialError(`Could not apply bundle compensation: ${compError.message}`);
+  }
+  const total = await recalculateServiceTotal(record.id, true);
+  await audit(actor, { entityType: "lead_financials", entityId: record.id, action: "bundle_added_to_lead", newValue: { lead_id: lead.lead_id, bundle_id: bundleId, service_lines: inserted, bill_total: total } });
+  await leadLog(actor, { leadUid: lead.id, action: "lead.payment_bundle_added", title: `Bundle unlocked and added: ${offer.name}`, newValue: { bundle_id: bundleId, bill_total: total } });
+}
+
+export async function addUnlockedAddonToLeadFinancials(leadId: string, ruleId: string): Promise<void> {
+  const actor = await writeActor();
+  assertCan(actor.role, "financial.editLeadRecord");
+  const lead = await leadRow(leadId);
+  const record = await ensureRecord(actor, lead);
+  const db = supabaseAdmin();
+  const { data: rule, error } = await db.from("crm_service_addon_rules").select("*").eq("id", ruleId).eq("active", true).maybeSingle();
+  if (error || !rule) throw new FinancialError("This add-on is no longer available.");
+  if (!addonWithinRedemptionWindow(record.service_date, num(rule.redeem_within_days))) throw new FinancialError("This conditional add-on has passed its redemption window.");
+  const { data: items } = await db.from("crm_lead_bundle_items").select("service_id,service_name,source_kind,source_rule_id").eq("lead_financials_id", record.id);
+  const unlocked = (items ?? []).some((item) => (rule.trigger_service_id && item.service_id === rule.trigger_service_id) || String(item.service_name).toLowerCase() === String(rule.trigger_service_name).toLowerCase());
+  if (!unlocked) throw new FinancialError("Add the required service before using this conditional add-on.");
+  if ((items ?? []).some((item) => item.source_kind === "addon" && item.source_rule_id === ruleId)) throw new FinancialError("This add-on is already on the bill.");
+  const settingQuery = db.from("crm_financial_service_settings").select("id,service_id,service_name,base_price").eq("active", true).limit(1);
+  const { data: setting } = await (rule.addon_service_id
+    ? settingQuery.eq("service_id", rule.addon_service_id)
+    : settingQuery.ilike("service_name", rule.addon_service_name)).maybeSingle();
+  const { data: inserted, error: insertError } = await db.from("crm_lead_bundle_items").insert({ lead_financials_id: record.id, service_settings_id: setting?.id ?? null, service_id: setting?.service_id ?? rule.addon_service_id ?? null, service_name: rule.addon_service_name, list_price: num(setting?.base_price), base_price: num(rule.addon_price), source_kind: "addon", source_rule_id: ruleId, source_label: `Unlocked by ${rule.trigger_service_name}`, created_by: actor.id }).select("id,service_name").single();
+  if (insertError || !inserted) throw new FinancialError(insertError?.message ?? "Could not add add-on.");
+  await applyCompensationRules(actor, lead, record.id, [{ id: inserted.id as string, serviceId: (setting?.service_id as string | null | undefined) ?? null, serviceName: inserted.service_name as string }]);
+  const total = await recalculateServiceTotal(record.id, true);
+  await audit(actor, { entityType: "lead_financials", entityId: record.id, action: "unlocked_addon_added", newValue: { lead_id: lead.lead_id, rule_id: ruleId, addon_service: rule.addon_service_name, bill_total: total } });
+  await leadLog(actor, { leadUid: lead.id, action: "lead.payment_addon_unlocked", title: `Conditional add-on unlocked: ${rule.addon_service_name}`, newValue: { rule_id: ruleId, bill_total: total } });
 }
 
 /* ── write ────────────────────────────────────────────────────── */
@@ -856,7 +1100,7 @@ async function ensureRecord(actor: SessionUser, lead: LeadRow): Promise<RecordRo
   if (existing) return existing;
 
   const { basePrice, settingsId } = await lookupBasePrice(lead);
-  const { maxPct } = await resolveCeiling(lead, today());
+  const { maxPct } = await resolveCeiling(lead, today(), actor.id);
 
   const { data, error } = await supabaseAdmin()
     .from("crm_lead_financials")
@@ -915,7 +1159,7 @@ export async function saveQuote(input: SaveQuoteInput): Promise<void> {
   const lead = await leadRow(input.leadId);
   const record = await ensureRecord(actor, lead);
   const onDate = input.serviceDate ?? record.service_date ?? today();
-  const { maxPct } = await resolveCeiling(lead, onDate);
+  const { maxPct } = await resolveCeiling(lead, onDate, actor.id);
 
   const viewerCanForce = can(actor.role, "financial.forceExceptionalPrice");
   const verdict = evaluateQuote({
@@ -1499,7 +1743,7 @@ export async function requestDiscountApproval(input: ApprovalRequestInput): Prom
 
   const lead = await leadRow(input.leadId);
   const record = await ensureRecord(actor, lead);
-  const { maxPct } = await resolveCeiling(lead, record.service_date ?? today());
+  const { maxPct } = await resolveCeiling(lead, record.service_date ?? today(), actor.id);
   const verdict = evaluateQuote({
     baseServicePrice: num(record.base_service_price),
     quotedPrice: input.quotedPrice,

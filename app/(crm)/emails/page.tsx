@@ -9,8 +9,6 @@ import { listEmailLog } from "@/lib/data/emailData";
 import { emailConfigured } from "@/lib/email/resend";
 import { formatDateTime } from "@/lib/format";
 import { ManualEmailForm } from "@/components/email/ManualEmailForm";
-import { EmailAutomationManager } from "@/components/email/EmailAutomationManager";
-import { listEmailRules } from "@/lib/data/settingsData";
 
 export const dynamic = "force-dynamic";
 
@@ -30,14 +28,14 @@ export default async function EmailsPage() {
   const { effective: user } = await requireSession();
   if (!can(user.role, "email.view")) notFound();
 
-  const [rows, rules] = await Promise.all([listEmailLog(), listEmailRules()]);
+  const rows = await listEmailLog();
   const configured = emailConfigured();
 
   return (
     <>
       <Topbar title="Emails" />
       <div className="flex-1 overflow-auto px-[18px] py-4">
-        <EmailAutomationManager rules={rules} canManage={can(user.role, "email.manage")} />
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-[22px] font-black text-ink-950">Email delivery history</h1><p className="text-[12px] text-ink-500">Provider outcomes, errors, recipients and trigger evidence.</p></div>{can(user.role, "email.manage") && <Link href="/settings?section=email" className="rounded-control bg-primary px-3 py-2 text-[12px] font-bold text-white">Manage email settings</Link>}</div>
         <ManualEmailForm />
         {!configured && (
           <div className="mb-3 rounded-control border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-800">

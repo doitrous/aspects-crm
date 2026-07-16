@@ -6,6 +6,7 @@ import { assertCan } from "@/lib/auth/permissions";
 import type { PipelineStage, ReferenceOption } from "@/lib/types";
 import { bookingCatalog } from "@/lib/booking/service";
 import { notifyLeadStatusChanged } from "@/lib/email/triggers";
+import { normalizeSafeExternalUrl } from "@/lib/security/externalUrl";
 
 type NoteKey = "clientNotes" | "medicalHistory" | "generalNotes";
 
@@ -100,6 +101,25 @@ export async function markLeadRead(leadId: string): Promise<void> {
     newValues: { has_unread: false },
     metadata: { lead_id: leadId, actor_name: actor.name },
   });
+}
+
+export async function updateLeadConversationLink(leadId: string, rawUrl: string): Promise<string> {
+  const [actor, lead] = await Promise.all([writeLeadActor(), resolveLead(leadId)]);
+  let next = "";
+  try { next = normalizeSafeExternalUrl(rawUrl); } catch (error) { throw new LeadMutationError(error instanceof Error ? error.message : "Invalid conversation link."); }
+  const db = supabaseAdmin();
+  const { data: before, error: readError } = await db.from("leads").select("conversation_link").eq("id", lead.id).single();
+  if (readError) throw new Error(`updateLeadConversationLink(read): ${readError.message}`);
+  const previous = String(before.conversation_link ?? "");
+  if (previous === next) return next;
+  const { error } = await db.from("leads").update({ conversation_link: next || null, updated_at: new Date().toISOString() }).eq("id", lead.id);
+  if (error) throw new Error(`updateLeadConversationLink: ${error.message}`);
+  const action = !previous ? "lead.conversation_link_added" : !next ? "lead.conversation_link_removed" : "lead.conversation_link_updated";
+  await Promise.all([
+    audit({ actorId: actor.id, action, entityType: "lead", entityId: lead.id, oldValues: { conversation_link: previous || null }, newValues: { conversation_link: next || null }, metadata: { lead_id: leadId, actor_name: actor.name } }),
+    timeline({ leadUid: lead.id, actorId: actor.id, eventType: "conversation_link_updated", title: next ? (previous ? "Conversation link updated" : "Conversation link added") : "Conversation link removed", metadata: { action } }),
+  ]);
+  return next;
 }
 
 export async function updateLeadProfile(input: {

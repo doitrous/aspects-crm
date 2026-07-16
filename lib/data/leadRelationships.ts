@@ -8,8 +8,15 @@ export class LeadRelationshipError extends Error {}
 
 const RELATIONSHIP_LABEL: Record<LeadRelationship, string> = {
   same_patient: "Same patient",
+  parent: "Parent",
+  child: "Child",
+  spouse: "Spouse",
+  sibling: "Sibling",
   relative: "Relative",
-  distant_relative: "Distant relative",
+  same_household: "Same household",
+  guardian: "Guardian",
+  caregiver: "Caregiver",
+  related_contact: "Related contact",
   other: "Other",
 };
 
@@ -38,6 +45,7 @@ export async function linkLeads(input: { leadId: string; targetLeadId: string; r
     lead_a_id: leadAId,
     lead_b_id: leadBId,
     relationship: input.relationship,
+    relationship_source_lead_id: lead.id,
     linked_by: actor.id,
     notes: input.notes?.trim() || null,
   }).select("id").single();
@@ -58,7 +66,7 @@ export async function unlinkLeads(input: { leadId: string; linkId: string }): Pr
   const lead = await leadByHumanId(input.leadId);
   const db = supabaseAdmin();
   const { data: link, error: readError } = await db.from("crm_lead_links")
-    .select("id,lead_a_id,lead_b_id,relationship")
+    .select("id,lead_a_id,lead_b_id,relationship,relationship_source_lead_id,notes")
     .eq("id", input.linkId)
     .maybeSingle();
   if (readError) throw new Error(`unlinkLeads(read): ${readError.message}`);

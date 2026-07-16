@@ -31,6 +31,13 @@
   --c-danger: 180 35 24;
   --c-danger-bg: 254 243 242;
   --c-danger-dot: 240 68 56;
+  --c-drawer-identity: 79 70 229;
+  --c-drawer-contact: 8 145 178;
+  --c-drawer-clinical: 124 58 237;
+  --c-drawer-appointments: 37 99 235;
+  --c-drawer-payments: 217 119 6;
+  --c-drawer-comments: 147 51 234;
+  --c-drawer-timeline: 100 116 139;
 }
 
 :root[data-theme="dark"] {
@@ -58,7 +65,28 @@
   --c-danger: 248 113 113;
   --c-danger-bg: 60 24 24;
   --c-danger-dot: 248 113 113;
+  --c-drawer-identity: 129 140 248;
+  --c-drawer-contact: 34 211 238;
+  --c-drawer-clinical: 167 139 250;
+  --c-drawer-appointments: 96 165 250;
+  --c-drawer-payments: 251 191 36;
+  --c-drawer-comments: 192 132 252;
+  --c-drawer-timeline: 148 163 184;
 }
+
+/* Lead-drawer section accents improve scanning without borrowing the Booked or
+   Lost status colors. The same semantic channels remain legible in dark mode. */
+.lead-drawer-pane,
+.lead-drawer-tab { --drawer-accent: rgb(var(--c-drawer-timeline)); }
+[data-section="identity"] { --drawer-accent: rgb(var(--c-drawer-identity)); }
+[data-section="contact"] { --drawer-accent: rgb(var(--c-drawer-contact)); }
+[data-section="clinical"] { --drawer-accent: rgb(var(--c-drawer-clinical)); }
+[data-section="appointments"] { --drawer-accent: rgb(var(--c-drawer-appointments)); }
+[data-section="payments"] { --drawer-accent: rgb(var(--c-drawer-payments)); }
+[data-section="comments"] { --drawer-accent: rgb(var(--c-drawer-comments)); }
+[data-section="timeline"] { --drawer-accent: rgb(var(--c-drawer-timeline)); }
+.lead-drawer-pane { border-inline-start: 3px solid color-mix(in srgb, var(--drawer-accent) 55%, transparent); }
+.lead-drawer-tab-active { border-color: var(--drawer-accent); color: var(--drawer-accent); }
 
 html,
 body {

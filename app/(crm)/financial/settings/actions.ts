@@ -22,6 +22,7 @@ import {
   duplicateServiceConsumableDefault,
   duplicateDiscountRule,
   duplicateDoctorCompRule,
+  deleteServiceConsumableDefault,
 } from "@/lib/data/financialSettingsMutations";
 import type { ExternalCostCategory } from "@/lib/data/financials";
 
@@ -70,10 +71,15 @@ export async function upsertServicePriceAction(
   fd: FormData,
 ): Promise<FinancialSettingsActionState> {
   try {
+    const compensationMode = str(fd, "compensationMode");
+    const doctors = compensationMode === "keep" ? [] : identityRefs(fd, "compensationDoctorRef");
+    if (compensationMode === "global" && doctors.length === 0) return { error: "Select at least one active doctor for the global compensation rule." };
+    if (compensationMode === "doctors" && doctors.length === 0) return { error: "Choose one or more doctors for this service." };
     await upsertServicePrice({
       id: str(fd, "id") || null,
       serviceId: str(fd, "serviceId") || null,
       serviceName: str(fd, "serviceName"),
+      specialtyIds: fd.getAll("specialtyIds").map(String).filter(Boolean),
       basePrice: num(fd, "basePrice"),
       currency: str(fd, "currency") || "EGP",
       defaultConsumablesCost: num(fd, "defaultConsumablesCost"),
@@ -81,6 +87,21 @@ export async function upsertServicePriceAction(
       effectiveFrom: str(fd, "effectiveFrom") || null,
       effectiveTo: str(fd, "effectiveTo") || null,
     });
+    if (compensationMode !== "keep") {
+      const targets = doctors;
+      for (const doctor of targets) {
+        await upsertDoctorCompRule({
+          doctorId: doctor.id,
+          doctorName: doctor.name,
+          serviceId: str(fd, "serviceId") || null,
+          serviceName: str(fd, "serviceName"),
+          kind: str(fd, "compensationKind") as "percentage" | "fixed",
+          value: num(fd, "compensationValue"),
+          basis: str(fd, "compensationBasis") as "quoted_price" | "net_after_consumables",
+          active: true,
+        });
+      }
+    }
   } catch (err) {
     return fail(err);
   }
@@ -159,6 +180,7 @@ export async function upsertServiceConsumableDefaultAction(
   try {
     const svc = serviceRef(fd);
     await upsertServiceConsumableDefault({
+      id: str(fd, "id") || null,
       serviceId: svc.serviceId,
       serviceName: svc.serviceName,
       description: str(fd, "description"),
@@ -170,6 +192,11 @@ export async function upsertServiceConsumableDefaultAction(
     return fail(err);
   }
   return done("Service consumable default added.");
+}
+
+export async function deleteServiceConsumableDefaultAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
+  try { await deleteServiceConsumableDefault(str(fd, "id")); } catch (err) { return fail(err); }
+  return done("Consumable default deleted.");
 }
 
 export async function upsertExternalCostDefaultAction(
@@ -233,7 +260,7 @@ export async function upsertBundleAction(_prev: FinancialSettingsActionState, fd
 export async function addBundleComponentAction(_prev: FinancialSettingsActionState, fd: FormData): Promise<FinancialSettingsActionState> {
   const service = serviceRef(fd);
   try {
-    await addBundleComponent({ bundleId: str(fd, "bundleId"), serviceId: service.serviceId, serviceName: service.serviceName, quantity: num(fd, "quantity") || 1, doctorId: str(fd, "doctorId"), doctorName: str(fd, "doctorName"), compensationKind: str(fd, "compensationKind") as "percentage" | "fixed", compensationValue: num(fd, "compensationValue"), compensationBasis: str(fd, "compensationBasis") as "quoted_price" | "net_after_consumables" });
+    await addBundleComponent({ bundleId: str(fd, "bundleId"), serviceId: service.serviceId, serviceName: service.serviceName, quantity: num(fd, "quantity") || 1, doctorId: str(fd, "doctorId"), doctorName: str(fd, "doctorName"), compensationKind: str(fd, "compensationKind") as "percentage" | "fixed", compensationValue: str(fd, "compensationValue") ? num(fd, "compensationValue") : null, compensationBasis: str(fd, "compensationBasis") as "quoted_price" | "net_after_consumables" });
   } catch (err) { return fail(err); }
   return done("Bundle service and doctor compensation saved.");
 }

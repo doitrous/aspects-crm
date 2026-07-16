@@ -9,8 +9,15 @@ type SearchLead = { id: string; mrn: string | null; name: string; phone: string 
 
 const RELATIONSHIP_LABEL: Record<LeadRelationship, string> = {
   same_patient: "Same patient / same lead",
+  parent: "Parent",
+  child: "Child",
+  spouse: "Spouse",
+  sibling: "Sibling",
   relative: "Relative",
-  distant_relative: "Distant relative",
+  same_household: "Same household",
+  guardian: "Guardian",
+  caregiver: "Caregiver",
+  related_contact: "Related contact",
   other: "Other",
 };
 
@@ -68,7 +75,7 @@ export function LeadRelationshipManager({ leadId, relationships = [], onChanged 
       </div>
 
       {!!relationships?.length && <div className="mt-3 grid gap-2 md:grid-cols-2">
-        {relationships.map((item) => <div key={item.linkId} className="flex items-center gap-3 rounded-lg border border-line-soft bg-slate-50 p-3"><div className="min-w-0 flex-1"><Link href={`/leads/${item.id}`} className="font-mono text-[11px] font-black text-primary hover:underline">{item.id}</Link><div className="truncate text-[12px] font-bold text-ink-800">{item.name}</div><div className="text-[10.5px] text-ink-500">{RELATIONSHIP_LABEL[item.relationship]} · {item.phone || "No phone"}</div></div><button type="button" disabled={pending} onClick={() => unlink(item.linkId)} className="rounded-control border border-rose-200 px-2.5 py-1.5 text-[10.5px] font-bold text-danger hover:bg-rose-50 disabled:opacity-50">Unlink</button></div>)}
+        {relationships.map((item) => <div key={item.linkId} className="flex items-center gap-3 rounded-lg border border-line-soft bg-slate-50 p-3"><div className="min-w-0 flex-1"><Link href={`/leads/${item.id}`} className="font-mono text-[11px] font-black text-primary hover:underline">{item.id}</Link><div className="truncate text-[12px] font-bold text-ink-800">{item.name}</div><div className="text-[10.5px] text-ink-500">{RELATIONSHIP_LABEL[item.relationship]} · {item.phone || "No phone"}</div>{item.notes && <div className="mt-1 text-[10.5px] italic text-ink-500">{item.notes}</div>}</div><button type="button" disabled={pending} onClick={() => unlink(item.linkId)} className="rounded-control border border-rose-200 px-2.5 py-1.5 text-[10.5px] font-bold text-danger hover:bg-rose-50 disabled:opacity-50">Unlink</button></div>)}
       </div>}
 
       <div className="mt-4 border-t border-line-soft pt-3">

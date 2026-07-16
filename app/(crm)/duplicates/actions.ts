@@ -8,6 +8,7 @@ import type { PipelineStage } from "@/lib/types";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { writeActor } from "@/lib/data/actor";
 import { assertCan } from "@/lib/auth/permissions";
+import type { LeadRelationship } from "@/lib/types";
 
 export interface DuplicateActionState {
   ok: string | null;
@@ -28,6 +29,15 @@ function duplicateError(error: unknown): string {
   }
   if (error.message.includes("lead_stage_history")) {
     return "The duplicate-merge database repair has not been applied yet. Ask an administrator to apply migration 0021.";
+  }
+  if (error.message.includes("Assign an MRN")) {
+    return "Assign an MRN to either record before linking them as the same patient.";
+  }
+  if (error.message.includes("separate MRN") || error.message.includes("separate MRNs")) {
+    return "Assign a distinct MRN to each person before saving this relationship.";
+  }
+  if (error.message.includes("same canonical patient")) {
+    return "These leads already use the same canonical patient. Choose Same Patient instead.";
   }
   return "The duplicate decision could not be saved. Please retry or review the audit log.";
 }
@@ -58,53 +68,36 @@ export async function resolveDuplicateAction(
   };
 }
 
-export async function linkDuplicateWithChoicesAction(
-  flagId: string,
-  choices: { nameFrom: string; mrnFrom: string; phoneFrom: string },
-): Promise<DuplicateActionState> {
+export async function samePatientDuplicateAction(flagId: string, canonicalLeadId: string, note?: string): Promise<DuplicateActionState> {
   try {
     const actor = await writeActor();
     assertCan(actor.role, "leads.edit");
     const db = supabaseAdmin();
-    const { data: flag, error: flagError } = await db.from("lead_duplicate_flags")
-      .select("lead_id,duplicate_lead_id").eq("id", flagId).single();
-    if (flagError || !flag) throw new Error(flagError?.message ?? "Duplicate pair not found.");
-    const { data: rows, error: leadsError } = await db.from("leads")
-      .select("id,lead_id,name,mrn,phone_country_code,phone_number,normalized_phone")
-      .in("id", [flag.lead_id, flag.duplicate_lead_id]);
-    if (leadsError || !rows || rows.length !== 2) throw new Error(leadsError?.message ?? "Patient records not found.");
-    const byHuman = new Map(rows.map((row) => [row.lead_id as string, row]));
-    const canonical = rows.find((row) => row.id === flag.lead_id)!;
-    const nameSource = byHuman.get(choices.nameFrom) ?? canonical;
-    const mrnSource = byHuman.get(choices.mrnFrom) ?? canonical;
-    const phoneSource = choices.phoneFrom === "both" ? canonical : byHuman.get(choices.phoneFrom) ?? canonical;
-    if (mrnSource.id !== canonical.id && mrnSource.mrn) {
-      const { error } = await db.from("leads").update({ mrn: null }).eq("id", mrnSource.id);
-      if (error) throw error;
-    }
-    const { error: updateError } = await db.from("leads").update({
-      name: nameSource.name,
-      mrn: mrnSource.mrn,
-      phone_country_code: phoneSource.phone_country_code,
-      phone_number: phoneSource.phone_number,
-      normalized_phone: phoneSource.normalized_phone,
-      updated_at: new Date().toISOString(),
-    }).eq("id", canonical.id);
-    if (updateError) throw updateError;
-    const { data: phones, error: phonesError } = await db.from("crm_lead_phones").select("country_code,phone_number,normalized_phone,label").in("lead_id", [flag.lead_id, flag.duplicate_lead_id]);
-    if (phonesError) throw phonesError;
-    const copied = choices.phoneFrom === "both" ? phones ?? [] : (phones ?? []).filter((phone) => phone.normalized_phone === phoneSource.normalized_phone);
-    if (copied.length) {
-      const { error } = await db.from("crm_lead_phones").upsert(copied.map((phone) => ({ ...phone, lead_id: canonical.id, is_primary: phone.normalized_phone === phoneSource.normalized_phone, updated_at: new Date().toISOString() })), { onConflict: "lead_id,normalized_phone" });
-      if (error) throw error;
-    }
-    await resolveDuplicate(flagId, "linked", `Identity linked by ${actor.name}; canonical values selected in side-by-side review.`);
+    const { data: canonical, error } = await db.from("leads").select("id").eq("lead_id", canonicalLeadId).maybeSingle();
+    if (error || !canonical) throw new Error("Canonical lead not found.");
+    const { error: rpcError } = await db.rpc("crm_link_duplicate_same_patient", { target_flag_id: flagId, canonical_lead_id: canonical.id, actor_id: actor.id, moderator_note: note?.trim() || null });
+    if (rpcError) throw rpcError;
   } catch (error) {
-    console.error("linked identity resolution failed", error);
+    console.error("same patient duplicate resolution failed", error);
     return { ok: null, error: duplicateError(error) };
   }
-  for (const path of ["/duplicates", "/leads", "/database", "/qualified", "/follow-up", "/post-op"]) revalidatePath(path);
-  return { ok: "Patient records linked; both histories and selected phone numbers were retained.", error: null };
+  for (const path of ["/duplicates", "/leads", "/database"]) revalidatePath(path);
+  return { ok: "Both leads now use one canonical patient identity; all original lead history was retained.", error: null };
+}
+
+export async function relatedDuplicateAction(flagId: string, relationship: LeadRelationship, note?: string): Promise<DuplicateActionState> {
+  try {
+    const actor = await writeActor();
+    assertCan(actor.role, "leads.edit");
+    const db = supabaseAdmin();
+    const { error } = await db.rpc("crm_resolve_duplicate_relationship", { target_flag_id: flagId, relationship_type: relationship, actor_id: actor.id, moderator_note: note?.trim() || null });
+    if (error) throw error;
+  } catch (error) {
+    console.error("related duplicate resolution failed", error);
+    return { ok: null, error: duplicateError(error) };
+  }
+  for (const path of ["/duplicates", "/leads", "/database"]) revalidatePath(path);
+  return { ok: "Relationship saved; each person keeps a separate patient record and MRN.", error: null };
 }
 
 export async function bulkResolveDuplicatesAction(
