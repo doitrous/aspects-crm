@@ -119,6 +119,7 @@
   width: min(calc(100% + var(--brand-panel-pad)), 870px);
   max-width: none;
   height: auto;
+  image-rendering: auto;
   margin-inline-end: calc(-1 * var(--brand-panel-pad));
   justify-self: end;
   object-fit: contain;

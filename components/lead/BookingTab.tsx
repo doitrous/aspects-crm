@@ -9,7 +9,7 @@ import {
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { BOOKING_META } from "@/lib/badges";
-import { formatClock, formatDate, formatDateTime } from "@/lib/format";
+import { formatClock, formatDate, formatDateTime, formatTime } from "@/lib/format";
 import type { Booking, Lead, ReservationStatus } from "@/lib/types";
 
 interface BookingName {
@@ -101,6 +101,110 @@ function ymd(d: Date): string {
 
 function fieldClass(): string {
   return "h-9 rounded-control border border-line bg-panel px-2 text-[12.5px] text-ink-700";
+}
+
+function reservationStatusValue(status: Booking["status"]): ReservationStatus {
+  if (status === "unconfirmed") return "reserved";
+  if (status === "completed") return "attended";
+  if (status === "no_show") return "no_show";
+  if (status === "cancelled") return "cancelled";
+  return "confirmed";
+}
+
+function bookingEndAt(booking: Booking): Date {
+  const start = new Date(booking.startAt);
+  return new Date(start.getTime() + booking.durationMin * 60_000);
+}
+
+function CalendarIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 13h3v3H8z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function BookingSummaryCard({
+  booking,
+  catalog,
+  statusPending,
+  onStatusChange,
+}: {
+  booking: Booking;
+  catalog: BookingCatalog;
+  statusPending: boolean;
+  onStatusChange: (next: ReservationStatus) => void;
+}) {
+  const doctor = catalog.doctors.find((row) => row.id === booking.doctorId);
+  const specialty = catalog.specialties.find((row) => row.id === booking.specialtyId);
+  const service = catalog.services.find((row) => row.id === booking.serviceId);
+  const endAt = bookingEndAt(booking);
+
+  return (
+    <article className="overflow-hidden rounded-card border border-primary/20 bg-panel shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-primary/10 bg-primary-soft/45 p-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-card bg-primary text-white shadow-sm">
+            <CalendarIcon />
+          </div>
+          <div className="min-w-0">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <span className={"rounded-pill px-2 py-0.5 text-[10.5px] font-bold " + (booking.origin === "crm" ? "bg-slate-100 text-slate-700" : "bg-primary/10 text-primary")}>
+                {booking.origin === "crm" ? "Booked by clinic" : "Website reservation"}
+              </span>
+              <Badge style={BOOKING_META[booking.status]} />
+            </div>
+            <h3 className="text-[16px] font-bold leading-tight text-ink-900">{formatDate(booking.startAt)}</h3>
+            <p className="mt-0.5 text-[13px] font-semibold text-primary">
+              {formatTime(booking.startAt)} – {formatTime(endAt)}
+            </p>
+          </div>
+        </div>
+
+        <label className="flex w-full min-w-[210px] flex-col gap-1 lg:w-auto">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Reservation status</span>
+          <select
+            aria-label={`Reservation status for ${formatDate(booking.startAt)}`}
+            disabled={statusPending}
+            value={reservationStatusValue(booking.status)}
+            onChange={(event) => onStatusChange(event.target.value as ReservationStatus)}
+            className={`w-full lg:w-auto ${fieldClass()}`}
+          >
+            {RESERVATION_STATUS.map((status) => (
+              <option key={status.value} value={status.value}>{status.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="grid gap-px bg-line-soft sm:grid-cols-2 lg:grid-cols-3">
+        <div className="min-w-0 bg-panel p-4 sm:col-span-2 lg:col-span-1">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Practitioner</div>
+          <div className="mt-1 truncate text-[13px] font-bold text-ink-900">{doctor?.nameEn ?? "Doctor not assigned"}</div>
+          <div className="mt-0.5 truncate text-[11.5px] text-ink-500">{specialty?.nameEn ?? "Specialty not specified"}</div>
+        </div>
+        <div className="min-w-0 bg-panel p-4">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Service</div>
+          <div className="mt-1 truncate text-[13px] font-bold text-ink-900">{service?.nameEn ?? "Service not specified"}</div>
+          <div className="mt-0.5 text-[11.5px] text-ink-500">{booking.durationMin} minute appointment</div>
+        </div>
+        <div className="min-w-0 bg-panel p-4">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-400">Location</div>
+          <div className="mt-1 truncate text-[13px] font-bold text-ink-900">{booking.branch || "Branch not specified"}</div>
+          <div className="mt-0.5 truncate text-[11.5px] text-ink-500">{booking.room ? booking.room : "Clinic visit"}</div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5 border-t border-line-soft bg-toolbar/60 px-4 py-2.5 text-[10.5px] text-ink-400 sm:flex-row sm:items-center sm:justify-between">
+        <span className="truncate"><span className="font-semibold text-ink-500">Reservation ID</span> <span className="font-mono">{booking.id}</span></span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <span aria-hidden="true" className={"h-1.5 w-1.5 rounded-full " + (booking.calendarSynced ? "bg-primary" : "bg-amber-500")} />
+          {booking.calendarSynced ? "Calendar synced" : "Calendar sync pending"}
+        </span>
+      </div>
+    </article>
+  );
 }
 
 const FLOW_STEPS = ["Choose Doctor", "Date & Time", "Your Info", "Review & Confirm"] as const;
@@ -405,48 +509,13 @@ export function BookingTab({
         ) : (
           <div className="flex flex-col gap-2">
             {bookingRows.map((b) => (
-              <div key={b.id} className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-primary/20 bg-primary-soft/35 p-4 shadow-sm">
-                <div className="min-w-0 flex-1 basis-full sm:basis-[280px]">
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span className={"rounded-pill px-2 py-0.5 text-[10.5px] font-bold " + (b.origin === "crm" ? "bg-slate-100 text-slate-700" : "bg-primary/10 text-primary")}>
-                      {b.origin === "crm" ? "Booked by clinic" : "Website reservation"}
-                    </span>
-                    <span className="font-mono text-[10px] text-ink-400">{b.id}</span>
-                  </div>
-                  <div className="text-[14px] font-bold text-ink-900">
-                    {catalog.doctors.find((doctor) => doctor.id === b.doctorId)?.nameEn ?? "Doctor not assigned"}
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <div className="rounded-control border border-line-soft bg-panel px-2.5 py-2"><div className="text-[10px] font-semibold uppercase text-ink-400">Date</div><div className="mt-0.5 text-[12px] font-bold text-ink-800">{formatDate(b.startAt)}</div></div>
-                    <div className="rounded-control border border-line-soft bg-panel px-2.5 py-2"><div className="text-[10px] font-semibold uppercase text-ink-400">Time</div><div className="mt-0.5 text-[12px] font-bold text-primary">{formatClock(b.startAt)}</div></div>
-                    <div className="rounded-control border border-line-soft bg-panel px-2.5 py-2"><div className="text-[10px] font-semibold uppercase text-ink-400">Duration</div><div className="mt-0.5 text-[12px] font-bold text-success">{b.durationMin} min</div></div>
-                    <div className="rounded-control border border-line-soft bg-panel px-2.5 py-2"><div className="text-[10px] font-semibold uppercase text-ink-400">Branch</div><div className="mt-0.5 truncate text-[12px] font-bold text-ink-800">{b.branch}</div></div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge style={BOOKING_META[b.status]} />
-                  <select
-                    disabled={statusPending === b.id}
-                    value={
-                      b.status === "unconfirmed"
-                        ? "reserved"
-                        : b.status === "completed"
-                          ? "attended"
-                          : b.status === "no_show"
-                            ? "no_show"
-                            : b.status === "cancelled"
-                              ? "cancelled"
-                              : "confirmed"
-                    }
-                    onChange={(e) => void changeStatus(b.id, e.target.value as ReservationStatus)}
-                    className={fieldClass()}
-                  >
-                    {RESERVATION_STATUS.map((s) => (
-                      <option key={s.value} value={s.value}>{s.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              <BookingSummaryCard
+                key={b.id}
+                booking={b}
+                catalog={catalog}
+                statusPending={statusPending === b.id}
+                onStatusChange={(next) => void changeStatus(b.id, next)}
+              />
             ))}
           </div>
         )}

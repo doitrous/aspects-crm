@@ -248,6 +248,7 @@ export interface Booking {
   leadId: string;
   doctorId: string;
   specialtyId: string;
+  serviceId?: string;
   branch: string;
   room?: string;
   startAt: string; // ISO

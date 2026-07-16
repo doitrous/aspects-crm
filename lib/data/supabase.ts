@@ -967,7 +967,7 @@ export const supabaseProvider: DataProvider = {
     if (appointmentIds.length === 0) return [];
     const { data, error } = await bookingDb()
       .from("appointments")
-      .select("id,doctor_id,specialty_id,branch_id,appointment_date,start_time,end_time,duration_at_booking,status,branches(name_en,name_ar)")
+      .select("id,doctor_id,specialty_id,branch_id,service_id,appointment_date,start_time,end_time,duration_at_booking,status,branches(name_en,name_ar)")
       .in("id", appointmentIds)
       .order("appointment_date", { ascending: false })
       .order("start_time", { ascending: false });
@@ -984,6 +984,7 @@ export const supabaseProvider: DataProvider = {
         leadId,
         doctorId: String(row.doctor_id ?? ""),
         specialtyId: String(row.specialty_id ?? ""),
+        serviceId: row.service_id ? String(row.service_id) : undefined,
         branch: branch?.name_en ?? branch?.name_ar ?? String(row.branch_id ?? ""),
         startAt: `${startDate}T${startTime}:00`,
         durationMin: typeof row.duration_at_booking === "number"
