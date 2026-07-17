@@ -375,8 +375,7 @@ export function FinancialSettingsManager({ data, initialTab }: { data: Financial
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-line bg-panel p-4"><div className="text-[10px] font-black uppercase tracking-[0.16em] text-primary">Financial control center</div><div className="mt-1 text-[20px] font-black text-ink-900">Pricing, privileges and cost rules</div><p className="mt-1 text-[11.5px] text-ink-500">Configure the inputs once; lead payments, dashboards and finalized reports all use the same rules.</p></div>
+    <div>
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_1fr]">
       <aside className="flex flex-row flex-nowrap gap-1 overflow-x-auto rounded-xl border border-line bg-panel p-2 lg:sticky lg:top-3 lg:h-fit lg:flex-col lg:overflow-visible">
         {TABS.map((t) => <button type="button" aria-pressed={tab === t.key} key={t.key} onClick={() => selectTab(t.key)} className={"shrink-0 rounded-control px-3 py-2 text-left text-[12.5px] font-semibold lg:shrink " + (tab === t.key ? "bg-primary-soft text-primary" : "text-ink-600 hover:bg-line-faint/60")}>{t.label}</button>)}

@@ -315,7 +315,7 @@ export class SupabaseMetaStore implements MetaStore {
 
   /* ── conversations ─────────────────────────────────────────────────── */
 
-  async upsertConversation(input: ConversationUpsert): Promise<ConversationRef> {
+  async upsertConversation(input: ConversationUpsert): Promise<ConversationRef | null> {
     const platform = dbPlatform(input.platform);
 
     let query = this.db.from(CONVERSATIONS).select("id, lead_id").limit(1);
@@ -370,6 +370,7 @@ export class SupabaseMetaStore implements MetaStore {
       .single();
 
     if (error) {
+      if (!input.leadId && error.message.includes("lead_id") && error.message.includes("not-null constraint")) return null;
       if (isUniqueViolation(error) && input.conversationKey) {
         const { data: raced } = await this.db
           .from(CONVERSATIONS)

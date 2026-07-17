@@ -100,6 +100,7 @@ export interface IngestLogSetting {
   platform: string | null;
   eventType: string | null;
   eventAction: string | null;
+  eventKey: string | null;
   direction: string | null;
   platformUserId: string | null;
   conversationKey: string | null;
@@ -108,7 +109,22 @@ export interface IngestLogSetting {
   updated: boolean;
   skipped: boolean;
   skipReason: string | null;
-  errors: unknown[];
+  errors: string[];
+}
+
+export interface IngestionFailureSetting extends IngestLogSetting {
+  recovered: boolean;
+}
+
+function ingestErrorMessages(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(ingestErrorMessages);
+  if (typeof value === "string" && value.trim()) return [value.trim()];
+  if (value && typeof value === "object") {
+    const message = (value as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return [message.trim()];
+    return [JSON.stringify(value)];
+  }
+  return [];
 }
 
 export async function listTags(): Promise<TagSetting[]> {
@@ -261,7 +277,7 @@ export async function listEmailRules(): Promise<EmailRuleSetting[]> {
 export async function listIngestLogs(): Promise<IngestLogSetting[]> {
   const { data, error } = await supabaseAdmin()
     .from("crm_ingest_logs")
-    .select("id,created_at,source,platform,event_type,event_action,direction,platform_user_id,conversation_key,message_text,created,updated,skipped,skip_reason,errors")
+    .select("id,created_at,source,platform,event_type,event_action,event_key,direction,platform_user_id,conversation_key,message_text,created,updated,skipped,skip_reason,errors")
     .order("created_at", { ascending: false })
     .limit(30);
   if (error) throw new Error(`listIngestLogs: ${error.message}`);
@@ -269,9 +285,43 @@ export async function listIngestLogs(): Promise<IngestLogSetting[]> {
     id: r.id as string, createdAt: r.created_at as string,
     source: (r.source as string | null) ?? null, platform: (r.platform as string | null) ?? null,
     eventType: (r.event_type as string | null) ?? null, eventAction: (r.event_action as string | null) ?? null,
+    eventKey: (r.event_key as string | null) ?? null,
     direction: (r.direction as string | null) ?? null, platformUserId: (r.platform_user_id as string | null) ?? null,
     conversationKey: (r.conversation_key as string | null) ?? null, messageText: (r.message_text as string | null) ?? null,
     created: Boolean(r.created), updated: Boolean(r.updated), skipped: Boolean(r.skipped),
-    skipReason: (r.skip_reason as string | null) ?? null, errors: Array.isArray(r.errors) ? r.errors : [],
+    skipReason: (r.skip_reason as string | null) ?? null, errors: ingestErrorMessages(r.errors),
   }));
+}
+
+/** Recent failed webhook events plus whether a later idempotent retry recovered them. */
+export async function listIngestionFailures(limit = 25): Promise<IngestionFailureSetting[]> {
+  const db = supabaseAdmin();
+  const { data, error } = await db.from("crm_ingest_logs")
+    .select("id,created_at,source,platform,event_type,event_action,event_key,direction,platform_user_id,conversation_key,message_text,created,updated,skipped,skip_reason,errors")
+    .eq("skip_reason", "error")
+    .order("created_at", { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 100));
+  if (error) throw new Error(`listIngestionFailures: ${error.message}`);
+  const failed = data ?? [];
+  const keys = [...new Set(failed.map((row) => row.event_key as string | null).filter((key): key is string => Boolean(key)))];
+  const attempts = keys.length
+    ? await db.from("crm_ingest_logs").select("created_at,event_key,created,updated,skipped,skip_reason").in("event_key", keys)
+    : { data: [], error: null };
+  if (attempts.error) throw new Error(`listIngestionFailures(attempts): ${attempts.error.message}`);
+  return failed.map((r) => {
+    const recovered = (attempts.data ?? []).some((attempt) => (
+      attempt.event_key === r.event_key && attempt.created_at > r.created_at &&
+      (attempt.created || attempt.updated || attempt.skip_reason === "duplicate")
+    ));
+    return {
+      id: r.id as string, createdAt: r.created_at as string,
+      source: (r.source as string | null) ?? null, platform: (r.platform as string | null) ?? null,
+      eventType: (r.event_type as string | null) ?? null, eventAction: (r.event_action as string | null) ?? null,
+      eventKey: (r.event_key as string | null) ?? null, direction: (r.direction as string | null) ?? null,
+      platformUserId: (r.platform_user_id as string | null) ?? null,
+      conversationKey: (r.conversation_key as string | null) ?? null, messageText: (r.message_text as string | null) ?? null,
+      created: Boolean(r.created), updated: Boolean(r.updated), skipped: Boolean(r.skipped),
+      skipReason: (r.skip_reason as string | null) ?? null, errors: ingestErrorMessages(r.errors), recovered,
+    };
+  });
 }

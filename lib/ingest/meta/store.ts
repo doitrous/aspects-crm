@@ -321,7 +321,7 @@ export interface MetaStore {
   markLeadOutgoing(leadId: string, at: string): Promise<void>;
 
   // ── conversations ──────────────────────────────────────────────────────
-  upsertConversation(input: ConversationUpsert): Promise<ConversationRef>;
+  upsertConversation(input: ConversationUpsert): Promise<ConversationRef | null>;
   touchConversation(
     id: string,
     patch: { lastMessageAt?: string; lastIncomingAt?: string; lastOutgoingAt?: string; lastDeliveredAt?: string; lastSeenAt?: string },

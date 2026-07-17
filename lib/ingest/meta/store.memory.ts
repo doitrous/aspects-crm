@@ -162,7 +162,7 @@ export class MemoryStore implements MetaStore {
 
   /* ── conversations ─────────────────────────────────────────────────── */
 
-  async upsertConversation(input: ConversationUpsert): Promise<ConversationRef> {
+  async upsertConversation(input: ConversationUpsert): Promise<ConversationRef | null> {
     const match = this.conversations.find(
       (c) =>
         (input.conversationKey && c.conversationKey === input.conversationKey) ||

@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
+import { IngestionFailureAlert } from "@/components/ingestion/IngestionFailureAlert";
 import { AuditorReport } from "@/components/auditor/AuditorReport";
 import { can } from "@/lib/auth/permissions";
 import { requireSession } from "@/lib/data/session";
@@ -12,6 +13,7 @@ import {
   scopedSnapshotPreview,
   auditorTrend,
 } from "@/lib/data/auditor";
+import { listIngestionFailures } from "@/lib/data/settingsData";
 
 export const dynamic = "force-dynamic";
 
@@ -38,9 +40,10 @@ export default async function AuditorPage({
   const date = parseDate(sp.date);
   const scope = await resolveAuditorScope({ doctorId: sp.doctorId, specialtyId: sp.specialtyId });
 
-  const [detail, options] = await Promise.all([
+  const [detail, options, ingestionFailures] = await Promise.all([
     getAuditReportDetail(date),
     auditorFilterOptions(),
+    listIngestionFailures(),
   ]);
   const [dropped, scopedPreview, trend] = await Promise.all([
     droppedLeadsForDate(date, scope ?? undefined),
@@ -52,6 +55,7 @@ export default async function AuditorPage({
     <>
       <Topbar title="Auditor Dashboard" />
       <div className="flex-1 overflow-auto px-[18px] py-4">
+        <IngestionFailureAlert failures={ingestionFailures} detailsHref="/settings?section=ingestion"/>
         <AuditorReport
           date={date}
           detail={detail}

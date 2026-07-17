@@ -20,6 +20,7 @@ import {
   listSlaRules,
   listTags,
   listIngestLogs,
+  listIngestionFailures,
 } from "@/lib/data/settingsData";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const params = await searchParams;
   const initialTab = SETTINGS_SECTIONS.has(params.section as SettingsTabKey) ? params.section as SettingsTabKey : "scheduling";
 
-  const [tags, lostReasons, escalationReasons, slaRules, followUpStages, auditorSettings, aiPrompt, sources, scheduling, financial, ingestLogs] =
+  const [tags, lostReasons, escalationReasons, slaRules, followUpStages, auditorSettings, aiPrompt, sources, scheduling, financial, ingestLogs, ingestionFailures] =
     await Promise.all([
       listTags(),
       listLostReasons(),
@@ -61,6 +62,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       can(user.role, "scheduling.view") ? crmSchedulingSnapshot() : Promise.resolve(null),
       financialSettingsData(),
       listIngestLogs(),
+      listIngestionFailures(),
     ]);
 
   return (
@@ -82,6 +84,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           scheduling={scheduling ? <SchedulingSettings snapshot={scheduling} /> : <div className="rounded-xl border border-line p-5 text-[12px] text-ink-500">You do not have permission to view CRM scheduling.</div>}
           financial={<FinancialSettingsManager data={financial} initialTab={params.financeTab} />}
           ingestLogs={ingestLogs}
+          ingestionFailures={ingestionFailures}
         />
       </div>
     </>

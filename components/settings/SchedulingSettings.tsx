@@ -352,6 +352,16 @@ function RoomWeekView({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
   const averageOccupancy = activeRoomStats.length ? Math.round(activeRoomStats.reduce((sum, item) => sum + item.occupancy, 0) / activeRoomStats.length) : 0;
   const weeklyPatientCapacity = activeRoomStats.reduce((sum, item) => sum + item.maximumPatients, 0);
   const busiestRoom = [...activeRoomStats].sort((a, b) => b.occupancy - a.occupancy)[0];
+  const dayStats = DAYS.map((day) => {
+    const roomsForDay = activeRoomStats.map((item) => ({ room: item.room, day: item.days.find((candidate) => candidate.value === day.value)! }));
+    const scheduledMinutes = roomsForDay.reduce((sum, item) => sum + item.day.scheduledMinutes, 0);
+    const maximumPatients = roomsForDay.reduce((sum, item) => sum + item.day.maximumPatients, 0);
+    const sessions = roomsForDay.flatMap((item) => item.day.sessions.map((session) => ({ ...session, roomName: item.room.nameEn })));
+    const roomsUsed = roomsForDay.filter((item) => item.day.sessions.length > 0).length;
+    const isOpen = openDays.has(day.value);
+    const availableMinutes = isOpen ? openMinutesPerDay * activeRoomStats.length : 0;
+    return { ...day, isOpen, roomsForDay, scheduledMinutes, maximumPatients, sessions, roomsUsed, availableMinutes, freeMinutes: Math.max(0, availableMinutes - scheduledMinutes), occupancy: occupancyPercent(scheduledMinutes, availableMinutes) };
+  });
 
   return (
     <div className="space-y-4">
@@ -367,6 +377,20 @@ function RoomWeekView({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
         <article><span>Maximum patient capacity / week</span><strong>{weeklyPatientCapacity}</strong><small>Service-duration adjusted</small></article>
         <article><span>Highest room occupation</span><strong>{busiestRoom?.occupancy ?? 0}%</strong><small>{busiestRoom?.room.nameEn ?? "No scheduled room"}</small></article>
         <article><span>Active clinic rooms</span><strong>{activeRoomStats.length}</strong><small>{compactDuration(availableWeekMinutes)} available each</small></article>
+      </section>
+
+      <section className="crm-room-day-overview">
+        <header><div><h3>Clinic capacity by day</h3><p>Daily room occupation appears first, followed by the detailed room-by-room week.</p></div><span>{branch?.nameEn ?? "Selected branch"}</span></header>
+        <div className="overflow-x-auto">
+          <div className="crm-room-day-grid">
+            {dayStats.map((day) => <article key={day.value} className={day.isOpen ? "" : "is-closed"}>
+              <div className="crm-room-day-title"><div><strong>{day.label}</strong><small>{day.isOpen ? `${day.roomsUsed} of ${activeRoomStats.length} rooms used` : "Clinic closed"}</small></div><b>{day.occupancy}%</b></div>
+              <div className="crm-room-day-track" aria-label={`${day.label} room occupation ${day.occupancy}%`}><span style={{ width: `${day.occupancy}%` }}/></div>
+              <dl><div><dt>Scheduled room time</dt><dd>{compactDuration(day.scheduledMinutes)}</dd></div><div><dt>Free room time</dt><dd>{compactDuration(day.freeMinutes)}</dd></div><div><dt>Maximum patients</dt><dd>{day.maximumPatients}</dd></div><div><dt>Clinic sessions</dt><dd>{day.sessions.length}</dd></div></dl>
+              <div className="crm-room-day-sessions">{day.sessions.map((session) => <div key={session.id}><strong>{session.roomName}</strong><span>{session.startTime}–{session.endTime} · {session.doctorName}</span></div>)}{day.isOpen && day.sessions.length === 0 && <p>All rooms available</p>}{!day.isOpen && <p>Not included in weekly capacity</p>}</div>
+            </article>)}
+          </div>
+        </div>
       </section>
 
       <div className="crm-room-week-legend"><span><i className="is-busy"/>Scheduled</span><span><i className="is-free"/>Available</span><small>Capacity uses each doctor&apos;s eligible service-duration average and never exceeds a first-come session limit.</small></div>

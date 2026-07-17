@@ -905,10 +905,11 @@ test("39 — a message with no platform_user_id is stored but creates no fake le
   const s = newStore();
   await ingest(
     s,
-    fbIncoming({ platform_user_id: null, customer_psid: null, sender_id: null, conversation_key: null }),
+    fbIncoming({ platform_user_id: null, customer_psid: null, sender_id: null, conversation_key: "fb:PAGE1:orphan" }),
   );
 
   assert.equal(s.leads.length, 0, "no usable identity ⇒ no lead");
+  assert.equal(s.conversations.length, 1, "the unmatched conversation remains available for later lead linking");
   assert.equal(s.contentMessages().length, 1, "the message is still stored, never dropped");
   assert.equal(s.contentMessages()[0].leadId, null);
 });

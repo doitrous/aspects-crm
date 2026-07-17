@@ -246,7 +246,9 @@ async function handleContentMessage(
   const effectiveLeadId = lead?.id ?? conversation?.leadId ?? null;
 
   const outgoing = event.direction === "outgoing";
-  const { message, created } = await store.insertMessage({
+  let inserted: Awaited<ReturnType<MetaStore["insertMessage"]>>;
+  try {
+    inserted = await store.insertMessage({
     leadId: effectiveLeadId,
     conversationId: conversation?.id ?? null,
     eventKey: key,
@@ -309,7 +311,16 @@ async function handleContentMessage(
     doctor: event.doctor,
     branch: event.branch,
     rawPayload: event.rawPayload,
-  });
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    if (!effectiveLeadId && detail.includes("lead_id") && detail.includes("not-null constraint")) {
+      const stored = await storeConversationEvent(store, event, key, null, conversation?.id ?? null);
+      return outcome(event, key, { created: stored, skipped: !stored, skipReason: stored ? "unmatched_event_logged" : "duplicate" });
+    }
+    throw error;
+  }
+  const { message, created } = inserted;
 
   if (!created) {
     return outcome(event, key, {

@@ -25,7 +25,9 @@ import type {
   AuditorSettingsRow,
   AiPromptSetting,
   IngestLogSetting,
+  IngestionFailureSetting,
 } from "@/lib/data/settingsData";
+import { IngestionFailureAlert } from "@/components/ingestion/IngestionFailureAlert";
 import type { LeadSourceInfo } from "@/lib/types";
 import { formatDateTime } from "@/lib/format";
 
@@ -65,7 +67,7 @@ function SaveButton({ pending, children = "Save" }: { pending: boolean; children
 
 function DuplicateBackfill({ canManage }: { canManage: boolean }) {
   const [state, action, pending] = useActionState(backfillDuplicatesAction, SETTINGS_IDLE);
-  return <form action={action} className="mt-4 rounded-control border border-primary/20 bg-primary-soft/30 p-3"><input type="hidden" name="cursor" value={state.cursor ?? ""}/><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[13px] font-black text-ink-900">Backfill existing database records</div><p className="mt-1 text-[12px] text-ink-500">Runs the same live detector in idempotent batches of 50 to stay within the database timeout; it never merges patients automatically.</p></div>{canManage && <SaveButton pending={pending}>{state.cursor ? "Run next batch" : state.complete ? "Run safety check again" : "Start duplicate backfill"}</SaveButton>}</div><Feedback state={state}/></form>;
+  return <form action={action} className="mt-4 rounded-control border border-primary/20 bg-primary-soft/30 p-3"><input type="hidden" name="cursor" value={state.cursor ?? ""}/><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[13px] font-black text-ink-900">Backfill existing database records</div><p className="mt-1 text-[12px] text-ink-500">Runs the same live detector in idempotent batches of 50 to stay within the database timeout; it never merges patients automatically.</p></div>{canManage && <SaveButton pending={pending}>{state.cursor ? "Run next batch" : state.complete ? "Run safety check again" : "Start duplicate backfill"}</SaveButton>}</div><Feedback state={state}/>{state.processedLeads && state.processedLeads.length > 0 && <details className="mt-3 rounded-lg border border-line bg-panel p-3"><summary className="cursor-pointer text-[12px] font-bold text-ink-800">Last batch log · {state.processedLeads.length} lead number{state.processedLeads.length === 1 ? "" : "s"}</summary><ol className="mt-2 grid max-h-52 list-decimal gap-x-5 gap-y-1 overflow-y-auto ps-5 text-[11.5px] text-ink-600 sm:grid-cols-2 lg:grid-cols-3">{state.processedLeads.map((leadNumber) => <li key={leadNumber} className="font-mono" data-no-translate>{leadNumber}</li>)}</ol><p className="mt-2 text-[10.5px] text-ink-400">This batch and its lead-number list are also recorded in the Activity Log.</p></details>}</form>;
 }
 
 function PagedItems<T>({ items, render }: { items: T[]; render: (item: T) => ReactNode }) {
@@ -443,6 +445,7 @@ export function SettingsManager({
   scheduling,
   financial,
   ingestLogs,
+  ingestionFailures,
 }: {
   initialTab?: SettingsTabKey;
   canManage: boolean;
@@ -458,6 +461,7 @@ export function SettingsManager({
   scheduling: ReactNode;
   financial: ReactNode;
   ingestLogs: IngestLogSetting[];
+  ingestionFailures: IngestionFailureSetting[];
 }) {
   const [tab, setTab] = useState<SettingsTabKey>(initialTab);
 
@@ -622,8 +626,9 @@ export function SettingsManager({
         {tab === "ingestion" && (
           <Card className="p-4">
             <h3 className="mb-1 text-[13px] font-bold text-ink-900">Ingestion Log</h3>
-            <p className="mb-3 text-[11.5px] text-ink-500">Latest 30 message-ingestion events from the canonical ingest API log.</p>
-            <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-[11.5px]"><thead><tr className="border-b text-left text-[10px] uppercase text-ink-400"><th className="py-2">Time</th><th>Platform</th><th>Event</th><th>Direction</th><th>User / conversation</th><th>Result</th><th>Message</th></tr></thead><tbody>{ingestLogs.map((row) => <tr key={row.id} className="border-b border-line-faint"><td className="py-2 tabular-nums">{formatDateTime(row.createdAt)}</td><td>{row.platform ?? row.source ?? "-"}</td><td>{row.eventType ?? "-"} {row.eventAction ?? ""}</td><td>{row.direction ?? "-"}</td><td className="max-w-[180px] truncate" data-no-translate>{row.platformUserId ?? row.conversationKey ?? "-"}</td><td>{row.skipped ? `Skipped: ${row.skipReason ?? "unknown"}` : row.errors.length ? "Error" : row.created ? "Created" : row.updated ? "Updated" : "Processed"}</td><td className="max-w-[260px] truncate" data-patient-content>{row.messageText ?? "-"}</td></tr>)}</tbody></table>{ingestLogs.length === 0 && <p className="py-5 text-center text-ink-400">No ingestion events recorded.</p>}</div>
+            <p className="mb-3 text-[11.5px] text-ink-500">Latest 30 canonical webhook events. A duplicate is a successful retry that was already registered; a failure requires review.</p>
+            <IngestionFailureAlert failures={ingestionFailures}/>
+            <div className="overflow-x-auto"><table className="w-full min-w-[1120px] text-[11.5px]"><thead><tr className="border-b text-left text-[10px] uppercase text-ink-400"><th className="py-2">Time</th><th>Platform</th><th>Event</th><th>Direction</th><th>User / conversation</th><th>Result</th><th>Failure reason</th><th>Message</th></tr></thead><tbody>{ingestLogs.map((row) => { const failed = row.skipReason === "error" || row.errors.length > 0; const recovered = failed && ingestionFailures.some((failure) => failure.id === row.id && failure.recovered); const duplicate = row.skipReason === "duplicate"; return <tr key={row.id} className={`border-b border-line-faint ${failed && !recovered ? "bg-red-50/70" : recovered ? "bg-emerald-50/60" : ""}`}><td className="py-2 tabular-nums">{formatDateTime(row.createdAt)}</td><td>{row.platform ?? row.source ?? "-"}</td><td>{row.eventType ?? "-"} {row.eventAction ?? ""}</td><td>{row.direction ?? "-"}</td><td className="max-w-[180px] truncate" data-no-translate>{row.platformUserId ?? row.conversationKey ?? "-"}</td><td><span className={`font-bold ${failed && !recovered ? "text-red-700" : duplicate ? "text-amber-700" : "text-emerald-700"}`}>{recovered ? "Recovered" : failed ? "Failed" : duplicate ? "Duplicate ignored" : row.created ? "Created" : row.updated ? "Updated" : row.skipped ? `Skipped: ${row.skipReason ?? "unknown"}` : "Processed"}</span></td><td className={`max-w-[340px] whitespace-normal break-words ${recovered ? "text-emerald-700" : "text-red-700"}`}>{failed ? `${row.errors.join(" · ") || "Failure detail missing"}${recovered ? " · Recovered by a later retry." : ""}` : duplicate ? "Already registered; no message was lost." : "—"}</td><td className="max-w-[260px] truncate" data-patient-content>{row.messageText ?? "-"}</td></tr>; })}</tbody></table>{ingestLogs.length === 0 && <p className="py-5 text-center text-ink-400">No ingestion events recorded.</p>}</div>
           </Card>
         )}
 
