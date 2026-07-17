@@ -37,6 +37,8 @@ export type Capability =
   // ── settings & configuration (§C) ───────────────────────────
   | "settings.view" // open the Settings area
   | "settings.manage" // edit tags, lost reasons, SLA, follow-up rules, target CPL, AI prompt
+  | "scheduling.view" // view CRM-owned schedules, rooms, closures and time off
+  | "scheduling.manage" // mutate CRM-owned scheduling records only
   // ── auditor reporting (§A/§B) ───────────────────────────────
   | "reports.view" // open Auditor Dashboard + Reports
   | "reports.generate" // generate / override / finalize a daily audit report
@@ -79,6 +81,8 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     "users.changeDisplayName",
     "settings.view",
     "settings.manage",
+    "scheduling.view",
+    "scheduling.manage",
     "reports.view",
     "reports.generate",
     "reports.createOwn",
@@ -106,6 +110,8 @@ const MATRIX: Record<Role, ReadonlySet<Capability>> = {
     // finalize reports, and manage email rules — but not change user access.
     "settings.view",
     "settings.manage",
+    "scheduling.view",
+    "scheduling.manage",
     "reports.view",
     "reports.generate",
     "reports.createOwn",

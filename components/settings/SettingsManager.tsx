@@ -24,12 +24,10 @@ import type {
   FollowUpStageSetting,
   AuditorSettingsRow,
   AiPromptSetting,
-  EmailRuleSetting,
   IngestLogSetting,
 } from "@/lib/data/settingsData";
 import type { LeadSourceInfo } from "@/lib/types";
 import { formatDateTime } from "@/lib/format";
-import { EmailAutomationManager } from "@/components/email/EmailAutomationManager";
 
 const PatientBulkImport = dynamic(
   () => import("@/components/leads/PatientBulkImport").then((module) => module.PatientBulkImport),
@@ -422,9 +420,9 @@ const TABS: Array<{ key: SettingsTabKey; label: string }> = [
   { key: "integrations", label: "Integrations" },
   { key: "ingestion", label: "Ingestion Log" },
   { key: "users", label: "Users & Roles" },
-  { key: "scheduling", label: "Scheduling" },
+  { key: "scheduling", label: "Doctors & Scheduling" },
   { key: "financial", label: "Financial Settings" },
-  { key: "email", label: "Email Rules" },
+  { key: "email", label: "Email" },
 ];
 
 export interface IntegrationStatus {
@@ -444,7 +442,6 @@ export function SettingsManager({
   followUpStages,
   auditorSettings,
   aiPrompt,
-  emailRules,
   sources,
   integrations,
   scheduling,
@@ -460,7 +457,6 @@ export function SettingsManager({
   followUpStages: FollowUpStageSetting[];
   auditorSettings: AuditorSettingsRow;
   aiPrompt: AiPromptSetting;
-  emailRules: EmailRuleSetting[];
   sources: LeadSourceInfo[];
   integrations: IntegrationStatus[];
   scheduling: ReactNode;
@@ -512,7 +508,7 @@ export function SettingsManager({
                 { label: "Lead list page size", value: "30 leads", hint: "Used by server-side list pagination." },
                 { label: "Canonical lead drawer", value: "Single drawer", hint: "Overview, Messenger, WhatsApp, Comments, Notes, Follow-Up, Booking, Payments / Financials, Log." },
                 { label: "Primary stages", value: "Exclusive", hint: "New, Qualified/Booked, Follow-Up, Post-Op Follow-Up, Lost." },
-                { label: "Booking source", value: "Booking platform database", hint: "Public booking, CRM Booking, Website Reservations, Calendar, and Scheduling read the same source." },
+                { label: "Booking source", value: "Booking platform database", hint: "Public booking and CRM reservations read the booking source. CRM Settings scheduling is intentionally stored separately." },
               ]}
             />
           </Card>
@@ -681,7 +677,7 @@ export function SettingsManager({
         {tab === "financial" && <div>{financial}</div>}
 
         {tab === "email" && (
-          <div><EmailAutomationManager rules={emailRules} canManage={canManage}/><Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-[14px] font-black text-ink-900">Delivery history stays in Emails</div><div className="text-[11.5px] text-ink-500">Settings and automation logic are edited here; provider outcomes remain in the delivery log.</div></div><Link href="/emails" className="inline-flex h-9 items-center justify-center rounded-control border border-primary px-3 text-[12px] font-bold text-primary">Open delivery history</Link></Card></div>
+          <Card className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-[16px] font-black text-ink-900">Email settings</div><div className="text-[11.5px] text-ink-500">Automations, templates, manual tests, delivery history and failures now live in one section.</div></div><Link href="/settings/email" className="inline-flex h-10 items-center justify-center rounded-control bg-primary px-4 text-[12px] font-bold text-white">Open Email settings</Link></Card>
         )}
 
         {tab === "scheduling" && <div>{scheduling}</div>}

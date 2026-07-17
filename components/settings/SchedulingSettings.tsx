@@ -1,251 +1,586 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import {
-  createBlockedTimeAction,
-  deleteBlockedTimeAction,
+  saveClosureAction,
+  saveBranchAssignmentsAction,
+  deleteRoomAction,
+  saveRoomAction,
+  saveScheduleAction,
+  saveScheduleExceptionAction,
+  saveTimeOffAction,
+  syncRoomsFromAdminAction,
   type SchedulingActionState,
-  updateScheduleTemplateAction,
 } from "@/app/(crm)/settings/scheduling-actions";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import type { BookingSchedulingSnapshot, BookingSchedule } from "@/lib/booking/service";
-import { formatDate } from "@/lib/format";
+import {
+  eightyPercentGoal,
+  mergedScheduledMinutes,
+  minutesBetween,
+  occupancyPercent,
+  serviceDurationProfile,
+  sessionPatientCapacity,
+} from "@/lib/scheduling/capacity";
+import type { CrmScheduleRow, CrmSchedulingSnapshot } from "@/lib/scheduling/crm";
+import { formatDateTime } from "@/lib/format";
 
 const IDLE: SchedulingActionState = { ok: false };
-const DAY: Record<number, string> = {
-  6: "Saturday",
-  0: "Sunday",
-  1: "Monday",
-  2: "Tuesday",
-  3: "Wednesday",
-  4: "Thursday",
-  5: "Friday",
-};
-const DAY_ORDER = [6, 0, 1, 2, 3, 4, 5];
+const DAYS = [
+  { value: 6, short: "Sat", label: "Saturday" },
+  { value: 0, short: "Sun", label: "Sunday" },
+  { value: 1, short: "Mon", label: "Monday" },
+  { value: 2, short: "Tue", label: "Tuesday" },
+  { value: 3, short: "Wed", label: "Wednesday" },
+  { value: 4, short: "Thu", label: "Thursday" },
+  { value: 5, short: "Fri", label: "Friday" },
+] as const;
+const SECTIONS = ["Availability", "Exceptions & Time Off", "Rooms", "Room Week View", "Closures", "Branch Assignments"] as const;
+type Section = typeof SECTIONS[number];
+const field = "crm-schedule-field";
+const label = "crm-schedule-label";
 
-function fieldClass(extra = "") {
-  return `rounded-control border border-line-soft bg-white px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary ${extra}`;
+function Feedback({ state }: { state: SchedulingActionState }) {
+  if (state.error) return <p role="alert" className="crm-schedule-error">{state.error}</p>;
+  if (state.ok) return <p role="status" className="crm-schedule-success">{state.message ?? "Saved in CRM scheduling only."}</p>;
+  return null;
 }
 
-function ErrorLine({ state }: { state: SchedulingActionState }) {
-  if (!state.error) return null;
-  return <div className="mt-2 text-[11px] font-semibold text-red-600">{state.error}</div>;
-}
-
-function ScheduleForm({
+function ScheduleEditor({
+  snapshot,
   schedule,
-  doctorName,
-  branchName,
+  doctorId,
+  dayOfWeek,
+  branchId: initialBranchId,
+  onClose,
 }: {
-  schedule: BookingSchedule;
-  doctorName: string;
-  branchName: string;
+  snapshot: CrmSchedulingSnapshot;
+  schedule?: CrmScheduleRow;
+  doctorId?: string;
+  dayOfWeek?: number;
+  branchId: string;
+  onClose: () => void;
 }) {
-  const [state, action, pending] = useActionState(updateScheduleTemplateAction, IDLE);
+  const [state, action, pending] = useActionState(saveScheduleAction, IDLE);
+  const [branchId, setBranchId] = useState(schedule?.branchId ?? initialBranchId);
+  const [selectedDoctorId, setSelectedDoctorId] = useState(schedule?.doctorId ?? doctorId ?? "");
+  const [roomId, setRoomId] = useState(schedule?.roomId ?? "");
+  const [selectedDay, setSelectedDay] = useState(schedule?.dayOfWeek ?? dayOfWeek ?? 6);
+  const [startTime, setStartTime] = useState(schedule?.startTime ?? "09:00");
+  const [endTime, setEndTime] = useState(schedule?.endTime ?? "17:00");
+  const [firstCome, setFirstCome] = useState(schedule?.firstComeFirstServe ?? false);
+  const rooms = snapshot.rooms.filter((room) => room.branchId === branchId && (room.active || room.id === schedule?.roomId));
+  const eligibleDoctors = snapshot.doctors.filter((doctor) => (
+    snapshot.branchAssignments.some((assignment) => assignment.doctorId === doctor.id && assignment.branchId === branchId) || doctor.id === schedule?.doctorId
+  ));
+  const selectedDoctor = snapshot.doctors.find((doctor) => doctor.id === selectedDoctorId);
+  const durationProfile = selectedDoctor ? serviceDurationProfile(selectedDoctor, snapshot.services, schedule?.slotDurationMinutes ?? 20) : null;
+  const overlappingSessions = snapshot.schedules.filter((item) => (
+    item.id !== schedule?.id && item.active && item.dayOfWeek === selectedDay && item.startTime < endTime && item.endTime > startTime
+  ));
+  const roomConflicts = new Map(overlappingSessions.filter((item) => item.branchId === branchId && item.roomId).map((item) => [item.roomId!, item]));
+  const doctorConflict = overlappingSessions.find((item) => item.doctorId === selectedDoctorId);
+
+  useEffect(() => {
+    if (state.ok) onClose();
+  }, [onClose, state.ok]);
+
   return (
-    <form action={action} className="grid gap-2 border-b border-line-faint py-3 last:border-b-0 md:grid-cols-[1.2fr_0.9fr_0.7fr_0.7fr_0.8fr_auto] md:items-end">
-      <input type="hidden" name="scheduleId" value={schedule.id} />
-      <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-        Doctor / branch
-        <span className="text-[12.5px] font-bold text-ink-900">{doctorName}</span>
-        <span className="text-[11px] font-medium text-ink-500">{branchName} - {DAY[schedule.dayOfWeek] ?? schedule.dayOfWeek}</span>
-      </label>
-      <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-        Active
-        <span className="flex h-8 items-center gap-2">
-          <input type="checkbox" name="active" defaultChecked={schedule.active} />
-          <span className="text-[12px] text-ink-700">Available to booking</span>
-        </span>
-      </label>
-      <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-        Start
-        <input className={fieldClass()} type="time" name="startTime" defaultValue={schedule.startTime.slice(0, 5)} required />
-      </label>
-      <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-        End
-        <input className={fieldClass()} type="time" name="endTime" defaultValue={schedule.endTime.slice(0, 5)} required />
-      </label>
-      <div className="grid grid-cols-[1fr_86px] gap-2">
-        <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-          First come
-          <span className="flex h-8 items-center gap-2">
-            <input type="checkbox" name="firstComeFirstServe" defaultChecked={schedule.firstComeFirstServe} />
-            <span className="text-[12px] text-ink-700">Queue</span>
-          </span>
-        </label>
-        <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-          Cap.
-          <input className={fieldClass()} type="number" name="firstComeCapacity" min={1} defaultValue={schedule.firstComeCapacity} />
-        </label>
-      </div>
-      <button
-        className="h-8 rounded-control bg-primary px-3 text-[12px] font-bold text-white disabled:opacity-50"
-        type="submit"
-        disabled={pending}
-      >
-        {pending ? "Saving" : "Save"}
-      </button>
-      <div className="md:col-span-6">
-        <ErrorLine state={state} />
-        {state.ok && <div className="mt-2 text-[11px] font-semibold text-emerald-600">Saved to live booking schedule.</div>}
-      </div>
-    </form>
+    <div className="crm-schedule-modal-backdrop" role="presentation">
+      <section role="dialog" aria-modal="true" aria-labelledby="crm-schedule-dialog-title" className="crm-schedule-modal">
+        <header className="crm-schedule-modal-header">
+          <div>
+            <p className="crm-schedule-eyebrow">CRM availability</p>
+            <h3 id="crm-schedule-dialog-title">{schedule ? "Edit clinic session" : "Add clinic session"}</h3>
+            <p>Doctor hours and room assignment for this CRM schedule only.</p>
+          </div>
+          <button type="button" onClick={onClose} className="crm-schedule-close" aria-label="Close">×</button>
+        </header>
+
+        <form action={action} className="crm-schedule-modal-body">
+          {schedule && <input type="hidden" name="id" value={schedule.id} />}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className={label}>Doctor *
+              <select name="doctorId" required value={selectedDoctorId} onChange={(event) => setSelectedDoctorId(event.target.value)} className={field}>
+                <option value="">Choose doctor</option>
+                {eligibleDoctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.nameEn}{doctor.active ? "" : " (inactive)"}</option>)}
+              </select>
+            </label>
+            <label className={label}>Branch *
+              <select name="branchId" required value={branchId} onChange={(event) => { const nextBranchId = event.target.value; setBranchId(nextBranchId); setRoomId(""); if (!snapshot.branchAssignments.some((assignment) => assignment.doctorId === selectedDoctorId && assignment.branchId === nextBranchId)) setSelectedDoctorId(""); }} className={field}>
+                <option value="">Choose branch</option>
+                {snapshot.branches.filter((branch) => branch.active).map((branch) => <option key={branch.id} value={branch.id}>{branch.nameEn}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className={label}>Day *
+              <select name="dayOfWeek" value={selectedDay} onChange={(event) => setSelectedDay(Number(event.target.value))} className={field}>
+                {DAYS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}
+              </select>
+            </label>
+            <label className={label}>Room *
+              <select name="roomId" required value={roomId} onChange={(event) => setRoomId(event.target.value)} className={field}>
+                <option value="">Choose a room</option>
+                {rooms.map((room) => { const conflict = roomConflicts.get(room.id); return <option key={room.id} value={room.id} disabled={Boolean(conflict)}>{room.nameEn}{room.active ? "" : " (inactive)"}{conflict ? ` — busy ${conflict.startTime}–${conflict.endTime} (${conflict.doctorName})` : ""}</option>; })}
+              </select>
+            </label>
+          </div>
+          {rooms.length === 0 && <div className="crm-schedule-notice">Create an active room for this branch before adding clinic hours.</div>}
+          {roomConflicts.size > 0 && <div className="crm-schedule-room-status"><strong>Room availability for {DAYS.find((day) => day.value === selectedDay)?.label}</strong>{Array.from(roomConflicts.values()).map((conflict) => <span key={conflict.id}>{conflict.roomName}: {conflict.startTime}–{conflict.endTime} · {conflict.doctorName}</span>)}</div>}
+          {doctorConflict && <div className="crm-schedule-error">{doctorConflict.doctorName} is already scheduled {doctorConflict.startTime}–{doctorConflict.endTime} at {doctorConflict.branchName}.</div>}
+
+          <div className="grid grid-cols-2 gap-4">
+            <label className={label}>Start time *<input type="time" name="startTime" required value={startTime} onChange={(event) => setStartTime(event.target.value)} className={field}/></label>
+            <label className={label}>End time *<input type="time" name="endTime" required value={endTime} onChange={(event) => setEndTime(event.target.value)} className={field}/></label>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className={label}>Slot duration
+              <select name="slotDurationMinutes" defaultValue={schedule?.slotDurationMinutes ?? 20} className={field}>
+                {Array.from(new Set([10, 15, 20, 30, 45, 60, durationProfile?.averageMinutes].filter((minutes): minutes is number => Boolean(minutes)))).sort((a, b) => a - b).map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}
+              </select>
+            </label>
+            <label className={label}>Effective from<input type="date" name="effectiveFrom" defaultValue={schedule?.effectiveFrom ?? ""} className={field}/></label>
+            <label className={label}>Effective to<input type="date" name="effectiveTo" defaultValue={schedule?.effectiveTo ?? ""} className={field}/></label>
+          </div>
+          {durationProfile && <div className="crm-schedule-service-profile"><strong>Service-aware capacity</strong><span>{durationProfile.serviceCount || "No"} eligible services · {durationProfile.shortestMinutes}–{durationProfile.longestMinutes} min · {durationProfile.averageMinutes} min planning average</span></div>}
+
+          <div className="crm-schedule-dialog-section">
+            <label className="crm-toggle-row">
+              <input type="checkbox" name="firstComeFirstServe" checked={firstCome} onChange={(event) => setFirstCome(event.target.checked)} className="crm-toggle-input"/>
+              <span className="crm-toggle-track" aria-hidden="true"><span/></span>
+              <span><strong>First-come clinic</strong><small>Patients reserve a place in the session instead of an exact time.</small></span>
+            </label>
+            {firstCome && <label className={`${label} mt-3 max-w-[180px]`}>Maximum patients<input type="number" min={1} max={500} name="firstComeCapacity" defaultValue={schedule?.firstComeCapacity ?? 10} className={field}/></label>}
+            {!firstCome && (
+              <input type="hidden" name="firstComeCapacity" value={schedule?.firstComeCapacity ?? 10}/>
+            )}
+          </div>
+
+          <label className="crm-toggle-row">
+            <input type="checkbox" name="active" defaultChecked={schedule?.active ?? true} className="crm-toggle-input"/>
+            <span className="crm-toggle-track" aria-hidden="true"><span/></span>
+            <span><strong>Available for CRM booking</strong><small>Inactive sessions remain visible for historical reference.</small></span>
+          </label>
+
+          <Feedback state={state}/>
+          <footer className="crm-schedule-modal-footer">
+            <button type="button" onClick={onClose} className="crm-schedule-button secondary">Cancel</button>
+            <button disabled={pending || rooms.length === 0 || !roomId || Boolean(roomConflicts.get(roomId)) || Boolean(doctorConflict)} className="crm-schedule-button primary">{pending ? "Saving…" : "Save clinic session"}</button>
+          </footer>
+        </form>
+      </section>
+    </div>
   );
 }
 
-function BlockForm({ snapshot }: { snapshot: BookingSchedulingSnapshot }) {
-  const [state, action, pending] = useActionState(createBlockedTimeAction, IDLE);
+function Availability({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
+  const initialBranch = snapshot.branches.find((branch) => branch.active)?.id ?? "";
+  const [selectedBranchId, setSelectedBranchId] = useState(initialBranch);
+  const [editor, setEditor] = useState<{ schedule?: CrmScheduleRow; doctorId?: string; dayOfWeek?: number } | null>(null);
+  const selectedBranch = snapshot.branches.find((branch) => branch.id === selectedBranchId);
+  const branchSchedules = useMemo(() => snapshot.schedules.filter((schedule) => schedule.branchId === selectedBranchId), [selectedBranchId, snapshot.schedules]);
+  const assignedDoctorIds = new Set(snapshot.branchAssignments.filter((assignment) => assignment.branchId === selectedBranchId).map((assignment) => assignment.doctorId));
+  const visibleDoctors = snapshot.doctors.filter((doctor) => assignedDoctorIds.has(doctor.id) || branchSchedules.some((schedule) => schedule.doctorId === doctor.id));
+
   return (
-    <form action={action} className="grid gap-2 md:grid-cols-[130px_110px_110px_1fr_1fr_1.4fr_auto] md:items-end">
-      <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-        Date
-        <input className={fieldClass()} type="date" name="date" required />
-      </label>
-      <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-        Start
-        <input className={fieldClass()} type="time" name="startTime" />
-      </label>
-      <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-        End
-        <input className={fieldClass()} type="time" name="endTime" />
-      </label>
-      <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-        Doctor
-        <select className={fieldClass()} name="doctorId" defaultValue="">
-          <option value="">Any doctor</option>
-          {snapshot.doctors.map((doctor) => (
-            <option key={doctor.id} value={doctor.id}>{doctor.nameEn}</option>
+    <div className="space-y-5">
+      <section className="crm-schedule-branch-picker">
+        <div>
+          <div className="crm-schedule-picker-title"><span aria-hidden="true">⌂</span> Scheduling location</div>
+          <p>Each branch has its own weekly calendar. Rehab never inherits another clinic&apos;s hours.</p>
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Scheduling branch">
+          {snapshot.branches.filter((branch) => branch.active).map((branch) => (
+            <button key={branch.id} type="button" aria-pressed={branch.id === selectedBranchId} onClick={() => setSelectedBranchId(branch.id)} className={`crm-schedule-branch-tab ${branch.id === selectedBranchId ? "is-active" : ""}`}>
+              {branch.nameEn}
+            </button>
           ))}
-        </select>
-      </label>
-      <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-        Branch
-        <select className={fieldClass()} name="branchId" defaultValue="">
-          <option value="">Any branch</option>
-          {snapshot.branches.map((branch) => (
-            <option key={branch.id} value={branch.id}>{branch.nameEn}</option>
-          ))}
-        </select>
-      </label>
-      <label className="flex flex-col gap-1 text-[11px] font-semibold text-ink-500">
-        Reason
-        <input className={fieldClass()} name="reason" placeholder="Holiday, leave, maintenance" required />
-      </label>
-      <div className="flex flex-col gap-2">
-        <label className="flex h-8 items-center gap-2 text-[11px] font-semibold text-ink-600">
-          <input type="checkbox" name="fullDay" /> Full day
-        </label>
-        <button className="h-8 rounded-control bg-primary px-3 text-[12px] font-bold text-white hover:bg-primary-hover disabled:opacity-50" disabled={pending}>
-          {pending ? "Adding" : "Add block"}
-        </button>
-      </div>
-      <div className="md:col-span-7">
-        <ErrorLine state={state} />
-        {state.ok && <div className="mt-2 text-[11px] font-semibold text-emerald-600">Blocked time saved to live booking availability.</div>}
-      </div>
-    </form>
+        </div>
+      </section>
+
+      {visibleDoctors.map((doctor) => {
+        const doctorSchedules = branchSchedules.filter((schedule) => schedule.doctorId === doctor.id);
+        const activeDays = new Set(doctorSchedules.filter((schedule) => schedule.active).map((schedule) => schedule.dayOfWeek)).size;
+        const initials = doctor.nameEn.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("");
+        const durationProfile = serviceDurationProfile(doctor, snapshot.services);
+        const dailyCapacity = new Map(DAYS.map((day) => [day.value, doctorSchedules.filter((schedule) => schedule.dayOfWeek === day.value).reduce((sum, schedule) => sum + sessionPatientCapacity(schedule, durationProfile), 0)]));
+        const weeklyCapacity = Array.from(dailyCapacity.values()).reduce((sum, capacity) => sum + capacity, 0);
+        const weeklyGoal = eightyPercentGoal(weeklyCapacity);
+        const busiestDayCapacity = Math.max(0, ...dailyCapacity.values());
+        return (
+          <section key={doctor.id} className="crm-doctor-calendar">
+            <header>
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="crm-doctor-avatar">{initials || "DR"}</div>
+                <div className="min-w-0">
+                  <h3>{doctor.nameEn}</h3>
+                  <p>{activeDays} scheduled day{activeDays === 1 ? "" : "s"} at {selectedBranch?.nameEn ?? "this branch"}{assignedDoctorIds.has(doctor.id) ? "" : " · Branch assignment removed"}</p>
+                </div>
+              </div>
+              <div className="crm-doctor-capacity">
+                <span><small>Weekly maximum</small><strong>{weeklyCapacity} patients</strong></span>
+                <span><small>80% occupation goal</small><strong>{weeklyGoal} patients</strong></span>
+                <span><small>Busiest-day maximum</small><strong>{busiestDayCapacity} patients</strong></span>
+                <span><small>Service planning</small><strong>{durationProfile.averageMinutes} min avg.</strong></span>
+              </div>
+              <button type="button" disabled={!assignedDoctorIds.has(doctor.id)} onClick={() => setEditor({ doctorId: doctor.id })} className="crm-schedule-button secondary"><span aria-hidden="true">＋</span> Add clinic session</button>
+            </header>
+
+            <div className="overflow-x-auto">
+              <div className="crm-week-grid">
+                {DAYS.map((day) => {
+                  const rows = doctorSchedules.filter((schedule) => schedule.dayOfWeek === day.value).sort((a, b) => a.startTime.localeCompare(b.startTime));
+                  const activeRows = rows.filter((schedule) => schedule.active);
+                  const inactiveRows = rows.filter((schedule) => !schedule.active);
+                  const dayOff = activeRows.length === 0;
+                  return (
+                    <div key={day.value} className={`crm-day-card ${dayOff ? "is-off" : ""}`}>
+                      <div className="crm-day-heading"><span><strong>{day.short}</strong><small>{day.label}</small></span><i aria-hidden="true"/></div>
+                      <div className="space-y-2">
+                        {activeRows.map((schedule) => (
+                          <article key={schedule.id} className="crm-session-card">
+                            <div className="flex items-start justify-between gap-1">
+                              <div>
+                                <strong><span aria-hidden="true">◷</span>{schedule.startTime}–{schedule.endTime}</strong>
+                                <small>{schedule.roomName ?? "Room required"} · {schedule.slotDurationMinutes} min</small>
+                                {schedule.firstComeFirstServe && <small>First come · {schedule.firstComeCapacity}</small>}
+                              </div>
+                              <button type="button" aria-label={`Edit ${day.label} hours for ${doctor.nameEn}`} onClick={() => setEditor({ schedule })}>✎</button>
+                            </div>
+                          </article>
+                        ))}
+                        {dayOff && <div className="crm-day-off"><span aria-hidden="true">⊘</span><span>Day off</span>{inactiveRows.length > 0 && <small>{inactiveRows.length} inactive session{inactiveRows.length === 1 ? "" : "s"}</small>}</div>}
+                      </div>
+                      {!dayOff && <div className="crm-day-capacity"><strong>Max {dailyCapacity.get(day.value) ?? 0}</strong><span>80% goal {eightyPercentGoal(dailyCapacity.get(day.value) ?? 0)}</span></div>}
+                      <div className="mt-3 space-y-1.5">
+                        {inactiveRows.map((schedule) => <button key={schedule.id} type="button" onClick={() => setEditor({ schedule })} className="crm-day-action">Restore {schedule.startTime}</button>)}
+                        <button type="button" disabled={!assignedDoctorIds.has(doctor.id)} onClick={() => setEditor({ doctorId: doctor.id, dayOfWeek: day.value })} className="crm-day-action is-add">＋ Add {dayOff ? "hours" : "session"}</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        );
+      })}
+
+      {visibleDoctors.length === 0 && <EmptyState title="No doctors available" hint="Add an active doctor before creating CRM availability."/>}
+      {editor && (
+        <ScheduleEditor key={editor.schedule?.id ?? `${editor.doctorId}-${editor.dayOfWeek ?? "new"}`} snapshot={snapshot} schedule={editor.schedule} doctorId={editor.doctorId} dayOfWeek={editor.dayOfWeek} branchId={selectedBranchId} onClose={() => setEditor(null)}/>
+      )}
+    </div>
   );
 }
 
-function DeleteBlockForm({ id }: { id: string }) {
-  const [state, action, pending] = useActionState(deleteBlockedTimeAction, IDLE);
-  return (
-    <form action={action}>
-      <input type="hidden" name="id" value={id} />
-      <button className="rounded-control border border-line-soft px-2 py-1 text-[11px] font-bold text-red-600 disabled:opacity-50" disabled={pending}>
-        {pending ? "Removing" : "Remove"}
-      </button>
-      <ErrorLine state={state} />
-    </form>
-  );
+function compactDuration(minutes: number) {
+  if (minutes <= 0) return "0h";
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `${hours ? `${hours}h` : ""}${remainder ? ` ${remainder}m` : ""}`.trim();
 }
 
-export function SchedulingSettings({ snapshot }: { snapshot: BookingSchedulingSnapshot }) {
-  if (!snapshot.configured) {
-    return (
-      <EmptyState
-        title="Booking scheduling is not configured"
-        hint="BOOKING_SUPABASE_URL and BOOKING_SUPABASE_SERVICE_ROLE_KEY are required on the server."
-      />
-    );
-  }
-
-  const doctorsById = new Map(snapshot.doctors.map((doctor) => [doctor.id, doctor]));
-  const branchesById = new Map(snapshot.branches.map((branch) => [branch.id, branch]));
-  const doctorsWithSchedules = snapshot.doctors.map((doctor) => ({
-    ...doctor,
-    schedules: [...doctor.schedules].sort((a, b) => DAY_ORDER.indexOf(a.dayOfWeek) - DAY_ORDER.indexOf(b.dayOfWeek) || a.startTime.localeCompare(b.startTime)),
-  }));
-  const scheduleCount = doctorsWithSchedules.reduce((count, doctor) => count + doctor.schedules.length, 0);
+function RoomWeekView({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
+  const initialBranch = snapshot.branches.find((branch) => branch.active)?.id ?? "";
+  const [branchId, setBranchId] = useState(initialBranch);
+  const branch = snapshot.branches.find((item) => item.id === branchId);
+  const rooms = snapshot.rooms.filter((room) => room.branchId === branchId);
+  const activeSchedules = snapshot.schedules.filter((schedule) => schedule.branchId === branchId && schedule.active && schedule.roomId);
+  const doctorProfiles = new Map(snapshot.doctors.map((doctor) => [doctor.id, serviceDurationProfile(doctor, snapshot.services)]));
+  const openMinutesPerDay = minutesBetween(snapshot.workingHours.startTime, snapshot.workingHours.endTime);
+  const openDays = new Set(snapshot.workingHours.days);
+  const availableWeekMinutes = openMinutesPerDay * openDays.size;
+  const roomStats = rooms.map((room) => {
+    const sessions = activeSchedules.filter((schedule) => schedule.roomId === room.id);
+    const days = DAYS.map((day) => {
+      const daySessions = sessions.filter((schedule) => schedule.dayOfWeek === day.value).sort((a, b) => a.startTime.localeCompare(b.startTime));
+      const scheduledMinutes = mergedScheduledMinutes(daySessions);
+      const maximumPatients = daySessions.reduce((sum, session) => {
+        const profile = doctorProfiles.get(session.doctorId) ?? serviceDurationProfile({ id: session.doctorId }, snapshot.services, session.slotDurationMinutes);
+        return sum + sessionPatientCapacity(session, profile);
+      }, 0);
+      const isOpen = openDays.has(day.value);
+      return { ...day, sessions: daySessions, scheduledMinutes, maximumPatients, isOpen, freeMinutes: isOpen ? Math.max(0, openMinutesPerDay - scheduledMinutes) : 0 };
+    });
+    const scheduledMinutes = days.reduce((sum, day) => sum + day.scheduledMinutes, 0);
+    const maximumPatients = days.reduce((sum, day) => sum + day.maximumPatients, 0);
+    return { room, days, scheduledMinutes, maximumPatients, occupancy: occupancyPercent(scheduledMinutes, availableWeekMinutes) };
+  });
+  const activeRoomStats = roomStats.filter((item) => item.room.active);
+  const averageOccupancy = activeRoomStats.length ? Math.round(activeRoomStats.reduce((sum, item) => sum + item.occupancy, 0) / activeRoomStats.length) : 0;
+  const weeklyPatientCapacity = activeRoomStats.reduce((sum, item) => sum + item.maximumPatients, 0);
+  const busiestRoom = [...activeRoomStats].sort((a, b) => b.occupancy - a.occupancy)[0];
 
   return (
     <div className="space-y-4">
-      <div className="section-hero rounded-xl p-5">
-        <div className="section-hero-eyebrow text-[10px] font-black uppercase tracking-[0.16em]">Live availability</div>
-        <div className="mt-1 flex flex-wrap items-end justify-between gap-4"><div><h3 className="text-[22px] font-black text-ink-950">Doctor schedules</h3><p className="section-hero-muted mt-1 max-w-2xl text-[12px]">Each doctor has one clear schedule card. Changes immediately control website and CRM booking availability.</p></div><div className="flex gap-2"><span className="section-hero-stat rounded-lg px-3 py-2 text-[11px] font-bold text-ink-800">{doctorsWithSchedules.length} doctors</span><span className="section-hero-stat rounded-lg px-3 py-2 text-[11px] font-bold text-ink-800">{scheduleCount} sessions</span></div></div>
-      </div>
-      <Card className="p-4 sm:p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-line pb-4">
-          <div>
-            <h3 className="text-[15px] font-black text-ink-900">Clinic-wide booking rules</h3>
-            <p className="text-[11.5px] text-ink-500">
-              Public booking, lead Booking, Website Reservations, Calendar, and Scheduling all read these same booking-platform rows.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-1.5 text-[11px]">
-            <span className="rounded-pill bg-line-faint px-2 py-0.5">Window {snapshot.settings.bookingWindowDays} days</span>
-            <span className="rounded-pill bg-line-faint px-2 py-0.5">Notice {snapshot.settings.minNoticeHours}h</span>
-            <span className="rounded-pill bg-line-faint px-2 py-0.5">Default {snapshot.settings.defaultDurationMinutes}m</span>
-          </div>
+      <section className="crm-schedule-branch-picker">
+        <div><div className="crm-schedule-picker-title"><span aria-hidden="true">▦</span> Room week planning</div><p>Scheduled occupancy and free room time using {snapshot.workingHours.label}.</p></div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Room planning branch">
+          {snapshot.branches.filter((item) => item.active).map((item) => <button key={item.id} type="button" aria-pressed={item.id === branchId} onClick={() => setBranchId(item.id)} className={`crm-schedule-branch-tab ${item.id === branchId ? "is-active" : ""}`}>{item.nameEn}</button>)}
         </div>
-        {scheduleCount === 0 ? (
-          <EmptyState title="No schedule templates" hint="Add schedules in the booking admin database before slots can be offered." />
-        ) : (
-          <div className="grid gap-4 xl:grid-cols-2">
-            {doctorsWithSchedules.map((doctor) => (
-              <section key={doctor.id} className="overflow-hidden rounded-xl border border-line bg-slate-50/60">
-                <div className="flex items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
-                  <div><div className="text-[14px] font-black text-ink-900">{doctor.nameEn}</div><div className="mt-0.5 text-[10.5px] text-ink-400">{doctor.schedules.filter((schedule) => schedule.active).length} active weekly sessions</div></div>
-                  <span className={"h-2.5 w-2.5 rounded-full " + (doctor.schedules.some((schedule) => schedule.active) ? "bg-emerald-500" : "bg-slate-300")} />
-                </div>
-                <div className="px-4">
-                  {doctor.schedules.map((schedule) => <ScheduleForm key={schedule.id} schedule={schedule} doctorName={doctor.nameEn} branchName={branchesById.get(schedule.branchId)?.nameEn ?? "Unknown branch"} />)}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-      </Card>
+      </section>
 
-      <Card className="p-4">
-        <div className="mb-3">
-          <h3 className="text-[13px] font-bold text-ink-900">Blocked dates and times</h3>
-          <p className="text-[11.5px] text-ink-500">Blocks immediately remove matching slots from the public booking site and CRM booking flow.</p>
+      <section className="crm-room-metrics" aria-label={`Room capacity metrics for ${branch?.nameEn ?? "selected branch"}`}>
+        <article><span>Average scheduled occupancy</span><strong>{averageOccupancy}%</strong><small>Across active rooms</small></article>
+        <article><span>Maximum patient capacity / week</span><strong>{weeklyPatientCapacity}</strong><small>Service-duration adjusted</small></article>
+        <article><span>Highest room occupation</span><strong>{busiestRoom?.occupancy ?? 0}%</strong><small>{busiestRoom?.room.nameEn ?? "No scheduled room"}</small></article>
+        <article><span>Active clinic rooms</span><strong>{activeRoomStats.length}</strong><small>{compactDuration(availableWeekMinutes)} available each</small></article>
+      </section>
+
+      <div className="crm-room-week-legend"><span><i className="is-busy"/>Scheduled</span><span><i className="is-free"/>Available</span><small>Capacity uses each doctor&apos;s eligible service-duration average and never exceeds a first-come session limit.</small></div>
+
+      {roomStats.map(({ room, days, occupancy, maximumPatients }) => (
+        <section key={room.id} className={`crm-room-week ${room.active ? "" : "is-inactive"}`}>
+          <header>
+            <div><div className="flex items-center gap-2"><h3>{room.nameEn}</h3>{!room.active && <span className="crm-room-inactive-badge">Inactive</span>}</div><p>{branch?.nameEn} · {(room.roomType ?? "clinic").replaceAll("_", " ")}</p></div>
+            <div className="crm-room-week-summary"><span><small>Scheduled occupation</small><strong>{occupancy}%</strong></span><span><small>Maximum patients</small><strong>{maximumPatients} / week</strong></span></div>
+          </header>
+          <div className="crm-room-occupancy-track" aria-label={`${room.nameEn} ${occupancy}% occupied`}><span style={{ width: `${occupancy}%` }}/></div>
+          <div className="overflow-x-auto">
+            <div className="crm-room-week-grid">
+              {days.map((day) => (
+                <article key={day.value} className={day.isOpen ? "" : "is-closed"}>
+                  <div className="crm-room-day-heading"><strong>{day.short}</strong><span>{day.isOpen ? `${compactDuration(day.freeMinutes)} free` : "Closed"}</span></div>
+                  <div className="space-y-1.5">
+                    {day.sessions.map((session) => <div key={session.id} className="crm-room-session"><strong>{session.startTime}–{session.endTime}</strong><span>{session.doctorName}</span></div>)}
+                    {day.isOpen && day.sessions.length === 0 && <div className="crm-room-free-day">Available all day</div>}
+                    {!day.isOpen && <div className="crm-room-closed-day">Clinic closed</div>}
+                  </div>
+                  {day.isOpen && <footer><span>{compactDuration(day.scheduledMinutes)} scheduled</span><strong>Max {day.maximumPatients} patients</strong></footer>}
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+      ))}
+      {rooms.length === 0 && <EmptyState title="No rooms for this branch" hint="Refresh the CRM room catalog from Admin, then assign rooms to doctor sessions."/>}
+    </div>
+  );
+}
+
+function RoomEditor({ snapshot, room, onClose }: { snapshot: CrmSchedulingSnapshot; room?: CrmSchedulingSnapshot["rooms"][number]; onClose: () => void }) {
+  const [state, action, pending] = useActionState(saveRoomAction, IDLE);
+  useEffect(() => { if (state.ok) onClose(); }, [onClose, state.ok]);
+  return <div className="crm-schedule-modal-backdrop" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="crm-room-dialog-title" className="crm-schedule-modal max-w-lg"><header className="crm-schedule-modal-header"><div><p className="crm-schedule-eyebrow">CRM room</p><h3 id="crm-room-dialog-title">{room ? "Edit room" : "Add room"}</h3><p>Changes apply to the CRM copy and never modify the Admin room record.</p></div><button type="button" onClick={onClose} className="crm-schedule-close" aria-label="Close">×</button></header><form action={action} className="crm-schedule-modal-body">{room && <input type="hidden" name="id" value={room.id}/>}<label className={label}>Branch *<select required name="branchId" defaultValue={room?.branchId ?? ""} className={field}><option value="">Choose branch</option>{snapshot.branches.filter((branch) => branch.active).map((branch) => <option key={branch.id} value={branch.id}>{branch.nameEn}</option>)}</select></label><div className="grid gap-4 sm:grid-cols-2"><label className={label}>English name *<input required name="nameEn" defaultValue={room?.nameEn ?? ""} className={field}/></label><label className={label}>Arabic name<input name="nameAr" dir="rtl" defaultValue={room?.nameAr ?? ""} className={field}/></label></div><label className={label}>Room type<select name="roomType" defaultValue={room?.roomType ?? "clinic"} className={field}><option value="clinic">Clinic</option><option value="procedure">Procedure</option><option value="laser">Laser</option><option value="surgery">Surgery</option><option value="recovery">Recovery</option><option value="reception">Reception</option><option value="other">Other</option></select></label><label className="crm-toggle-row"><input type="checkbox" name="active" defaultChecked={room?.active ?? true} className="crm-toggle-input"/><span className="crm-toggle-track" aria-hidden="true"><span/></span><span><strong>Active room</strong><small>Inactive rooms remain visible but cannot receive new schedules.</small></span></label><Feedback state={state}/><footer className="crm-schedule-modal-footer"><button type="button" onClick={onClose} className="crm-schedule-button secondary">Cancel</button><button disabled={pending} className="crm-schedule-button primary">{pending ? "Saving…" : "Save room"}</button></footer></form></section></div>;
+}
+
+function DeleteRoomForm({ roomId, roomName }: { roomId: string; roomName: string }) {
+  const [state, action, pending] = useActionState(deleteRoomAction, IDLE);
+  return <form action={action} onSubmit={(event) => { if (!window.confirm(`Delete ${roomName}? This is allowed only when it has no CRM schedule history.`)) event.preventDefault(); }}><input type="hidden" name="id" value={roomId}/><button disabled={pending} className="crm-room-icon-button danger" aria-label={`Delete ${roomName}`} title={state.error ?? `Delete ${roomName}`}>{pending ? "…" : "⌫"}</button>{state.error && <span className="fixed bottom-4 end-4 z-[120] max-w-sm rounded-lg bg-danger-bg p-3 text-[11px] font-bold text-danger shadow-xl" role="alert">{state.error}</span>}</form>;
+}
+
+function RoomSyncFeedback({ state }: { state: SchedulingActionState }) {
+  if (state.error) return <Feedback state={state}/>;
+  if (!state.ok || !state.roomSync) return null;
+  const groups = [
+    { label: "Added", items: state.roomSync.added, className: "is-added" },
+    { label: "Updated", items: state.roomSync.updated, className: "is-updated" },
+    { label: "Deleted", items: state.roomSync.deleted, className: "is-deleted" },
+    { label: "Retained for history", items: state.roomSync.retained, className: "is-retained" },
+  ];
+  return (
+    <div className="crm-room-sync-result" role="status">
+      <strong>{state.message}</strong>
+      <div className="crm-room-sync-groups">
+        {groups.map((group) => (
+          <section key={group.label} className={group.className}>
+            <b>{group.label} ({group.items.length})</b>
+            {group.items.length > 0
+              ? <ul>{group.items.map((room) => <li key={room.id}>{room.name} <span>· {room.branchName}</span></li>)}</ul>
+              : <p>None</p>}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Rooms({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
+  const [editor, setEditor] = useState<CrmSchedulingSnapshot["rooms"][number] | "new" | null>(null);
+  const [syncState, syncAction, syncing] = useActionState(syncRoomsFromAdminAction, IDLE);
+  const grouped = snapshot.branches.map((branch) => ({ branch, rooms: snapshot.rooms.filter((room) => room.branchId === branch.id) })).filter((group) => group.rooms.length > 0);
+  return (
+    <div className="space-y-5">
+      <section className="crm-schedule-panel">
+        <div className="crm-schedule-panel-heading"><div><h3>Clinic rooms</h3><p>Copied from the Admin room catalog, then editable independently inside CRM.</p></div><div className="flex flex-wrap gap-2"><form action={syncAction} onSubmit={(event) => { if (!window.confirm("Refresh rooms from Admin? Admin room details will replace matching CRM copies, and unreferenced CRM-only rooms will be deleted.")) event.preventDefault(); }}><button disabled={syncing} className="crm-schedule-button secondary">{syncing ? "Refreshing…" : "↻ Refresh from Admin"}</button></form><button type="button" onClick={() => setEditor("new")} className="crm-schedule-button primary">＋ Add room</button></div></div>
+        {syncState.error || syncState.ok ? <div className="p-4"><RoomSyncFeedback state={syncState}/></div> : null}
+      </section>
+      {grouped.map(({ branch, rooms }) => <section key={branch.id} className="space-y-2"><div className="flex items-center justify-between px-1"><h4 className="text-[12px] font-black text-ink-700">{branch.nameEn}</h4><span className="text-[10px] text-ink-400">{rooms.length} room{rooms.length === 1 ? "" : "s"}</span></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{rooms.map((room) => <Card key={room.id} className={`p-4 ${room.active ? "" : "opacity-65"}`}><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><b className="text-[13px] text-ink-900">{room.nameEn}</b><span className={`rounded-pill px-2 py-0.5 text-[9px] font-bold ${room.active ? "bg-emerald-50 text-emerald-700" : "bg-line-faint text-ink-400"}`}>{room.active ? "Active" : "Inactive"}</span></div>{room.nameAr && <p dir="rtl" className="mt-1 text-[11px] text-ink-500">{room.nameAr}</p>}<p className="mt-2 text-[10px] capitalize text-ink-400">{(room.roomType ?? "clinic").replaceAll("_", " ")}</p></div><div className="flex gap-1"><button type="button" onClick={() => setEditor(room)} className="crm-room-icon-button" aria-label={`Edit ${room.nameEn}`}>✎</button><DeleteRoomForm roomId={room.id} roomName={room.nameEn}/></div></div></Card>)}</div></section>)}
+      {snapshot.rooms.length === 0 && <EmptyState title="No CRM rooms yet" hint="Use Refresh from Admin to copy every clinic room into CRM."/>}
+      {editor && (
+        <RoomEditor key={editor === "new" ? "new" : editor.id} snapshot={snapshot} room={editor === "new" ? undefined : editor} onClose={() => setEditor(null)}/>
+      )}
+    </div>
+  );
+}
+
+function ExceptionsAndTimeOff({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
+  const [mode, setMode] = useState<"exception" | "timeOff">("exception");
+  const [exceptionState, exceptionAction, exceptionPending] = useActionState(saveScheduleExceptionAction, IDLE);
+  const [timeOffState, timeOffAction, timeOffPending] = useActionState(saveTimeOffAction, IDLE);
+  const [branchId, setBranchId] = useState("");
+  const [timeOffBranchId, setTimeOffBranchId] = useState("");
+  const rooms = snapshot.rooms.filter((room) => room.branchId === branchId && room.active);
+  const exceptionDoctors = snapshot.doctors.filter((doctor) => snapshot.branchAssignments.some((assignment) => assignment.doctorId === doctor.id && assignment.branchId === branchId));
+  const timeOffDoctors = timeOffBranchId
+    ? snapshot.doctors.filter((doctor) => snapshot.branchAssignments.some((assignment) => assignment.doctorId === doctor.id && assignment.branchId === timeOffBranchId))
+    : snapshot.doctors;
+  const timeline = [
+    ...snapshot.exceptions.map((entry) => ({
+      id: `exception-${entry.id}`,
+      sortValue: `${entry.exceptionDate}T${entry.startTime ?? "00:00"}`,
+      kind: "Schedule exception",
+      title: entry.doctorName,
+      description: `${entry.exceptionType} · ${entry.branchName} · ${entry.roomName ?? "Scheduled room"}${entry.reason ? ` · ${entry.reason}` : ""}`,
+      period: `${entry.exceptionDate}${entry.startTime && entry.endTime ? ` · ${entry.startTime}–${entry.endTime}` : " · Full day"}`,
+      active: entry.active,
+    })),
+    ...snapshot.timeOff.map((entry) => ({
+      id: `time-off-${entry.id}`,
+      sortValue: entry.startsAt,
+      kind: "Time off",
+      title: entry.doctorName,
+      description: `${entry.reason} · ${entry.branchName ?? "All branches"} · ${entry.status}`,
+      period: `${formatDateTime(entry.startsAt)} → ${formatDateTime(entry.endsAt)}`,
+      active: entry.status === "approved" || entry.status === "pending",
+    })),
+  ].sort((a, b) => b.sortValue.localeCompare(a.sortValue));
+
+  return (
+    <section className="crm-schedule-panel">
+      <div className="crm-schedule-panel-heading">
+        <div><h3>Exceptions and doctor time off</h3><p>Manage one-day schedule changes and longer leave from the same workspace.</p></div>
+        <div className="crm-schedule-mode-switch" role="tablist" aria-label="Absence entry type">
+          <button type="button" role="tab" aria-selected={mode === "exception"} onClick={() => setMode("exception")} className={mode === "exception" ? "is-active" : ""}>Schedule exception</button>
+          <button type="button" role="tab" aria-selected={mode === "timeOff"} onClick={() => setMode("timeOff")} className={mode === "timeOff" ? "is-active" : ""}>Doctor time off</button>
         </div>
-        <BlockForm snapshot={snapshot} />
-        <div className="mt-4 divide-y divide-line-faint">
-          {snapshot.blockedTimes.length === 0 ? (
-            <div className="py-3 text-[12px] text-ink-400">No upcoming blocked times.</div>
-          ) : (
-            snapshot.blockedTimes.map((block) => (
-              <div key={block.id} className="grid gap-2 py-3 md:grid-cols-[130px_1fr_1fr_auto] md:items-center">
-                <div className="text-[12px] font-bold text-ink-900">{formatDate(block.date)}</div>
-                <div className="text-[12px] text-ink-700">
-                  {block.fullDay ? "Full day" : `${block.startTime} - ${block.endTime}`}
-                  {block.reason ? <span className="ms-2 text-ink-400">{block.reason}</span> : null}
-                </div>
-                <div className="text-[11.5px] text-ink-500">
-                  {block.doctorId ? doctorsById.get(block.doctorId)?.nameEn ?? block.doctorName ?? "Unknown doctor" : "Any doctor"}
-                  {" at "}
-                  {block.branchId ? branchesById.get(block.branchId)?.nameEn ?? block.branchName ?? "Unknown branch" : "any branch"}
-                </div>
-                <DeleteBlockForm id={block.id} />
-              </div>
-            ))
-          )}
-        </div>
-      </Card>
+      </div>
+
+      {mode === "exception" ? (
+        <form action={exceptionAction} className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
+          <label className={label}>Branch<select required name="branchId" value={branchId} onChange={(event) => setBranchId(event.target.value)} className={field}><option value="">Choose branch</option>{snapshot.branches.filter((branch) => branch.active).map((branch) => <option key={branch.id} value={branch.id}>{branch.nameEn}</option>)}</select></label>
+          <label className={label}>Doctor<select required name="doctorId" className={field} disabled={!branchId}><option value="">Choose doctor</option>{exceptionDoctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.nameEn}</option>)}</select></label>
+          <label className={label}>Room (optional)<select name="roomId" className={field}><option value="">Use scheduled room</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.nameEn}</option>)}</select></label>
+          <label className={label}>Date<input required type="date" name="exceptionDate" className={field}/></label>
+          <label className={label}>Type<select name="exceptionType" className={field}><option value="unavailable">Unavailable</option><option value="modified">Modified hours</option><option value="available">Additional availability</option></select></label>
+          <label className={label}>Start (blank = full day)<input type="time" name="startTime" className={field}/></label>
+          <label className={label}>End (blank = full day)<input type="time" name="endTime" className={field}/></label>
+          <label className={label}>Reason<input name="reason" className={field}/></label>
+          <div className="flex items-end gap-3"><label className="pb-3 text-[12px]"><input type="checkbox" name="active" defaultChecked/> Active</label><button disabled={exceptionPending} className="crm-schedule-button primary">{exceptionPending ? "Saving…" : "Add exception"}</button></div>
+          <Feedback state={exceptionState}/>
+        </form>
+      ) : (
+        <form action={timeOffAction} className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
+          <label className={label}>Branch<select name="branchId" value={timeOffBranchId} onChange={(event) => setTimeOffBranchId(event.target.value)} className={field}><option value="">All branches</option>{snapshot.branches.filter((branch) => branch.active).map((branch) => <option key={branch.id} value={branch.id}>{branch.nameEn}</option>)}</select></label>
+          <label className={label}>Doctor<select required name="doctorId" className={field}><option value="">Choose doctor</option>{timeOffDoctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.nameEn}</option>)}</select></label>
+          <label className={label}>Starts<input required type="datetime-local" name="startsAt" className={field}/></label>
+          <label className={label}>Ends<input required type="datetime-local" name="endsAt" className={field}/></label>
+          <label className={label}>Reason<input required name="reason" className={field}/></label>
+          <label className={label}>Notes<input name="notes" className={field}/></label>
+          <label className={label}>Status<select name="status" className={field}><option value="approved">Approved</option><option value="pending">Pending</option><option value="rejected">Rejected</option><option value="cancelled">Cancelled</option></select></label>
+          <div className="flex items-end"><button disabled={timeOffPending} className="crm-schedule-button primary">{timeOffPending ? "Saving…" : "Add time off"}</button></div>
+          <Feedback state={timeOffState}/>
+        </form>
+      )}
+
+      <div className="divide-y divide-line-faint border-t border-line-faint">
+        {timeline.map((entry) => <div key={entry.id} className={`grid gap-1 p-4 sm:grid-cols-[1fr_auto] ${entry.active ? "" : "opacity-60"}`}><div><div className="flex items-center gap-2"><b>{entry.title}</b><span className="crm-schedule-entry-kind">{entry.kind}</span></div><p className="text-[11px] text-ink-500">{entry.description}</p></div><span className="text-[11px] text-ink-500">{entry.period}</span></div>)}
+        {timeline.length === 0 && <div className="p-5 text-[12px] text-ink-400">No exceptions or time off recorded.</div>}
+      </div>
+    </section>
+  );
+}
+
+function Closures({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
+  const [state, action, pending] = useActionState(saveClosureAction, IDLE);
+  return (
+    <section className="crm-schedule-panel">
+      <div className="crm-schedule-panel-heading"><div><h3>Closures</h3><p>Block the organization, one branch, or one room for a date and time range.</p></div></div>
+      <form action={action} className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
+        <label className={label}>Title / reason<input required name="title" className={field}/></label>
+        <label className={label}>Scope<select name="scope" className={field}><option value="organization">Entire organization</option><option value="branch">Branch</option><option value="room">Room</option></select></label>
+        <label className={label}>Branch<select name="branchId" className={field}><option value="">Not branch-specific</option>{snapshot.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.nameEn}</option>)}</select></label>
+        <label className={label}>Room<select name="roomId" className={field}><option value="">Not room-specific</option>{snapshot.rooms.map((room) => <option key={room.id} value={room.id}>{room.nameEn}</option>)}</select></label>
+        <label className={label}>Starts<input required type="datetime-local" name="startsAt" className={field}/></label>
+        <label className={label}>Ends<input required type="datetime-local" name="endsAt" className={field}/></label>
+        <label className={label}>Notes<input name="notes" className={field}/></label>
+        <div className="flex items-end gap-3"><label className="pb-3 text-[12px]"><input type="checkbox" name="active" defaultChecked/> Active</label><button disabled={pending} className="crm-schedule-button primary">Add closure</button></div>
+        <Feedback state={state}/>
+      </form>
+      <div className="divide-y divide-line-faint border-t border-line-faint">{snapshot.closures.map((closure) => <div key={closure.id} className="grid gap-1 p-4 sm:grid-cols-[1fr_auto]"><div><b>{closure.title}</b><p className="text-[11px] text-ink-500">{closure.scope} · {closure.branchName ?? "All branches"} · {closure.roomName ?? "All rooms"}</p></div><span className="text-[11px] text-ink-500">{formatDateTime(closure.startsAt)} → {formatDateTime(closure.endsAt)}</span></div>)}{snapshot.closures.length === 0 && <div className="p-5 text-[12px] text-ink-400">No closures recorded.</div>}</div>
+    </section>
+  );
+}
+
+function DoctorBranchAssignmentCard({ snapshot, doctor }: { snapshot: CrmSchedulingSnapshot; doctor: CrmSchedulingSnapshot["doctors"][number] }) {
+  const [state, action, pending] = useActionState(saveBranchAssignmentsAction, IDLE);
+  const assignedIds = new Set(snapshot.branchAssignments.filter((assignment) => assignment.doctorId === doctor.id).map((assignment) => assignment.branchId));
+  const initials = doctor.nameEn.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("");
+  return (
+    <Card className="overflow-hidden">
+      <form action={action}>
+        <input type="hidden" name="doctorId" value={doctor.id}/>
+        <header className="flex items-center gap-3 border-b border-line-faint p-4">
+          <div className="crm-doctor-avatar">{initials || "DR"}</div>
+          <div><b>{doctor.nameEn}</b><p className="text-[10.5px] text-ink-400">Choose one or more clinic branches</p></div>
+        </header>
+        <fieldset className="space-y-2 p-4">
+          <legend className="sr-only">Branches for {doctor.nameEn}</legend>
+          {snapshot.branches.filter((branch) => branch.active).map((branch) => (
+            <label key={branch.id} className="crm-branch-assignment-option">
+              <input type="checkbox" name="branchIds" value={branch.id} defaultChecked={assignedIds.has(branch.id)}/>
+              <span className="crm-branch-assignment-check" aria-hidden="true">✓</span>
+              <span><strong>{branch.nameEn}</strong>{branch.nameAr && <small dir="rtl">{branch.nameAr}</small>}</span>
+            </label>
+          ))}
+        </fieldset>
+        <footer className="border-t border-line-faint p-4">
+          <Feedback state={state}/>
+          <button disabled={pending} className="crm-schedule-button primary mt-3 w-full">{pending ? "Saving assignments…" : "Save branch assignments"}</button>
+        </footer>
+      </form>
+    </Card>
+  );
+}
+
+function BranchAssignments({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
+  return (
+    <div className="space-y-4">
+      <section className="crm-schedule-notice">
+        Branch assignments are shared with the Admin doctor catalog and public booking filters. Adding or removing a branch here changes where the doctor may work, but it does not copy, create, or delete any Admin or CRM schedule hours.
+      </section>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {snapshot.doctors.map((doctor) => <DoctorBranchAssignmentCard key={doctor.id} snapshot={snapshot} doctor={doctor}/>) }
+      </div>
+    </div>
+  );
+}
+
+export function SchedulingSettings({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
+  const [section, setSection] = useState<Section>("Availability");
+  if (!snapshot.catalogConfigured) return <EmptyState title="Booking catalog is not configured" hint="The CRM needs read-only booking credentials to list canonical doctors and branches."/>;
+  if (!snapshot.migrationReady) return <EmptyState title="CRM scheduling migration required" hint="Apply 0038_crm_scheduling_separation.sql. No Admin/booking schedule will be changed."/>;
+
+  return (
+    <div className="space-y-5">
+      <header className="crm-schedule-hero">
+        <div><p className="crm-schedule-eyebrow">CRM-owned scheduling</p><h2>Doctors and Scheduling</h2><p>Plan each doctor&apos;s weekly clinic calendar by branch, with rooms, exceptions, closures and time off kept in one workspace.</p></div>
+        <div className="crm-schedule-hero-stats"><span><strong>{snapshot.doctors.filter((doctor) => doctor.active).length}</strong>Doctors</span><span><strong>{snapshot.schedules.filter((schedule) => schedule.active).length}</strong>Active sessions</span><span><strong>{snapshot.rooms.filter((room) => room.active).length}</strong>Rooms</span></div>
+      </header>
+
+      <nav role="tablist" aria-label="Doctors and scheduling sections" className="crm-schedule-tabs">
+        {SECTIONS.map((name) => <button key={name} type="button" role="tab" aria-selected={section === name} onClick={() => setSection(name)} className={section === name ? "is-active" : ""}>{name}</button>)}
+      </nav>
+
+      {section === "Availability" && <Availability snapshot={snapshot}/>}
+      {section === "Exceptions & Time Off" && <ExceptionsAndTimeOff snapshot={snapshot}/>}
+      {section === "Rooms" && <Rooms snapshot={snapshot}/>}
+      {section === "Room Week View" && <RoomWeekView snapshot={snapshot}/>}
+      {section === "Closures" && <Closures snapshot={snapshot}/>}
+      {section === "Branch Assignments" && <BranchAssignments snapshot={snapshot}/>}
     </div>
   );
 }

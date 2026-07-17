@@ -5,7 +5,7 @@ import { SchedulingSettings } from "@/components/settings/SchedulingSettings";
 import { FinancialSettingsManager } from "@/components/financial/FinancialSettingsManager";
 import { SettingsManager, type IntegrationStatus, type SettingsTabKey } from "@/components/settings/SettingsManager";
 import { bookingConfigured } from "@/lib/booking/client";
-import { bookingSchedulingSnapshot } from "@/lib/booking/service";
+import { crmSchedulingSnapshot } from "@/lib/scheduling/crm";
 import { emailConfigured } from "@/lib/email/resend";
 import { whatsappConfigured } from "@/lib/whatsapp/config";
 import { can } from "@/lib/auth/permissions";
@@ -16,7 +16,6 @@ import {
   getAiPrompt,
   getAuditorSettings,
   listEscalationReasons,
-  listEmailRules,
   listFollowUpStages,
   listLostReasons,
   listSlaRules,
@@ -50,7 +49,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const params = await searchParams;
   const initialTab = SETTINGS_SECTIONS.has(params.section as SettingsTabKey) ? params.section as SettingsTabKey : "general";
 
-  const [tags, lostReasons, escalationReasons, slaRules, followUpStages, auditorSettings, aiPrompt, emailRules, sources, scheduling, financial, ingestLogs] =
+  const [tags, lostReasons, escalationReasons, slaRules, followUpStages, auditorSettings, aiPrompt, sources, scheduling, financial, ingestLogs] =
     await Promise.all([
       listTags(),
       listLostReasons(),
@@ -59,9 +58,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       listFollowUpStages(),
       getAuditorSettings(),
       getAiPrompt(),
-      listEmailRules(),
       leadSourcesList(),
-      bookingSchedulingSnapshot(),
+      can(user.role, "scheduling.view") ? crmSchedulingSnapshot() : Promise.resolve(null),
       financialSettingsData(),
       listIngestLogs(),
     ]);
@@ -84,10 +82,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           followUpStages={followUpStages}
           auditorSettings={auditorSettings}
           aiPrompt={aiPrompt}
-          emailRules={emailRules}
           sources={sources}
           integrations={integrations()}
-          scheduling={<SchedulingSettings snapshot={scheduling} />}
+          scheduling={scheduling ? <SchedulingSettings snapshot={scheduling} /> : <div className="rounded-xl border border-line p-5 text-[12px] text-ink-500">You do not have permission to view CRM scheduling.</div>}
           financial={<FinancialSettingsManager data={financial} initialTab={params.financeTab} />}
           ingestLogs={ingestLogs}
         />

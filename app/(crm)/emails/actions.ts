@@ -12,7 +12,7 @@ export async function sendManualEmailAction(_previous: ManualEmailState, formDat
       subject: String(formData.get("subject") ?? ""),
       body: String(formData.get("body") ?? ""),
     });
-    revalidatePath("/emails");
+    revalidatePath("/settings/email");
     return { ok };
   } catch (error) {
     console.error("manual email failed", error);

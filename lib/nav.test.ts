@@ -53,16 +53,17 @@ test("a moderator sees reports but not auditor, users or settings nav", () => {
   }
 });
 
-test("an auditor reaches Users & Roles through Settings and sees Emails", () => {
+test("an auditor reaches consolidated Email and Users & Roles through Settings", () => {
   const hrefs = visibleNav("auditor").map((n) => n.href);
   assert.equal(hrefs.includes("/settings/users"), false);
   assert.equal(hrefs.includes("/settings"), true);
-  assert.equal(hrefs.includes("/emails"), true);
+  assert.equal(hrefs.includes("/emails"), false);
 });
 
-test("a moderator never sees the emails nav", () => {
+test("email is never duplicated in the primary navigation", () => {
   const hrefs = visibleNav("moderator").map((n) => n.href);
   assert.equal(hrefs.includes("/emails"), false);
+  assert.equal(NAV.some((item) => item.href === "/settings/email"), false);
 });
 
 test("an admin sees every nav item", () => {
