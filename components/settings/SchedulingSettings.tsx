@@ -5,6 +5,7 @@ import {
   saveClosureAction,
   saveBranchAssignmentsAction,
   deleteRoomAction,
+  duplicateScheduleAction,
   saveRoomAction,
   saveScheduleAction,
   saveScheduleExceptionAction,
@@ -42,7 +43,7 @@ const label = "crm-schedule-label";
 
 function Feedback({ state }: { state: SchedulingActionState }) {
   if (state.error) return <p role="alert" className="crm-schedule-error">{state.error}</p>;
-  if (state.ok) return <p role="status" className="crm-schedule-success">{state.message ?? "Saved in CRM scheduling only."}</p>;
+  if (state.ok) return <p role="status" className="crm-schedule-success">{state.message ?? "Saved to shared scheduling."}</p>;
   return null;
 }
 
@@ -92,7 +93,7 @@ function ScheduleEditor({
           <div>
             <p className="crm-schedule-eyebrow">CRM availability</p>
             <h3 id="crm-schedule-dialog-title">{schedule ? "Edit clinic session" : "Add clinic session"}</h3>
-            <p>Doctor hours and room assignment for this CRM schedule only.</p>
+            <p>These hours and room assignments are shared by CRM and online booking.</p>
           </div>
           <button type="button" onClick={onClose} className="crm-schedule-close" aria-label="Close">×</button>
         </header>
@@ -136,15 +137,6 @@ function ScheduleEditor({
             <label className={label}>End time *<input type="time" name="endTime" required value={endTime} onChange={(event) => setEndTime(event.target.value)} className={field}/></label>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <label className={label}>Slot duration
-              <select name="slotDurationMinutes" defaultValue={schedule?.slotDurationMinutes ?? 20} className={field}>
-                {Array.from(new Set([10, 15, 20, 30, 45, 60, durationProfile?.averageMinutes].filter((minutes): minutes is number => Boolean(minutes)))).sort((a, b) => a - b).map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}
-              </select>
-            </label>
-            <label className={label}>Effective from<input type="date" name="effectiveFrom" defaultValue={schedule?.effectiveFrom ?? ""} className={field}/></label>
-            <label className={label}>Effective to<input type="date" name="effectiveTo" defaultValue={schedule?.effectiveTo ?? ""} className={field}/></label>
-          </div>
           {durationProfile && <div className="crm-schedule-service-profile"><strong>Service-aware capacity</strong><span>{durationProfile.serviceCount || "No"} eligible services · {durationProfile.shortestMinutes}–{durationProfile.longestMinutes} min · {durationProfile.averageMinutes} min planning average</span></div>}
 
           <div className="crm-schedule-dialog-section">
@@ -165,6 +157,12 @@ function ScheduleEditor({
             <span><strong>Available for CRM booking</strong><small>Inactive sessions remain visible for historical reference.</small></span>
           </label>
 
+          <label className="crm-toggle-row">
+            <input type="checkbox" name="showOnBookingWebsite" defaultChecked={schedule?.showOnBookingWebsite ?? true} className="crm-toggle-input"/>
+            <span className="crm-toggle-track" aria-hidden="true"><span/></span>
+            <span><strong>Show on Booking Website</strong><small>Controls only public schedule visibility. The doctor profile is not changed.</small></span>
+          </label>
+
           <Feedback state={state}/>
           <footer className="crm-schedule-modal-footer">
             <button type="button" onClick={onClose} className="crm-schedule-button secondary">Cancel</button>
@@ -176,10 +174,32 @@ function ScheduleEditor({
   );
 }
 
+function DuplicateScheduleEditor({ snapshot, schedule, onClose }: { snapshot: CrmSchedulingSnapshot; schedule: CrmScheduleRow; onClose: () => void }) {
+  const [state, action, pending] = useActionState(duplicateScheduleAction, IDLE);
+  const eligibleDoctors = snapshot.doctors.filter((doctor) => snapshot.branchAssignments.some((assignment) => assignment.doctorId === doctor.id && assignment.branchId === schedule.branchId));
+  useEffect(() => { if (state.ok) onClose(); }, [onClose, state.ok]);
+  return (
+    <div className="crm-schedule-modal-backdrop" role="presentation">
+      <section role="dialog" aria-modal="true" aria-labelledby="crm-duplicate-dialog-title" className="crm-schedule-modal max-w-2xl">
+        <header className="crm-schedule-modal-header"><div><p className="crm-schedule-eyebrow">Duplicate shared schedule</p><h3 id="crm-duplicate-dialog-title">Copy {schedule.startTime}–{schedule.endTime}</h3><p>Choose target doctors and days. The original room is reused when free; otherwise the next available room at {schedule.branchName} is assigned.</p></div><button type="button" onClick={onClose} className="crm-schedule-close" aria-label="Close">×</button></header>
+        <form action={action} className="crm-schedule-modal-body">
+          <input type="hidden" name="scheduleId" value={schedule.id}/>
+          <fieldset><legend className={`${label} mb-2`}>Target doctors *</legend><div className="grid gap-2 sm:grid-cols-2">{eligibleDoctors.map((doctor) => <label key={doctor.id} className="crm-branch-assignment-option"><input type="checkbox" name="doctorIds" value={doctor.id} defaultChecked={doctor.id === schedule.doctorId}/><span className="crm-branch-assignment-check" aria-hidden="true">✓</span><span><strong>{doctor.nameEn}</strong></span></label>)}</div></fieldset>
+          <fieldset><legend className={`${label} mb-2`}>Target days *</legend><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{DAYS.map((day) => <label key={day.value} className="crm-branch-assignment-option"><input type="checkbox" name="daysOfWeek" value={day.value}/><span className="crm-branch-assignment-check" aria-hidden="true">✓</span><span><strong>{day.label}</strong></span></label>)}</div></fieldset>
+          <div className="crm-schedule-notice">The copy keeps its times, first-come capacity, active state, and “Show on Booking Website” setting. Doctor and room conflicts are skipped safely.</div>
+          <Feedback state={state}/>
+          <footer className="crm-schedule-modal-footer"><button type="button" onClick={onClose} className="crm-schedule-button secondary">Cancel</button><button disabled={pending} className="crm-schedule-button primary">{pending ? "Duplicating…" : "Duplicate schedule"}</button></footer>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function Availability({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
   const initialBranch = snapshot.branches.find((branch) => branch.active)?.id ?? "";
   const [selectedBranchId, setSelectedBranchId] = useState(initialBranch);
   const [editor, setEditor] = useState<{ schedule?: CrmScheduleRow; doctorId?: string; dayOfWeek?: number } | null>(null);
+  const [duplicate, setDuplicate] = useState<CrmScheduleRow | null>(null);
   const selectedBranch = snapshot.branches.find((branch) => branch.id === selectedBranchId);
   const branchSchedules = useMemo(() => snapshot.schedules.filter((schedule) => schedule.branchId === selectedBranchId), [selectedBranchId, snapshot.schedules]);
   const assignedDoctorIds = new Set(snapshot.branchAssignments.filter((assignment) => assignment.branchId === selectedBranchId).map((assignment) => assignment.doctorId));
@@ -245,10 +265,11 @@ function Availability({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
                             <div className="flex items-start justify-between gap-1">
                               <div>
                                 <strong><span aria-hidden="true">◷</span>{schedule.startTime}–{schedule.endTime}</strong>
-                                <small>{schedule.roomName ?? "Room required"} · {schedule.slotDurationMinutes} min</small>
+                                <small>{schedule.roomName ?? "Room required"} · {durationProfile.averageMinutes} min service average</small>
                                 {schedule.firstComeFirstServe && <small>First come · {schedule.firstComeCapacity}</small>}
+                                <small>{schedule.showOnBookingWebsite ? "Visible on booking website" : "CRM only · hidden from website"}</small>
                               </div>
-                              <button type="button" aria-label={`Edit ${day.label} hours for ${doctor.nameEn}`} onClick={() => setEditor({ schedule })}>✎</button>
+                              <span className="flex"><button type="button" aria-label={`Duplicate ${day.label} hours for ${doctor.nameEn}`} title="Duplicate schedule" onClick={() => setDuplicate(schedule)}>⧉</button><button type="button" aria-label={`Edit ${day.label} hours for ${doctor.nameEn}`} onClick={() => setEditor({ schedule })}>✎</button></span>
                             </div>
                           </article>
                         ))}
@@ -272,6 +293,7 @@ function Availability({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
       {editor && (
         <ScheduleEditor key={editor.schedule?.id ?? `${editor.doctorId}-${editor.dayOfWeek ?? "new"}`} snapshot={snapshot} schedule={editor.schedule} doctorId={editor.doctorId} dayOfWeek={editor.dayOfWeek} branchId={selectedBranchId} onClose={() => setEditor(null)}/>
       )}
+      {duplicate && <DuplicateScheduleEditor key={duplicate.id} snapshot={snapshot} schedule={duplicate} onClose={() => setDuplicate(null)}/>}
     </div>
   );
 }
@@ -364,7 +386,7 @@ function RoomWeekView({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
 function RoomEditor({ snapshot, room, onClose }: { snapshot: CrmSchedulingSnapshot; room?: CrmSchedulingSnapshot["rooms"][number]; onClose: () => void }) {
   const [state, action, pending] = useActionState(saveRoomAction, IDLE);
   useEffect(() => { if (state.ok) onClose(); }, [onClose, state.ok]);
-  return <div className="crm-schedule-modal-backdrop" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="crm-room-dialog-title" className="crm-schedule-modal max-w-lg"><header className="crm-schedule-modal-header"><div><p className="crm-schedule-eyebrow">CRM room</p><h3 id="crm-room-dialog-title">{room ? "Edit room" : "Add room"}</h3><p>Changes apply to the CRM copy and never modify the Admin room record.</p></div><button type="button" onClick={onClose} className="crm-schedule-close" aria-label="Close">×</button></header><form action={action} className="crm-schedule-modal-body">{room && <input type="hidden" name="id" value={room.id}/>}<label className={label}>Branch *<select required name="branchId" defaultValue={room?.branchId ?? ""} className={field}><option value="">Choose branch</option>{snapshot.branches.filter((branch) => branch.active).map((branch) => <option key={branch.id} value={branch.id}>{branch.nameEn}</option>)}</select></label><div className="grid gap-4 sm:grid-cols-2"><label className={label}>English name *<input required name="nameEn" defaultValue={room?.nameEn ?? ""} className={field}/></label><label className={label}>Arabic name<input name="nameAr" dir="rtl" defaultValue={room?.nameAr ?? ""} className={field}/></label></div><label className={label}>Room type<select name="roomType" defaultValue={room?.roomType ?? "clinic"} className={field}><option value="clinic">Clinic</option><option value="procedure">Procedure</option><option value="laser">Laser</option><option value="surgery">Surgery</option><option value="recovery">Recovery</option><option value="reception">Reception</option><option value="other">Other</option></select></label><label className="crm-toggle-row"><input type="checkbox" name="active" defaultChecked={room?.active ?? true} className="crm-toggle-input"/><span className="crm-toggle-track" aria-hidden="true"><span/></span><span><strong>Active room</strong><small>Inactive rooms remain visible but cannot receive new schedules.</small></span></label><Feedback state={state}/><footer className="crm-schedule-modal-footer"><button type="button" onClick={onClose} className="crm-schedule-button secondary">Cancel</button><button disabled={pending} className="crm-schedule-button primary">{pending ? "Saving…" : "Save room"}</button></footer></form></section></div>;
+  return <div className="crm-schedule-modal-backdrop" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="crm-room-dialog-title" className="crm-schedule-modal max-w-lg"><header className="crm-schedule-modal-header"><div><p className="crm-schedule-eyebrow">Shared clinic room</p><h3 id="crm-room-dialog-title">{room ? "Edit room" : "Add room"}</h3><p>Changes are immediately shared with Admin scheduling, CRM, and online availability.</p></div><button type="button" onClick={onClose} className="crm-schedule-close" aria-label="Close">×</button></header><form action={action} className="crm-schedule-modal-body">{room && <input type="hidden" name="id" value={room.id}/>}<label className={label}>Branch *<select required name="branchId" defaultValue={room?.branchId ?? ""} className={field}><option value="">Choose branch</option>{snapshot.branches.filter((branch) => branch.active).map((branch) => <option key={branch.id} value={branch.id}>{branch.nameEn}</option>)}</select></label><div className="grid gap-4 sm:grid-cols-2"><label className={label}>English name *<input required name="nameEn" defaultValue={room?.nameEn ?? ""} className={field}/></label><label className={label}>Arabic name<input name="nameAr" dir="rtl" defaultValue={room?.nameAr ?? ""} className={field}/></label></div><label className={label}>Room type<select name="roomType" defaultValue={room?.roomType ?? "clinic"} className={field}><option value="clinic">Clinic</option><option value="procedure">Procedure</option><option value="laser">Laser</option><option value="surgery">Surgery</option><option value="recovery">Recovery</option><option value="reception">Reception</option><option value="other">Other</option></select></label><label className="crm-toggle-row"><input type="checkbox" name="active" defaultChecked={room?.active ?? true} className="crm-toggle-input"/><span className="crm-toggle-track" aria-hidden="true"><span/></span><span><strong>Active room</strong><small>Inactive rooms remain visible but cannot receive new schedules.</small></span></label><Feedback state={state}/><footer className="crm-schedule-modal-footer"><button type="button" onClick={onClose} className="crm-schedule-button secondary">Cancel</button><button disabled={pending} className="crm-schedule-button primary">{pending ? "Saving…" : "Save room"}</button></footer></form></section></div>;
 }
 
 function DeleteRoomForm({ roomId, roomName }: { roomId: string; roomName: string }) {
@@ -379,7 +401,7 @@ function RoomSyncFeedback({ state }: { state: SchedulingActionState }) {
     { label: "Added", items: state.roomSync.added, className: "is-added" },
     { label: "Updated", items: state.roomSync.updated, className: "is-updated" },
     { label: "Deleted", items: state.roomSync.deleted, className: "is-deleted" },
-    { label: "Retained for history", items: state.roomSync.retained, className: "is-retained" },
+    { label: "Shared rooms", items: state.roomSync.retained, className: "is-retained" },
   ];
   return (
     <div className="crm-room-sync-result" role="status">
@@ -405,11 +427,11 @@ function Rooms({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
   return (
     <div className="space-y-5">
       <section className="crm-schedule-panel">
-        <div className="crm-schedule-panel-heading"><div><h3>Clinic rooms</h3><p>Copied from the Admin room catalog, then editable independently inside CRM.</p></div><div className="flex flex-wrap gap-2"><form action={syncAction} onSubmit={(event) => { if (!window.confirm("Refresh rooms from Admin? Admin room details will replace matching CRM copies, and unreferenced CRM-only rooms will be deleted.")) event.preventDefault(); }}><button disabled={syncing} className="crm-schedule-button secondary">{syncing ? "Refreshing…" : "↻ Refresh from Admin"}</button></form><button type="button" onClick={() => setEditor("new")} className="crm-schedule-button primary">＋ Add room</button></div></div>
+        <div className="crm-schedule-panel-heading"><div><h3>Clinic rooms</h3><p>Canonical rooms shared by CRM, Admin scheduling, and online availability.</p></div><div className="flex flex-wrap gap-2"><form action={syncAction}><button disabled={syncing} className="crm-schedule-button secondary">{syncing ? "Refreshing…" : "↻ Refresh shared rooms"}</button></form><button type="button" onClick={() => setEditor("new")} className="crm-schedule-button primary">＋ Add room</button></div></div>
         {syncState.error || syncState.ok ? <div className="p-4"><RoomSyncFeedback state={syncState}/></div> : null}
       </section>
       {grouped.map(({ branch, rooms }) => <section key={branch.id} className="space-y-2"><div className="flex items-center justify-between px-1"><h4 className="text-[12px] font-black text-ink-700">{branch.nameEn}</h4><span className="text-[10px] text-ink-400">{rooms.length} room{rooms.length === 1 ? "" : "s"}</span></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{rooms.map((room) => <Card key={room.id} className={`p-4 ${room.active ? "" : "opacity-65"}`}><div className="flex items-start justify-between gap-3"><div><div className="flex items-center gap-2"><b className="text-[13px] text-ink-900">{room.nameEn}</b><span className={`rounded-pill px-2 py-0.5 text-[9px] font-bold ${room.active ? "bg-emerald-50 text-emerald-700" : "bg-line-faint text-ink-400"}`}>{room.active ? "Active" : "Inactive"}</span></div>{room.nameAr && <p dir="rtl" className="mt-1 text-[11px] text-ink-500">{room.nameAr}</p>}<p className="mt-2 text-[10px] capitalize text-ink-400">{(room.roomType ?? "clinic").replaceAll("_", " ")}</p></div><div className="flex gap-1"><button type="button" onClick={() => setEditor(room)} className="crm-room-icon-button" aria-label={`Edit ${room.nameEn}`}>✎</button><DeleteRoomForm roomId={room.id} roomName={room.nameEn}/></div></div></Card>)}</div></section>)}
-      {snapshot.rooms.length === 0 && <EmptyState title="No CRM rooms yet" hint="Use Refresh from Admin to copy every clinic room into CRM."/>}
+      {snapshot.rooms.length === 0 && <EmptyState title="No clinic rooms yet" hint="Add the first shared room for a branch."/>}
       {editor && (
         <RoomEditor key={editor === "new" ? "new" : editor.id} snapshot={snapshot} room={editor === "new" ? undefined : editor} onClose={() => setEditor(null)}/>
       )}
@@ -465,7 +487,7 @@ function ExceptionsAndTimeOff({ snapshot }: { snapshot: CrmSchedulingSnapshot })
           <label className={label}>Doctor<select required name="doctorId" className={field} disabled={!branchId}><option value="">Choose doctor</option>{exceptionDoctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.nameEn}</option>)}</select></label>
           <label className={label}>Room (optional)<select name="roomId" className={field}><option value="">Use scheduled room</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.nameEn}</option>)}</select></label>
           <label className={label}>Date<input required type="date" name="exceptionDate" className={field}/></label>
-          <label className={label}>Type<select name="exceptionType" className={field}><option value="unavailable">Unavailable</option><option value="modified">Modified hours</option><option value="available">Additional availability</option></select></label>
+          <label className={label}>Type<select name="exceptionType" className={field}><option value="unavailable">Unavailable / blocked</option></select></label>
           <label className={label}>Start (blank = full day)<input type="time" name="startTime" className={field}/></label>
           <label className={label}>End (blank = full day)<input type="time" name="endTime" className={field}/></label>
           <label className={label}>Reason<input name="reason" className={field}/></label>
@@ -561,13 +583,13 @@ function BranchAssignments({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
 
 export function SchedulingSettings({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
   const [section, setSection] = useState<Section>("Availability");
-  if (!snapshot.catalogConfigured) return <EmptyState title="Booking catalog is not configured" hint="The CRM needs read-only booking credentials to list canonical doctors and branches."/>;
-  if (!snapshot.migrationReady) return <EmptyState title="CRM scheduling migration required" hint="Apply 0038_crm_scheduling_separation.sql. No Admin/booking schedule will be changed."/>;
+  if (!snapshot.catalogConfigured) return <EmptyState title="Shared scheduling is not configured" hint="The CRM needs the booking Supabase server credentials to manage canonical schedules."/>;
+  if (!snapshot.migrationReady) return <EmptyState title="Shared scheduling migration required" hint="Apply 018_crm_scheduling_source_of_truth.sql in the booking database before managing schedules."/>;
 
   return (
     <div className="space-y-5">
       <header className="crm-schedule-hero">
-        <div><p className="crm-schedule-eyebrow">CRM-owned scheduling</p><h2>Doctors and Scheduling</h2><p>Plan each doctor&apos;s weekly clinic calendar by branch, with rooms, exceptions, closures and time off kept in one workspace.</p></div>
+        <div><p className="crm-schedule-eyebrow">Single source of truth</p><h2>Doctors and Scheduling</h2><p>Manage the shared weekly calendar used by CRM and online booking, including rooms, exceptions, closures, time off, and website visibility.</p></div>
         <div className="crm-schedule-hero-stats"><span><strong>{snapshot.doctors.filter((doctor) => doctor.active).length}</strong>Doctors</span><span><strong>{snapshot.schedules.filter((schedule) => schedule.active).length}</strong>Active sessions</span><span><strong>{snapshot.rooms.filter((room) => room.active).length}</strong>Rooms</span></div>
       </header>
 

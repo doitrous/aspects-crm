@@ -105,6 +105,7 @@ interface DbSchedule {
   first_come_first_serve?: boolean | null;
   first_come_capacity?: number | null;
   is_active: boolean;
+  schedule_room_assignments?: Array<{ room_id: string }>;
 }
 
 const ACTIVE_BOOKING_STATUSES: ReservationStatus[] = ["reserved", "confirmed"];
@@ -578,7 +579,7 @@ export async function availableBookingSlots(params: {
   const [schedulesRes, bookingsRes, blockedRes] = await Promise.all([
     db
       .from("doctor_schedule_templates")
-      .select("id,doctor_id,branch_id,day_of_week,start_time,end_time,first_come_first_serve,first_come_capacity,is_active")
+      .select("id,doctor_id,branch_id,day_of_week,start_time,end_time,first_come_first_serve,first_come_capacity,is_active,schedule_room_assignments(room_id)")
       .eq("doctor_id", params.doctorId)
       .eq("branch_id", params.branchId)
       .eq("is_active", true),
@@ -588,44 +589,27 @@ export async function availableBookingSlots(params: {
       .eq("doctor_id", params.doctorId)
       .eq("appointment_date", params.date)
       .in("status", ACTIVE_BOOKING_STATUSES),
-    db.from("blocked_times").select("*").eq("block_date", params.date),
+    db.from("blocked_times").select("*").lte("block_date", params.date).gte("end_date", params.date).eq("is_active", true).eq("status", "approved"),
   ]);
   for (const res of [schedulesRes, bookingsRes, blockedRes]) {
     if (res.error) throw new BookingError(`Could not read availability: ${res.error.message}`);
   }
 
-  const schedule = ((schedulesRes.data ?? []) as DbSchedule[]).find(
+  const schedules = ((schedulesRes.data ?? []) as DbSchedule[]).filter(
     (s) => s.doctor_id === params.doctorId && s.branch_id === params.branchId && s.day_of_week === dayOfWeek(params.date),
   );
-  if (!schedule) return { slots: [], durationMinutes };
+  if (!schedules.length) return { slots: [], durationMinutes };
 
   const blocked = (blockedRes.data ?? []) as {
     block_date: string;
+    end_date: string;
     start_time: string | null;
     end_time: string | null;
     doctor_id: string | null;
     branch_id: string | null;
+    room_id: string | null;
     is_full_day: boolean;
   }[];
-  if (
-    blocked.some(
-      (b) =>
-        b.block_date === params.date &&
-        b.is_full_day &&
-        (!b.doctor_id || b.doctor_id === params.doctorId) &&
-        (!b.branch_id || b.branch_id === params.branchId),
-    )
-  ) {
-    return { slots: [], durationMinutes };
-  }
-
-  const partialBlocks = blocked.filter(
-    (b) =>
-      b.block_date === params.date &&
-      !b.is_full_day &&
-      (!b.doctor_id || b.doctor_id === params.doctorId) &&
-      (!b.branch_id || b.branch_id === params.branchId),
-  );
   const activeBookings = ((bookingsRes.data ?? []) as {
     doctor_id: string;
     branch_id: string;
@@ -636,32 +620,33 @@ export async function availableBookingSlots(params: {
   }[]).filter((a) => ACTIVE_BOOKING_STATUSES.includes(toUiAppointmentStatus(a.status)));
 
   const cutoff = new Date(Date.now() + settings.minNoticeHours * 60 * 60 * 1000);
-
-  if (schedule.first_come_first_serve) {
-    const start = hhmm(schedule.start_time);
-    const end = hhmm(schedule.end_time);
-    if (slotDateTime(params.date, end) < cutoff) return { slots: [], durationMinutes };
-    const blockedSession = partialBlocks.some((b) => b.start_time && b.end_time && start < b.end_time && end > b.start_time);
-    if (blockedSession) return { slots: [], durationMinutes };
-    const capacity = Math.max(1, schedule.first_come_capacity ?? settings.firstComeDefaultCapacity);
-    const bookedCount = activeBookings.filter(
-      (a) => a.branch_id === params.branchId && hhmm(a.start_time) >= start && hhmm(a.end_time) <= end,
-    ).length;
-    const remainingCapacity = capacity - bookedCount;
-    return {
-      durationMinutes,
-      slots: remainingCapacity > 0 ? [{ time: start, endTime: end, isFirstComeFirstServe: true, capacity, remainingCapacity }] : [],
-    };
-  }
-
-  const slots = generateTimeSlots(schedule.start_time, schedule.end_time, durationMinutes).filter((time) => {
-    const end = addMinutes(time, durationMinutes);
-    if (slotDateTime(params.date, time) < cutoff) return false;
-    if (activeBookings.some((a) => time < hhmm(a.end_time) && end > hhmm(a.start_time))) return false;
-    if (partialBlocks.some((b) => b.start_time && b.end_time && time < hhmm(b.end_time) && end > hhmm(b.start_time))) return false;
-    return true;
+  const slots = schedules.flatMap((schedule): BookingSlot[] => {
+    const roomIds = new Set((schedule.schedule_room_assignments ?? []).map((assignment) => assignment.room_id));
+    const applies = (block: typeof blocked[number]) =>
+      block.block_date <= params.date && block.end_date >= params.date &&
+      (!block.doctor_id || block.doctor_id === params.doctorId) &&
+      (!block.branch_id || block.branch_id === params.branchId) &&
+      (!block.room_id || roomIds.has(block.room_id));
+    if (blocked.some((block) => applies(block) && block.is_full_day)) return [];
+    const partialBlocks = blocked.filter((block) => applies(block) && !block.is_full_day);
+    if (schedule.first_come_first_serve) {
+      const start = hhmm(schedule.start_time); const end = hhmm(schedule.end_time);
+      if (slotDateTime(params.date, end) < cutoff) return [];
+      if (partialBlocks.some((block) => block.start_time && block.end_time && start < block.end_time && end > block.start_time)) return [];
+      const capacity = Math.max(1, schedule.first_come_capacity ?? settings.firstComeDefaultCapacity);
+      const bookedCount = activeBookings.filter((appointment) => appointment.branch_id === params.branchId && hhmm(appointment.start_time) >= start && hhmm(appointment.end_time) <= end).length;
+      const remainingCapacity = capacity - bookedCount;
+      return remainingCapacity > 0 ? [{ time: start, endTime: end, isFirstComeFirstServe: true, capacity, remainingCapacity }] : [];
+    }
+    return generateTimeSlots(schedule.start_time, schedule.end_time, durationMinutes).filter((time) => {
+      const end = addMinutes(time, durationMinutes);
+      if (slotDateTime(params.date, time) < cutoff) return false;
+      if (activeBookings.some((appointment) => time < hhmm(appointment.end_time) && end > hhmm(appointment.start_time))) return false;
+      return !partialBlocks.some((block) => block.start_time && block.end_time && time < hhmm(block.end_time) && end > hhmm(block.start_time));
+    }).map((time) => ({ time, endTime: addMinutes(time, durationMinutes) }));
   });
-  return { durationMinutes, slots: slots.map((time) => ({ time, endTime: addMinutes(time, durationMinutes) })) };
+  const unique = new Map(slots.map((slot) => [`${slot.time}-${slot.endTime}-${slot.isFirstComeFirstServe === true}`, slot]));
+  return { durationMinutes, slots: [...unique.values()].sort((a, b) => a.time.localeCompare(b.time)) };
 }
 
 async function crmLeadById(leadId: string) {
@@ -809,6 +794,24 @@ export async function createLeadBooking(input: {
       throw new BookingError("This time slot is no longer available.");
     }
     throw new BookingError(message);
+  }
+
+  const { data: scheduleForRoom } = await db
+    .from("doctor_schedule_templates")
+    .select("id,schedule_room_assignments(room_id)")
+    .eq("doctor_id", input.doctorId)
+    .eq("branch_id", input.branchId)
+    .eq("day_of_week", dayOfWeek(input.date))
+    .eq("is_active", true)
+    .lte("start_time", input.startTime)
+    .gte("end_time", selected.endTime)
+    .order("start_time")
+    .limit(1)
+    .maybeSingle<{ id:string; schedule_room_assignments:Array<{room_id:string}>|null }>();
+  const appointmentRooms = scheduleForRoom?.schedule_room_assignments ?? [];
+  if (appointmentRooms.length) {
+    const roomResult = await db.from("appointment_rooms").insert(appointmentRooms.map((room) => ({ appointment_id: appointment.id, room_id: room.room_id })));
+    if (roomResult.error) throw new BookingError(`Appointment was created, but its clinic room could not be assigned: ${roomResult.error.message}`);
   }
 
   await db.from("appointment_status_history").insert({

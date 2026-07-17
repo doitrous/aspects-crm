@@ -12,97 +12,51 @@ export interface CatalogItem { id: string; nameEn: string; nameAr?: string; acti
 export interface CrmScheduleRow {
   id: string; doctorId: string; doctorName: string; branchId: string; branchName: string; roomId: string | null;
   roomName: string | null; dayOfWeek: number; startTime: string; endTime: string; slotDurationMinutes: number;
-  firstComeFirstServe: boolean; firstComeCapacity: number; effectiveFrom: string | null; effectiveTo: string | null; active: boolean;
+  firstComeFirstServe: boolean; firstComeCapacity: number; effectiveFrom: string | null; effectiveTo: string | null;
+  active: boolean; showOnBookingWebsite: boolean;
 }
 export interface CrmClosureRow { id: string; title: string; scope: string; branchName: string | null; roomName: string | null; startsAt: string; endsAt: string; notes: string | null; active: boolean }
 export interface CrmTimeOffRow { id: string; doctorName: string; branchName: string | null; startsAt: string; endsAt: string; reason: string; notes: string | null; status: string }
 export interface CrmScheduleExceptionRow { id: string; doctorName: string; branchName: string; roomName: string | null; exceptionDate: string; startTime: string | null; endTime: string | null; exceptionType: string; reason: string | null; active: boolean }
 export interface DoctorBranchAssignment { doctorId: string; branchId: string }
 export interface RoomSyncItem { id: string; name: string; branchName: string }
-export interface RoomSyncResult {
-  added: RoomSyncItem[];
-  updated: RoomSyncItem[];
-  deleted: RoomSyncItem[];
-  retained: RoomSyncItem[];
-  totalAdminRooms: number;
-}
+export interface RoomSyncResult { added: RoomSyncItem[]; updated: RoomSyncItem[]; deleted: RoomSyncItem[]; retained: RoomSyncItem[]; totalAdminRooms: number }
+export interface DuplicateScheduleResult { created: number; skipped: string[] }
 export interface CrmSchedulingSnapshot {
   catalogConfigured: boolean; migrationReady: boolean; doctors: CatalogItem[]; branches: CatalogItem[]; rooms: CatalogItem[];
   schedules: CrmScheduleRow[]; exceptions: CrmScheduleExceptionRow[]; closures: CrmClosureRow[]; timeOff: CrmTimeOffRow[];
-  branchAssignments: DoctorBranchAssignment[];
-  services: CapacityService[];
-  workingHours: WorkingHours;
+  branchAssignments: DoctorBranchAssignment[]; services: CapacityService[]; workingHours: WorkingHours;
 }
-type RoomDb = { id:string; name_en:string; name_ar:string|null; room_type:string; is_active:boolean; branch_id:string };
-type ScheduleDb = { id:string; doctor_id:string; doctor_name:string; branch_id:string; branch_name:string; day_of_week:number; start_time:string; end_time:string; slot_duration_minutes:number; first_come_first_serve:boolean; first_come_capacity:number; effective_from:string|null; effective_to:string|null; is_active:boolean; crm_schedule_room_assignments?:Array<{room_id:string;room_name:string}> };
-type ClosureDb = { id:string; title:string; scope:string; branch_name:string|null; room_name:string|null; starts_at:string; ends_at:string; notes:string|null; is_active:boolean };
-type TimeOffDb = { id:string; doctor_name:string; branch_name:string|null; starts_at:string; ends_at:string; reason:string; notes:string|null; status:string };
-type ExceptionDb = { id:string; doctor_name:string; branch_name:string; room_name:string|null; exception_date:string; start_time:string|null; end_time:string|null; exception_type:string; reason:string|null; is_active:boolean };
+
+type ScheduleDb = {
+  id:string; doctor_id:string; branch_id:string; day_of_week:number; start_time:string; end_time:string;
+  first_come_first_serve:boolean; first_come_capacity:number; is_active:boolean; show_on_booking_website:boolean;
+  schedule_room_assignments?:Array<{room_id:string;rooms:{id:string;name_en:string}|Array<{id:string;name_en:string}>|null}>;
+};
+type ScheduleRoomDb = NonNullable<ScheduleDb["schedule_room_assignments"]>[number];
+type BlockDb = {
+  id:string; block_date:string; end_date:string; start_time:string|null; end_time:string|null; doctor_id:string|null;
+  room_id:string|null; branch_id:string|null; reason:string|null; is_full_day:boolean; block_type:string; title:string|null;
+  notes:string|null; status:string; is_active:boolean;
+};
 
 const hhmm = (value: string) => value.slice(0, 5);
 const cleanTime = (value: string) => {
   if (!/^\d{2}:\d{2}$/.test(value)) throw new CrmSchedulingError("Enter a valid time.");
   return value;
 };
-const tableMissing = (error: { code?: string } | null) => error?.code === "42P01" || error?.code === "PGRST205";
-
-async function catalog() {
-  if (!bookingConfigured()) return { configured: false, doctors: [], branches: [], rooms: [], branchAssignments: [], services: [], workingHours: parseWorkingHours(null) };
-  const db = bookingDb();
-  const [doctors, branches, branchAssignments, services, workingHours] = await Promise.all([
-    db.from("doctors").select("id,name_en,name_ar,is_active,specialty_id").order("display_order"),
-    db.from("branches").select("id,name_en,name_ar,is_active").order("display_order"),
-    db.from("doctor_branch_assignments").select("doctor_id,branch_id,is_active").eq("is_active", true),
-    db.from("services").select("id,name_en,duration_minutes,specialty_id,doctor_id,service_doctors(doctor_id)").eq("is_active", true),
-    db.from("clinic_settings").select("value").eq("key", "working_hours_en").maybeSingle<{ value: string }>(),
-  ]);
-  for (const response of [doctors, branches, branchAssignments, services, workingHours]) {
-    if (response.error) throw new CrmSchedulingError(`Could not read booking catalog: ${response.error.message}`);
-  }
-  const item = (row: { id: string; name_en: string; name_ar?: string | null; is_active?: boolean | null; branch_id?: string; specialty_id?: string }) => ({
-    id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, active: row.is_active !== false, branchId: row.branch_id, specialtyId: row.specialty_id,
-  });
-  type ServiceRow = { id:string; name_en:string; duration_minutes:number; specialty_id:string; doctor_id:string|null; service_doctors:Array<{doctor_id:string}>|null };
-  return {
-    configured: true,
-    doctors: (doctors.data ?? []).map(item), branches: (branches.data ?? []).map(item), rooms: [],
-    branchAssignments: (branchAssignments.data ?? []).map((row: { doctor_id: string; branch_id: string }) => ({ doctorId: row.doctor_id, branchId: row.branch_id })),
-    services: ((services.data ?? []) as ServiceRow[]).map((service) => ({ id: service.id, nameEn: service.name_en, durationMinutes: service.duration_minutes, specialtyId: service.specialty_id, doctorId: service.doctor_id, assignedDoctorIds: (service.service_doctors ?? []).map((assignment) => assignment.doctor_id) })),
-    workingHours: parseWorkingHours(workingHours.data?.value),
-  };
-}
-
-export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
-  const reference = await catalog();
-  const db = supabaseAdmin();
-  const [rooms, schedules, exceptions, closures, timeOff] = await Promise.all([
-    db.from("crm_rooms").select("*").order("branch_name").order("name_en"),
-    db.from("crm_schedule_templates").select("*,crm_schedule_room_assignments(room_id,room_name)").order("doctor_name").order("day_of_week"),
-    db.from("crm_schedule_exceptions").select("*").order("exception_date", { ascending: false }).limit(100),
-    db.from("crm_closures").select("*").order("starts_at", { ascending: false }).limit(100),
-    db.from("crm_time_off").select("*").order("starts_at", { ascending: false }).limit(100),
-  ]);
-  const missing = [rooms.error, schedules.error, exceptions.error, closures.error, timeOff.error].some(tableMissing);
-  if (missing) return { catalogConfigured: reference.configured, migrationReady: false, doctors: reference.doctors, branches: reference.branches, rooms: reference.rooms, schedules: [], exceptions: [], closures: [], timeOff: [], branchAssignments: reference.branchAssignments, services: reference.services, workingHours: reference.workingHours };
-  for (const response of [rooms, schedules, exceptions, closures, timeOff]) if (response.error) throw new CrmSchedulingError(response.error.message);
-  return {
-    catalogConfigured: reference.configured, migrationReady: true, doctors: reference.doctors, branches: reference.branches,
-    rooms: ((rooms.data ?? []) as RoomDb[]).map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, roomType: row.room_type, active: row.is_active, branchId: row.branch_id })),
-    schedules: ((schedules.data ?? []) as ScheduleDb[]).map((row) => ({
-      id: row.id, doctorId: row.doctor_id, doctorName: row.doctor_name, branchId: row.branch_id, branchName: row.branch_name,
-      roomId: row.crm_schedule_room_assignments?.[0]?.room_id ?? null, roomName: row.crm_schedule_room_assignments?.[0]?.room_name ?? null,
-      dayOfWeek: row.day_of_week, startTime: hhmm(row.start_time), endTime: hhmm(row.end_time), slotDurationMinutes: row.slot_duration_minutes,
-      firstComeFirstServe: row.first_come_first_serve === true, firstComeCapacity: row.first_come_capacity ?? 10,
-      effectiveFrom: row.effective_from, effectiveTo: row.effective_to, active: row.is_active,
-    })),
-    exceptions: ((exceptions.data ?? []) as ExceptionDb[]).map((row) => ({ id: row.id, doctorName: row.doctor_name, branchName: row.branch_name, roomName: row.room_name, exceptionDate: row.exception_date, startTime: row.start_time ? hhmm(row.start_time) : null, endTime: row.end_time ? hhmm(row.end_time) : null, exceptionType: row.exception_type, reason: row.reason, active: row.is_active })),
-    closures: ((closures.data ?? []) as ClosureDb[]).map((row) => ({ id: row.id, title: row.title, scope: row.scope, branchName: row.branch_name, roomName: row.room_name, startsAt: row.starts_at, endsAt: row.ends_at, notes: row.notes, active: row.is_active })),
-    timeOff: ((timeOff.data ?? []) as TimeOffDb[]).map((row) => ({ id: row.id, doctorName: row.doctor_name, branchName: row.branch_name, startsAt: row.starts_at, endsAt: row.ends_at, reason: row.reason, notes: row.notes, status: row.status })),
-    branchAssignments: reference.branchAssignments,
-    services: reference.services,
-    workingHours: reference.workingHours,
-  };
-}
+const migrationMissing = (error: { code?: string; message?: string } | null) =>
+  error?.code === "42P01" || error?.code === "42703" || error?.code === "PGRST204" || error?.code === "PGRST205" || Boolean(error?.message?.includes("show_on_booking_website"));
+const relatedRoom = (value: ScheduleRoomDb) => {
+  const room = value.rooms;
+  return Array.isArray(room) ? room[0] : room;
+};
+const dateTime = (date: string, time: string | null, end = false) => `${date}T${time ? hhmm(time) : end ? "23:59" : "00:00"}`;
+const splitDateTime = (value: string) => {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(value);
+  if (!match) throw new CrmSchedulingError("Choose a valid date and time.");
+  return { date: match[1], time: match[2] };
+};
 
 async function actor() { const value = await writeActor(); assertCan(value.role, "scheduling.manage"); return value; }
 function named(items: CatalogItem[], id: string, label: string, includeInactive = false) {
@@ -110,239 +64,256 @@ function named(items: CatalogItem[], id: string, label: string, includeInactive 
   if (!value) throw new CrmSchedulingError(`Choose a valid ${label}.`);
   return value;
 }
-function scheduleDateRangesOverlap(aFrom?: string | null, aTo?: string | null, bFrom?: string | null, bTo?: string | null) {
-  return (!aTo || !bFrom || aTo >= bFrom) && (!bTo || !aFrom || bTo >= aFrom);
-}
 async function audit(actorId: string, action: string, entityId: string | null, newValues: Record<string, unknown>) {
-  const { error } = await supabaseAdmin().from("audit_logs").insert({ actor_user_id: actorId, action, entity_type: "crm_schedule", entity_id: entityId, old_values: {}, new_values: newValues, metadata: { scheduling_system: "crm", deliberately_separate_from_admin: true } });
+  const { error } = await supabaseAdmin().from("audit_logs").insert({
+    actor_user_id: actorId, action, entity_type: "booking_schedule", entity_id: entityId,
+    old_values: {}, new_values: newValues,
+    metadata: { scheduling_system: "shared", primary_workspace: "crm", applies_to: ["crm", "online_booking"] },
+  });
   if (error) throw new CrmSchedulingError(`Scheduling was saved but its audit record failed: ${error.message}`);
 }
+function refreshScheduling() { revalidatePath("/settings"); revalidatePath("/calendar"); revalidatePath("/reservations"); }
 
-export async function saveCrmSchedule(input: { id?: string; doctorId: string; branchId: string; roomId: string; dayOfWeek: number; startTime: string; endTime: string; slotDurationMinutes: number; firstComeFirstServe: boolean; firstComeCapacity: number; effectiveFrom?: string; effectiveTo?: string; active: boolean }) {
+export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
+  const empty: CrmSchedulingSnapshot = {
+    catalogConfigured: false, migrationReady: false, doctors: [], branches: [], rooms: [], schedules: [], exceptions: [], closures: [], timeOff: [],
+    branchAssignments: [], services: [], workingHours: parseWorkingHours(null),
+  };
+  if (!bookingConfigured()) return empty;
+  const db = bookingDb();
+  const [doctors, branches, rooms, assignments, services, hours, schedules, blocks] = await Promise.all([
+    db.from("doctors").select("id,name_en,name_ar,is_active,specialty_id").order("display_order"),
+    db.from("branches").select("id,name_en,name_ar,is_active").order("display_order"),
+    db.from("rooms").select("id,branch_id,name_en,name_ar,room_type,is_active").order("branch_id").order("name_en"),
+    db.from("doctor_branch_assignments").select("doctor_id,branch_id,is_active").eq("is_active", true),
+    db.from("services").select("id,name_en,duration_minutes,specialty_id,doctor_id,service_doctors(doctor_id)").eq("is_active", true),
+    db.from("clinic_settings").select("value").eq("key", "working_hours_en").maybeSingle<{ value: string }>(),
+    db.from("doctor_schedule_templates").select("id,doctor_id,branch_id,day_of_week,start_time,end_time,first_come_first_serve,first_come_capacity,is_active,show_on_booking_website,schedule_room_assignments(room_id,rooms(id,name_en))").order("doctor_id").order("day_of_week"),
+    db.from("blocked_times").select("id,block_date,end_date,start_time,end_time,doctor_id,room_id,branch_id,reason,is_full_day,block_type,title,notes,status,is_active").order("block_date", { ascending: false }).limit(250),
+  ]);
+  const responses = [doctors, branches, rooms, assignments, services, hours];
+  for (const response of responses) if (response.error) throw new CrmSchedulingError(`Could not read shared scheduling data: ${response.error.message}`);
+  if (migrationMissing(schedules.error) || migrationMissing(blocks.error)) {
+    return { ...empty, catalogConfigured: true, migrationReady: false };
+  }
+  for (const response of [schedules, blocks]) if (response.error) throw new CrmSchedulingError(`Could not read shared scheduling data: ${response.error.message}`);
+
+  type DoctorDb = { id:string;name_en:string;name_ar:string|null;is_active:boolean;specialty_id:string };
+  type BranchDb = { id:string;name_en:string;name_ar:string|null;is_active:boolean };
+  type RoomDb = { id:string;branch_id:string;name_en:string;name_ar:string|null;room_type:string;is_active:boolean };
+  type ServiceDb = { id:string;name_en:string;duration_minutes:number;specialty_id:string;doctor_id:string|null;service_doctors:Array<{doctor_id:string}>|null };
+  const doctorRows = (doctors.data ?? []) as DoctorDb[];
+  const branchRows = (branches.data ?? []) as BranchDb[];
+  const roomRows = (rooms.data ?? []) as RoomDb[];
+  const doctorById = new Map(doctorRows.map((row) => [row.id, row]));
+  const branchById = new Map(branchRows.map((row) => [row.id, row]));
+  const roomById = new Map(roomRows.map((row) => [row.id, row]));
+  const scheduleRows = (schedules.data ?? []) as ScheduleDb[];
+  const blockRows = (blocks.data ?? []) as BlockDb[];
+
+  return {
+    catalogConfigured: true,
+    migrationReady: true,
+    doctors: doctorRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, active: row.is_active, specialtyId: row.specialty_id })),
+    branches: branchRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, active: row.is_active })),
+    rooms: roomRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, roomType: row.room_type, active: row.is_active, branchId: row.branch_id })),
+    schedules: scheduleRows.map((row) => {
+      const assignment = row.schedule_room_assignments?.[0];
+      const room = assignment ? relatedRoom(assignment) : null;
+      return {
+        id: row.id, doctorId: row.doctor_id, doctorName: doctorById.get(row.doctor_id)?.name_en ?? "Unknown doctor",
+        branchId: row.branch_id, branchName: branchById.get(row.branch_id)?.name_en ?? "Unknown branch",
+        roomId: assignment?.room_id ?? null, roomName: room?.name_en ?? null, dayOfWeek: row.day_of_week,
+        startTime: hhmm(row.start_time), endTime: hhmm(row.end_time), slotDurationMinutes: 20,
+        firstComeFirstServe: row.first_come_first_serve === true, firstComeCapacity: row.first_come_capacity ?? 10,
+        effectiveFrom: null, effectiveTo: null, active: row.is_active, showOnBookingWebsite: row.show_on_booking_website !== false,
+      };
+    }),
+    exceptions: blockRows.filter((row) => row.block_type === "exception").map((row) => ({
+      id: row.id, doctorName: row.doctor_id ? doctorById.get(row.doctor_id)?.name_en ?? "Unknown doctor" : "All doctors",
+      branchName: row.branch_id ? branchById.get(row.branch_id)?.name_en ?? "Unknown branch" : "All branches",
+      roomName: row.room_id ? roomById.get(row.room_id)?.name_en ?? null : null, exceptionDate: row.block_date,
+      startTime: row.start_time ? hhmm(row.start_time) : null, endTime: row.end_time ? hhmm(row.end_time) : null,
+      exceptionType: row.title ?? "unavailable", reason: row.reason, active: row.is_active && row.status === "approved",
+    })),
+    closures: blockRows.filter((row) => row.block_type === "closure").map((row) => ({
+      id: row.id, title: row.title || row.reason || "Closure", scope: row.room_id ? "room" : row.branch_id ? "branch" : "organization",
+      branchName: row.branch_id ? branchById.get(row.branch_id)?.name_en ?? null : null,
+      roomName: row.room_id ? roomById.get(row.room_id)?.name_en ?? null : null,
+      startsAt: dateTime(row.block_date, row.start_time), endsAt: dateTime(row.end_date, row.end_time, true), notes: row.notes,
+      active: row.is_active && row.status === "approved",
+    })),
+    timeOff: blockRows.filter((row) => row.block_type === "time_off").map((row) => ({
+      id: row.id, doctorName: row.doctor_id ? doctorById.get(row.doctor_id)?.name_en ?? "Unknown doctor" : "All doctors",
+      branchName: row.branch_id ? branchById.get(row.branch_id)?.name_en ?? null : null,
+      startsAt: dateTime(row.block_date, row.start_time), endsAt: dateTime(row.end_date, row.end_time, true),
+      reason: row.reason ?? "Time off", notes: row.notes, status: row.status,
+    })),
+    branchAssignments: ((assignments.data ?? []) as Array<{doctor_id:string;branch_id:string}>).map((row) => ({ doctorId: row.doctor_id, branchId: row.branch_id })),
+    services: ((services.data ?? []) as ServiceDb[]).map((row) => ({ id: row.id, nameEn: row.name_en, durationMinutes: row.duration_minutes, specialtyId: row.specialty_id, doctorId: row.doctor_id, assignedDoctorIds: (row.service_doctors ?? []).map((item) => item.doctor_id) })),
+    workingHours: parseWorkingHours(hours.data?.value),
+  };
+}
+
+function overlaps(a: { dayOfWeek:number;startTime:string;endTime:string;active:boolean }, day: number, start: string, end: string) {
+  return a.active && a.dayOfWeek === day && a.startTime < end && a.endTime > start;
+}
+function availableRoom(snapshot: CrmSchedulingSnapshot, branchId: string, day: number, start: string, end: string, preferredId?: string | null, ignoreScheduleId?: string) {
+  const occupied = new Set(snapshot.schedules.filter((row) => row.id !== ignoreScheduleId && row.branchId === branchId && row.roomId && overlaps(row, day, start, end)).map((row) => row.roomId));
+  const rooms = snapshot.rooms.filter((room) => room.branchId === branchId && room.active);
+  return rooms.find((room) => room.id === preferredId && !occupied.has(room.id)) ?? rooms.find((room) => !occupied.has(room.id)) ?? null;
+}
+
+export async function saveCrmSchedule(input: { id?: string; doctorId: string; branchId: string; roomId: string; dayOfWeek: number; startTime: string; endTime: string; slotDurationMinutes: number; firstComeFirstServe: boolean; firstComeCapacity: number; effectiveFrom?: string; effectiveTo?: string; active: boolean; showOnBookingWebsite: boolean }) {
   const currentActor = await actor(); const snapshot = await crmSchedulingSnapshot();
-  if (!snapshot.migrationReady) throw new CrmSchedulingError("Apply CRM migration 0038 before saving schedules.");
-  const doctor = named(snapshot.doctors, input.doctorId, "doctor", true); const branch = named(snapshot.branches, input.branchId, "branch"); const room = named(snapshot.rooms.filter((item) => item.branchId === branch.id), input.roomId, "active room");
-  if (!snapshot.branchAssignments.some((assignment) => assignment.doctorId === doctor.id && assignment.branchId === branch.id)) {
-    throw new CrmSchedulingError(`${doctor.nameEn} is not assigned to ${branch.nameEn}. Add the branch assignment first.`);
-  }
-  const start = cleanTime(input.startTime); const end = cleanTime(input.endTime); if (end <= start) throw new CrmSchedulingError("End time must be after start time.");
+  if (!snapshot.migrationReady) throw new CrmSchedulingError("Apply booking migration 018 before saving shared schedules.");
+  const doctor = named(snapshot.doctors, input.doctorId, "doctor", true); const branch = named(snapshot.branches, input.branchId, "branch");
+  const room = named(snapshot.rooms.filter((item) => item.branchId === branch.id), input.roomId, "active room");
+  if (!snapshot.branchAssignments.some((item) => item.doctorId === doctor.id && item.branchId === branch.id)) throw new CrmSchedulingError(`${doctor.nameEn} is not assigned to ${branch.nameEn}. Add the branch assignment first.`);
+  const start = cleanTime(input.startTime); const end = cleanTime(input.endTime);
+  if (end <= start) throw new CrmSchedulingError("End time must be after start time.");
   if (!Number.isInteger(input.dayOfWeek) || input.dayOfWeek < 0 || input.dayOfWeek > 6) throw new CrmSchedulingError("Choose a day.");
-  if (input.effectiveFrom && input.effectiveTo && input.effectiveTo < input.effectiveFrom) throw new CrmSchedulingError("Effective end date must be on or after the start date.");
   if (input.active) {
-    const overlaps = snapshot.schedules.filter((schedule) => (
-      schedule.id !== input.id && schedule.active && schedule.dayOfWeek === input.dayOfWeek &&
-      schedule.startTime < end && schedule.endTime > start &&
-      scheduleDateRangesOverlap(schedule.effectiveFrom, schedule.effectiveTo, input.effectiveFrom, input.effectiveTo)
-    ));
-    const roomConflict = overlaps.find((schedule) => schedule.roomId === room.id);
-    if (roomConflict) throw new CrmSchedulingError(`${room.nameEn} is already assigned to ${roomConflict.doctorName} on this day from ${roomConflict.startTime} to ${roomConflict.endTime}. Choose another room or time.`);
-    const doctorConflict = overlaps.find((schedule) => schedule.doctorId === doctor.id);
-    if (doctorConflict) throw new CrmSchedulingError(`${doctor.nameEn} already has a CRM session on this day from ${doctorConflict.startTime} to ${doctorConflict.endTime} at ${doctorConflict.branchName}.`);
+    const conflicts = snapshot.schedules.filter((row) => row.id !== input.id && overlaps(row, input.dayOfWeek, start, end));
+    const doctorConflict = conflicts.find((row) => row.doctorId === doctor.id);
+    if (doctorConflict) throw new CrmSchedulingError(`${doctor.nameEn} already has a session from ${doctorConflict.startTime} to ${doctorConflict.endTime} at ${doctorConflict.branchName}.`);
+    const roomConflict = conflicts.find((row) => row.roomId === room.id);
+    if (roomConflict) throw new CrmSchedulingError(`${room.nameEn} is already assigned to ${roomConflict.doctorName} from ${roomConflict.startTime} to ${roomConflict.endTime}.`);
   }
-  const row = { doctor_id: doctor.id, doctor_name: doctor.nameEn, branch_id: branch.id, branch_name: branch.nameEn, day_of_week: input.dayOfWeek, start_time: start, end_time: end, slot_duration_minutes: Math.max(5, Math.min(240, Math.floor(input.slotDurationMinutes || 20))), first_come_first_serve: input.firstComeFirstServe, first_come_capacity: Math.max(1, Math.min(500, Math.floor(input.firstComeCapacity || 10))), effective_from: input.effectiveFrom || null, effective_to: input.effectiveTo || null, is_active: input.active, created_by: currentActor.id };
-  const db = supabaseAdmin();
+  const db = bookingDb();
+  const patch = {
+    doctor_id: doctor.id, branch_id: branch.id, day_of_week: input.dayOfWeek, start_time: start, end_time: end,
+    first_come_first_serve: input.firstComeFirstServe, first_come_capacity: Math.max(1, Math.min(500, Math.floor(input.firstComeCapacity || 10))),
+    is_active: input.active, show_on_booking_website: input.showOnBookingWebsite,
+  };
   let id = input.id;
-  const previous = id ? snapshot.schedules.find((schedule) => schedule.id === id) : undefined;
-  if (id && !previous) throw new CrmSchedulingError("CRM schedule not found.");
-  if (id) { const { error } = await db.from("crm_schedule_templates").update({ ...row, created_by: undefined }).eq("id", id); if (error) throw new CrmSchedulingError(error.message); }
-  else { const result = await db.from("crm_schedule_templates").insert(row).select("id").single<{ id: string }>(); if (result.error || !result.data) throw new CrmSchedulingError(result.error?.message ?? "Could not create CRM schedule."); id = result.data.id; }
-  const { error: roomError } = await db.from("crm_schedule_room_assignments").upsert({ schedule_template_id: id, room_id: room.id, room_name: room.nameEn }, { onConflict: "schedule_template_id" });
-  if (roomError) {
-    if (!input.id) await db.from("crm_schedule_templates").delete().eq("id", id);
-    else if (previous) {
-      await db.from("crm_schedule_templates").update({
-        doctor_id: previous.doctorId, doctor_name: previous.doctorName, branch_id: previous.branchId, branch_name: previous.branchName,
-        day_of_week: previous.dayOfWeek, start_time: previous.startTime, end_time: previous.endTime,
-        slot_duration_minutes: previous.slotDurationMinutes, first_come_first_serve: previous.firstComeFirstServe,
-        first_come_capacity: previous.firstComeCapacity, effective_from: previous.effectiveFrom, effective_to: previous.effectiveTo, is_active: previous.active,
-      }).eq("id", previous.id);
-      if (previous.roomId && previous.roomName) await db.from("crm_schedule_room_assignments").upsert({ schedule_template_id: previous.id, room_id: previous.roomId, room_name: previous.roomName }, { onConflict: "schedule_template_id" });
-    }
-    throw new CrmSchedulingError(roomError.message.includes("overlapping") ? `${room.nameEn} became unavailable during this save. Choose another room or time.` : roomError.message);
+  if (id) {
+    const result = await db.from("doctor_schedule_templates").update(patch).eq("id", id);
+    if (result.error) throw new CrmSchedulingError(result.error.message);
+    const cleared = await db.from("schedule_room_assignments").delete().eq("schedule_template_id", id);
+    if (cleared.error) throw new CrmSchedulingError(cleared.error.message);
+  } else {
+    const result = await db.from("doctor_schedule_templates").insert(patch).select("id").single<{id:string}>();
+    if (result.error || !result.data) throw new CrmSchedulingError(result.error?.message ?? "Could not create schedule.");
+    id = result.data.id;
   }
-  await audit(currentActor.id, input.id ? "crm.schedule.updated" : "crm.schedule.created", id!, { ...row, room_id: room.id }); revalidatePath("/settings");
+  const assigned = await db.from("schedule_room_assignments").insert({ schedule_template_id: id, room_id: room.id });
+  if (assigned.error) throw new CrmSchedulingError(`Schedule saved, but room assignment failed: ${assigned.error.message}`);
+  await audit(currentActor.id, input.id ? "shared.schedule.updated" : "shared.schedule.created", id!, { ...patch, room_id: room.id });
+  refreshScheduling();
+}
+
+export async function duplicateCrmSchedule(input: { scheduleId: string; doctorIds: string[]; daysOfWeek: number[] }): Promise<DuplicateScheduleResult> {
+  const currentActor = await actor(); const snapshot = await crmSchedulingSnapshot();
+  const source = snapshot.schedules.find((row) => row.id === input.scheduleId);
+  if (!source) throw new CrmSchedulingError("Schedule not found.");
+  const doctorIds = [...new Set(input.doctorIds.filter(Boolean))];
+  const days = [...new Set(input.daysOfWeek)].filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+  if (!doctorIds.length || !days.length) throw new CrmSchedulingError("Choose at least one doctor and one target day.");
+  const db = bookingDb(); const createdIds: string[] = []; const skipped: string[] = [];
+  const working = [...snapshot.schedules];
+  for (const doctorId of doctorIds) for (const day of days) {
+    const doctor = snapshot.doctors.find((row) => row.id === doctorId);
+    if (!doctor) { skipped.push("Unknown doctor"); continue; }
+    if (doctorId === source.doctorId && day === source.dayOfWeek) { skipped.push(`${doctor.nameEn} / original day`); continue; }
+    if (!snapshot.branchAssignments.some((item) => item.doctorId === doctorId && item.branchId === source.branchId)) { skipped.push(`${doctor.nameEn} / not assigned to ${source.branchName}`); continue; }
+    if (working.some((row) => row.doctorId === doctorId && overlaps(row, day, source.startTime, source.endTime))) { skipped.push(`${doctor.nameEn} / doctor conflict`); continue; }
+    const room = availableRoom({ ...snapshot, schedules: working }, source.branchId, day, source.startTime, source.endTime, source.roomId);
+    if (!room) { skipped.push(`${doctor.nameEn} / no available room`); continue; }
+    const patch = { doctor_id: doctorId, branch_id: source.branchId, day_of_week: day, start_time: source.startTime, end_time: source.endTime, first_come_first_serve: source.firstComeFirstServe, first_come_capacity: source.firstComeCapacity, is_active: source.active, show_on_booking_website: source.showOnBookingWebsite };
+    const inserted = await db.from("doctor_schedule_templates").insert(patch).select("id").single<{id:string}>();
+    if (inserted.error || !inserted.data) { skipped.push(`${doctor.nameEn} / ${inserted.error?.message ?? "save failed"}`); continue; }
+    const assignment = await db.from("schedule_room_assignments").insert({ schedule_template_id: inserted.data.id, room_id: room.id });
+    if (assignment.error) { await db.from("doctor_schedule_templates").delete().eq("id", inserted.data.id); skipped.push(`${doctor.nameEn} / room conflict`); continue; }
+    createdIds.push(inserted.data.id);
+    working.push({ ...source, id: inserted.data.id, doctorId, doctorName: doctor.nameEn, dayOfWeek: day, roomId: room.id, roomName: room.nameEn });
+  }
+  await audit(currentActor.id, "shared.schedule.duplicated", source.id, { created_ids: createdIds, skipped });
+  refreshScheduling();
+  return { created: createdIds.length, skipped };
 }
 
 export async function saveCrmRoom(input: { id?: string; branchId: string; nameEn: string; nameAr?: string; roomType: string; active: boolean }) {
   const currentActor = await actor(); const snapshot = await crmSchedulingSnapshot(); const branch = named(snapshot.branches, input.branchId, "branch");
   if (!input.nameEn.trim()) throw new CrmSchedulingError("Room name is required.");
-  const row = { branch_id: branch.id, branch_name: branch.nameEn, name_en: input.nameEn.trim(), name_ar: input.nameAr?.trim() || null, room_type: input.roomType.trim() || "clinic", is_active: input.active, created_by: currentActor.id };
-  const db = supabaseAdmin(); let id = input.id;
-  if (id) { const { error } = await db.from("crm_rooms").update({ ...row, created_by: undefined }).eq("id", id); if (error) throw new CrmSchedulingError(error.message); }
-  else { const result = await db.from("crm_rooms").insert(row).select("id").single<{ id: string }>(); if (result.error || !result.data) throw new CrmSchedulingError(result.error?.message ?? "Could not create room."); id = result.data.id; }
-  await audit(currentActor.id, input.id ? "crm.room.updated" : "crm.room.created", id!, row); revalidatePath("/settings");
+  const patch = { branch_id: branch.id, name_en: input.nameEn.trim(), name_ar: input.nameAr?.trim() || input.nameEn.trim(), room_type: input.roomType.trim() || "clinic", is_active: input.active };
+  const db = bookingDb(); let id = input.id;
+  if (id) { const result = await db.from("rooms").update(patch).eq("id", id); if (result.error) throw new CrmSchedulingError(result.error.message); }
+  else { const result = await db.from("rooms").insert(patch).select("id").single<{id:string}>(); if (result.error || !result.data) throw new CrmSchedulingError(result.error?.message ?? "Could not create room."); id = result.data.id; }
+  await audit(currentActor.id, input.id ? "shared.room.updated" : "shared.room.created", id!, patch); refreshScheduling();
 }
 
 export async function deleteCrmRoom(id: string) {
-  const currentActor = await actor();
-  if (!id) throw new CrmSchedulingError("Room id is required.");
-  const db = supabaseAdmin();
-  const [room, assignments, closures, exceptions] = await Promise.all([
-    db.from("crm_rooms").select("id,name_en,branch_id").eq("id", id).maybeSingle<{ id:string; name_en:string; branch_id:string }>(),
-    db.from("crm_schedule_room_assignments").select("id", { count: "exact", head: true }).eq("room_id", id),
-    db.from("crm_closures").select("id", { count: "exact", head: true }).eq("room_id", id),
-    db.from("crm_schedule_exceptions").select("id", { count: "exact", head: true }).eq("room_id", id),
+  const currentActor = await actor(); if (!id) throw new CrmSchedulingError("Room id is required.");
+  const db = bookingDb();
+  const [room, schedules, blocks, appointments] = await Promise.all([
+    db.from("rooms").select("id,name_en,branch_id").eq("id", id).maybeSingle<{id:string;name_en:string;branch_id:string}>(),
+    db.from("schedule_room_assignments").select("id", { count: "exact", head: true }).eq("room_id", id),
+    db.from("blocked_times").select("id", { count: "exact", head: true }).eq("room_id", id),
+    db.from("appointment_rooms").select("id", { count: "exact", head: true }).eq("room_id", id),
   ]);
-  if (room.error) throw new CrmSchedulingError(room.error.message);
-  if (!room.data) throw new CrmSchedulingError("Room not found.");
-  for (const response of [assignments, closures, exceptions]) if (response.error) throw new CrmSchedulingError(response.error.message);
-  const references = (assignments.count ?? 0) + (closures.count ?? 0) + (exceptions.count ?? 0);
-  if (references > 0) throw new CrmSchedulingError("This room is used by CRM scheduling history. Mark it inactive instead of deleting it.");
-  const { error } = await db.from("crm_rooms").delete().eq("id", id);
-  if (error) throw new CrmSchedulingError(error.message);
-  await audit(currentActor.id, "crm.room.deleted", id, { name_en: room.data.name_en, branch_id: room.data.branch_id });
-  revalidatePath("/settings");
+  if (room.error || !room.data) throw new CrmSchedulingError(room.error?.message ?? "Room not found.");
+  for (const response of [schedules, blocks, appointments]) if (response.error) throw new CrmSchedulingError(response.error.message);
+  const references = (schedules.count ?? 0) + (blocks.count ?? 0) + (appointments.count ?? 0);
+  if (references > 0) throw new CrmSchedulingError(`This room has ${references} scheduling or appointment record(s). Mark it inactive to preserve history.`);
+  const removed = await db.from("rooms").delete().eq("id", id); if (removed.error) throw new CrmSchedulingError(removed.error.message);
+  await audit(currentActor.id, "shared.room.deleted", id, { name_en: room.data.name_en, branch_id: room.data.branch_id }); refreshScheduling();
 }
 
-export async function syncCrmRoomsFromAdmin() {
-  const currentActor = await actor();
-  if (!bookingConfigured()) throw new CrmSchedulingError("Booking/Admin room catalog is not configured.");
-  const booking = bookingDb();
-  const [adminRooms, adminBranches] = await Promise.all([
-    booking.from("rooms").select("id,branch_id,name_en,name_ar,room_type,is_active").order("branch_id").order("name_en"),
-    booking.from("branches").select("id,name_en"),
-  ]);
-  if (adminRooms.error) throw new CrmSchedulingError(`Could not read Admin rooms: ${adminRooms.error.message}`);
-  if (adminBranches.error) throw new CrmSchedulingError(`Could not read Admin branches: ${adminBranches.error.message}`);
-  const branchNames = new Map((adminBranches.data ?? []).map((branch: { id:string; name_en:string }) => [branch.id, branch.name_en]));
-  const sourceRooms = (adminRooms.data ?? []) as Array<{ id:string; branch_id:string; name_en:string; name_ar:string|null; room_type:string; is_active:boolean }>;
-  const db = supabaseAdmin();
-  const adminIds = new Set(sourceRooms.map((room) => room.id));
-  const existing = await db.from("crm_rooms").select("id,branch_id,branch_name,name_en,name_ar,room_type,is_active");
-  if (existing.error) throw new CrmSchedulingError(existing.error.message);
-  type ExistingRoom = { id:string; branch_id:string; branch_name:string; name_en:string; name_ar:string|null; room_type:string; is_active:boolean };
-  const existingRooms = (existing.data ?? []) as ExistingRoom[];
-  const existingById = new Map(existingRooms.map((room) => [room.id, room]));
-  const detail = (room: { id:string; branch_id:string; name_en:string; branch_name?:string }) => ({
-    id: room.id,
-    name: room.name_en,
-    branchName: room.branch_name ?? branchNames.get(room.branch_id) ?? "Unknown branch",
-  });
-  const added = sourceRooms.filter((room) => !existingById.has(room.id)).map(detail);
-  const updated = sourceRooms.filter((room) => {
-    const current = existingById.get(room.id);
-    return current && (
-      current.branch_id !== room.branch_id || current.name_en !== room.name_en ||
-      (current.name_ar ?? null) !== (room.name_ar ?? null) || current.room_type !== (room.room_type || "clinic") ||
-      current.is_active !== room.is_active
-    );
-  }).map(detail);
-  const temporary = existingRooms.filter((room) => !adminIds.has(room.id));
-  const remapAfterCopy: Array<{ room: ExistingRoom; match: typeof sourceRooms[number] }> = [];
-  const deleted: RoomSyncItem[] = [];
-  const retained: RoomSyncItem[] = [];
-  for (const room of temporary) {
-    const match = sourceRooms.find((candidate) => candidate.branch_id === room.branch_id && candidate.name_en.trim().toLowerCase() === room.name_en.trim().toLowerCase());
-    const [assignments, closures, exceptions] = await Promise.all([
-      db.from("crm_schedule_room_assignments").select("id", { count: "exact", head: true }).eq("room_id", room.id),
-      db.from("crm_closures").select("id", { count: "exact", head: true }).eq("room_id", room.id),
-      db.from("crm_schedule_exceptions").select("id", { count: "exact", head: true }).eq("room_id", room.id),
-    ]);
-    for (const response of [assignments, closures, exceptions]) if (response.error) throw new CrmSchedulingError(response.error.message);
-    const references = (assignments.count ?? 0) + (closures.count ?? 0) + (exceptions.count ?? 0);
-    if (references > 0 && match) {
-      const legacyName = `${room.name_en} (legacy ${room.id.slice(0, 6)})`;
-      const renamed = await db.from("crm_rooms").update({ name_en: legacyName, is_active: false }).eq("id", room.id);
-      if (renamed.error) throw new CrmSchedulingError(`Could not prepare temporary room ${room.name_en}: ${renamed.error.message}`);
-      remapAfterCopy.push({ room, match });
-      continue;
-    } else if (references > 0) {
-      const deactivation = await db.from("crm_rooms").update({ is_active: false }).eq("id", room.id);
-      if (deactivation.error) throw new CrmSchedulingError(`Could not retain historical room ${room.name_en}: ${deactivation.error.message}`);
-      retained.push(detail(room));
-      continue;
-    }
-    const deletion = await db.from("crm_rooms").delete().eq("id", room.id);
-    if (deletion.error) throw new CrmSchedulingError(`Could not remove temporary room ${room.name_en}: ${deletion.error.message}`);
-    deleted.push(detail(room));
-  }
-
-  if (sourceRooms.length > 0) {
-    const payload = sourceRooms.map((room) => ({ id: room.id, branch_id: room.branch_id, branch_name: branchNames.get(room.branch_id) ?? "Unknown branch", name_en: room.name_en, name_ar: room.name_ar, room_type: room.room_type || "clinic", is_active: room.is_active, created_by: currentActor.id }));
-    const { error } = await db.from("crm_rooms").upsert(payload, { onConflict: "id" });
-    if (error) throw new CrmSchedulingError(`Could not copy Admin rooms: ${error.message}`);
-  }
-
-  for (const { room, match } of remapAfterCopy) {
-    const remaps = await Promise.all([
-      db.from("crm_schedule_room_assignments").update({ room_id: match.id, room_name: match.name_en }).eq("room_id", room.id),
-      db.from("crm_closures").update({ room_id: match.id, room_name: match.name_en }).eq("room_id", room.id),
-      db.from("crm_schedule_exceptions").update({ room_id: match.id, room_name: match.name_en }).eq("room_id", room.id),
-    ]);
-    const remapError = remaps.find((response) => response.error)?.error;
-    if (remapError) throw new CrmSchedulingError(`Could not replace temporary room ${room.name_en}: ${remapError.message}`);
-    const deletion = await db.from("crm_rooms").delete().eq("id", room.id);
-    if (deletion.error) throw new CrmSchedulingError(`Could not remove temporary room ${room.name_en}: ${deletion.error.message}`);
-    deleted.push(detail(room));
-  }
-  const result: RoomSyncResult = { added, updated, deleted, retained, totalAdminRooms: sourceRooms.length };
-  await audit(currentActor.id, "crm.rooms.synced_from_admin", null, { ...result });
-  revalidatePath("/settings");
-  return result;
+export async function syncCrmRoomsFromAdmin(): Promise<RoomSyncResult> {
+  await actor(); const snapshot = await crmSchedulingSnapshot();
+  return { added: [], updated: [], deleted: [], retained: snapshot.rooms.map((room) => ({ id: room.id, name: room.nameEn, branchName: snapshot.branches.find((branch) => branch.id === room.branchId)?.nameEn ?? "Unknown branch" })), totalAdminRooms: snapshot.rooms.length };
 }
 
 export async function saveDoctorBranchAssignments(input: { doctorId: string; branchIds: string[] }) {
-  const currentActor = await actor();
-  if (!bookingConfigured()) throw new CrmSchedulingError("Booking/Admin branch catalog is not configured.");
-  const snapshot = await crmSchedulingSnapshot();
-  const doctor = named(snapshot.doctors, input.doctorId, "doctor", true);
-  const uniqueBranchIds = [...new Set(input.branchIds.filter(Boolean))];
-  if (uniqueBranchIds.length === 0) throw new CrmSchedulingError("Choose at least one branch for this doctor.");
-  const activeBranchIds = new Set(snapshot.branches.filter((branch) => branch.active).map((branch) => branch.id));
-  if (uniqueBranchIds.some((branchId) => !activeBranchIds.has(branchId))) throw new CrmSchedulingError("Choose only active clinic branches.");
-
-  const booking = bookingDb();
-  const upsert = await booking.from("doctor_branch_assignments").upsert(
-    uniqueBranchIds.map((branch_id) => ({ doctor_id: doctor.id, branch_id, is_active: true })),
-    { onConflict: "doctor_id,branch_id" },
-  );
-  if (upsert.error) throw new CrmSchedulingError(`Could not add doctor branches: ${upsert.error.message}`);
-
-  const existing = await booking.from("doctor_branch_assignments").select("branch_id").eq("doctor_id", doctor.id);
-  if (existing.error) throw new CrmSchedulingError(`Could not verify doctor branches: ${existing.error.message}`);
-  const removedIds = (existing.data ?? [])
-    .map((row: { branch_id: string }) => row.branch_id)
-    .filter((branchId: string) => !uniqueBranchIds.includes(branchId));
-  if (removedIds.length > 0) {
-    const deactivate = await booking.from("doctor_branch_assignments").update({ is_active: false }).eq("doctor_id", doctor.id).in("branch_id", removedIds);
-    if (deactivate.error) throw new CrmSchedulingError(`Could not remove doctor branches: ${deactivate.error.message}`);
-  }
-
-  const branchNames = snapshot.branches.filter((branch) => uniqueBranchIds.includes(branch.id)).map((branch) => branch.nameEn);
-  await audit(currentActor.id, "crm.doctor_branches.updated", doctor.id, { doctor_name: doctor.nameEn, branch_ids: uniqueBranchIds, branch_names: branchNames });
-  revalidatePath("/settings");
+  const currentActor = await actor(); const snapshot = await crmSchedulingSnapshot(); const doctor = named(snapshot.doctors, input.doctorId, "doctor", true);
+  const branchIds = [...new Set(input.branchIds.filter(Boolean))]; if (!branchIds.length) throw new CrmSchedulingError("Choose at least one branch.");
+  if (branchIds.some((id) => !snapshot.branches.some((branch) => branch.id === id && branch.active))) throw new CrmSchedulingError("Choose only active branches.");
+  const db = bookingDb();
+  const upsert = await db.from("doctor_branch_assignments").upsert(branchIds.map((branch_id) => ({ doctor_id: doctor.id, branch_id, is_active: true })), { onConflict: "doctor_id,branch_id" });
+  if (upsert.error) throw new CrmSchedulingError(upsert.error.message);
+  const existing = await db.from("doctor_branch_assignments").select("branch_id").eq("doctor_id", doctor.id); if (existing.error) throw new CrmSchedulingError(existing.error.message);
+  const removed = (existing.data ?? []).map((row: {branch_id:string}) => row.branch_id).filter((id: string) => !branchIds.includes(id));
+  if (removed.length) { const result = await db.from("doctor_branch_assignments").update({ is_active: false }).eq("doctor_id", doctor.id).in("branch_id", removed); if (result.error) throw new CrmSchedulingError(result.error.message); }
+  const branchNames = snapshot.branches.filter((branch) => branchIds.includes(branch.id)).map((branch) => branch.nameEn);
+  await audit(currentActor.id, "shared.doctor_branches.updated", doctor.id, { branch_ids: branchIds, branch_names: branchNames }); refreshScheduling();
   return { doctorName: doctor.nameEn, branchNames };
+}
+
+async function insertBlock(input: { blockType:string; title?:string|null; reason?:string|null; notes?:string|null; doctorId?:string|null; branchId?:string|null; roomId?:string|null; startsAt:string; endsAt:string; status?:string; active?:boolean }) {
+  const start = splitDateTime(input.startsAt); const end = splitDateTime(input.endsAt); if (input.endsAt <= input.startsAt) throw new CrmSchedulingError("End must be after start.");
+  const fullDay = start.time === "00:00" && end.time === "23:59";
+  const result = await bookingDb().from("blocked_times").insert({
+    block_date: start.date, end_date: end.date, start_time: fullDay ? null : start.time, end_time: fullDay ? null : end.time,
+    doctor_id: input.doctorId || null, branch_id: input.branchId || null, room_id: input.roomId || null,
+    reason: input.reason?.trim() || null, title: input.title?.trim() || null, notes: input.notes?.trim() || null,
+    is_full_day: fullDay, block_type: input.blockType, status: input.status ?? "approved", is_active: input.active !== false,
+  }).select("id").single<{id:string}>();
+  if (result.error || !result.data) throw new CrmSchedulingError(result.error?.message ?? "Could not save blocked time.");
+  return result.data.id;
 }
 
 export async function saveCrmClosure(input: { title: string; scope: string; branchId?: string; roomId?: string; startsAt: string; endsAt: string; notes?: string; active: boolean }) {
   const currentActor = await actor(); const snapshot = await crmSchedulingSnapshot();
-  const branch = input.branchId ? named(snapshot.branches, input.branchId, "branch") : null;
-  const room = input.roomId ? named(snapshot.rooms, input.roomId, "room", true) : null;
-  if (!input.title.trim()) throw new CrmSchedulingError("Closure title is required."); if (!input.startsAt || !input.endsAt || input.endsAt <= input.startsAt) throw new CrmSchedulingError("Closure end must be after its start.");
-  if (!['organization','branch','room'].includes(input.scope)) throw new CrmSchedulingError("Choose a closure scope.");
-  const row = { title: input.title.trim(), scope: input.scope, branch_id: branch?.id ?? null, branch_name: branch?.nameEn ?? null, room_id: room?.id ?? null, room_name: room?.nameEn ?? null, starts_at: input.startsAt, ends_at: input.endsAt, notes: input.notes?.trim() || null, is_active: input.active, created_by: currentActor.id };
-  const result = await supabaseAdmin().from("crm_closures").insert(row).select("id").single<{ id: string }>(); if (result.error || !result.data) throw new CrmSchedulingError(result.error?.message ?? "Could not add closure."); await audit(currentActor.id, "crm.closure.created", result.data.id, row); revalidatePath("/settings");
+  if (!input.title.trim()) throw new CrmSchedulingError("Closure title is required.");
+  const branch = input.branchId ? named(snapshot.branches, input.branchId, "branch") : null; const room = input.roomId ? named(snapshot.rooms, input.roomId, "room", true) : null;
+  const id = await insertBlock({ blockType: "closure", title: input.title, reason: input.title, notes: input.notes, branchId: branch?.id, roomId: room?.id, startsAt: input.startsAt, endsAt: input.endsAt, active: input.active });
+  await audit(currentActor.id, "shared.closure.created", id, input); refreshScheduling();
 }
 
 export async function saveCrmScheduleException(input: { doctorId: string; branchId: string; roomId?: string; exceptionDate: string; startTime?: string; endTime?: string; exceptionType: string; reason?: string; active: boolean }) {
-  const currentActor = await actor(); const snapshot = await crmSchedulingSnapshot();
-  const doctor = named(snapshot.doctors, input.doctorId, "doctor", true); const branch = named(snapshot.branches, input.branchId, "branch");
-  if (!snapshot.branchAssignments.some((assignment) => assignment.doctorId === doctor.id && assignment.branchId === branch.id)) throw new CrmSchedulingError(`${doctor.nameEn} is not assigned to ${branch.nameEn}.`);
-  const room = input.roomId ? named(snapshot.rooms.filter((item) => item.branchId === branch.id), input.roomId, "room", true) : null;
+  const currentActor = await actor(); const snapshot = await crmSchedulingSnapshot(); const doctor = named(snapshot.doctors, input.doctorId, "doctor", true); const branch = named(snapshot.branches, input.branchId, "branch");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.exceptionDate)) throw new CrmSchedulingError("Choose an exception date.");
-  if (!["available","unavailable","modified"].includes(input.exceptionType)) throw new CrmSchedulingError("Choose a valid exception type.");
-  const start = input.startTime ? cleanTime(input.startTime) : null; const end = input.endTime ? cleanTime(input.endTime) : null;
-  if ((start && !end) || (!start && end) || (start && end && end <= start)) throw new CrmSchedulingError("Provide a valid start and end time, or leave both blank for the full day.");
-  const row = { doctor_id: doctor.id, doctor_name: doctor.nameEn, branch_id: branch.id, branch_name: branch.nameEn, room_id: room?.id ?? null, room_name: room?.nameEn ?? null, exception_date: input.exceptionDate, start_time: start, end_time: end, exception_type: input.exceptionType, reason: input.reason?.trim() || null, is_active: input.active, created_by: currentActor.id };
-  const result = await supabaseAdmin().from("crm_schedule_exceptions").insert(row).select("id").single<{ id: string }>();
-  if (result.error || !result.data) throw new CrmSchedulingError(result.error?.message ?? "Could not add schedule exception.");
-  await audit(currentActor.id, "crm.schedule_exception.created", result.data.id, row); revalidatePath("/settings");
+  if (input.exceptionType !== "unavailable") throw new CrmSchedulingError("Shared exceptions currently support unavailable periods. Change the weekly schedule for added or modified hours.");
+  const room = input.roomId ? named(snapshot.rooms.filter((item) => item.branchId === branch.id), input.roomId, "room", true) : null;
+  const start = input.startTime || "00:00"; const end = input.endTime || "23:59";
+  const id = await insertBlock({ blockType: "exception", title: input.exceptionType, reason: input.reason, doctorId: doctor.id, branchId: branch.id, roomId: room?.id, startsAt: `${input.exceptionDate}T${start}`, endsAt: `${input.exceptionDate}T${end}`, active: input.active });
+  await audit(currentActor.id, "shared.exception.created", id, input); refreshScheduling();
 }
 
 export async function saveCrmTimeOff(input: { doctorId: string; branchId?: string; startsAt: string; endsAt: string; reason: string; notes?: string; status: string }) {
   const currentActor = await actor(); const snapshot = await crmSchedulingSnapshot(); const doctor = named(snapshot.doctors, input.doctorId, "doctor", true); const branch = input.branchId ? named(snapshot.branches, input.branchId, "branch") : null;
-  if (branch && !snapshot.branchAssignments.some((assignment) => assignment.doctorId === doctor.id && assignment.branchId === branch.id)) throw new CrmSchedulingError(`${doctor.nameEn} is not assigned to ${branch.nameEn}.`);
-  if (!input.reason.trim()) throw new CrmSchedulingError("Reason is required."); if (!input.startsAt || !input.endsAt || input.endsAt <= input.startsAt) throw new CrmSchedulingError("Time off end must be after its start."); if (!['pending','approved','rejected','cancelled'].includes(input.status)) throw new CrmSchedulingError("Choose a valid status.");
-  const row = { doctor_id: doctor.id, doctor_name: doctor.nameEn, branch_id: branch?.id ?? null, branch_name: branch?.nameEn ?? null, starts_at: input.startsAt, ends_at: input.endsAt, reason: input.reason.trim(), notes: input.notes?.trim() || null, status: input.status, created_by: currentActor.id };
-  const result = await supabaseAdmin().from("crm_time_off").insert(row).select("id").single<{ id: string }>(); if (result.error || !result.data) throw new CrmSchedulingError(result.error?.message ?? "Could not add time off."); await audit(currentActor.id, "crm.time_off.created", result.data.id, row); revalidatePath("/settings");
+  if (!input.reason.trim()) throw new CrmSchedulingError("Reason is required.");
+  const id = await insertBlock({ blockType: "time_off", title: "Doctor time off", reason: input.reason, notes: input.notes, doctorId: doctor.id, branchId: branch?.id, startsAt: input.startsAt, endsAt: input.endsAt, status: input.status });
+  await audit(currentActor.id, "shared.time_off.created", id, input); refreshScheduling();
 }
