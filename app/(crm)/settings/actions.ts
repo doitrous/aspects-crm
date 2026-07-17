@@ -35,8 +35,13 @@ export async function backfillDuplicatesAction(_prev: SettingsActionState, formD
     const actor = await writeActor();
     assertCan(actor.role, "settings.manage");
     const cursor = String(formData.get("cursor") ?? "").trim() || null;
-    const { data, error } = await supabaseAdmin().rpc("crm_backfill_duplicate_flags_batch", { after_lead_id: cursor, batch_size: 500 });
-    if (error) throw new SettingsError(error.message);
+    const { data, error } = await supabaseAdmin().rpc("crm_backfill_duplicate_flags_batch", { after_lead_id: cursor, batch_size: 50 });
+    if (error) {
+      if (error.code === "57014" || error.message.toLowerCase().includes("statement timeout")) {
+        throw new SettingsError("This duplicate-check batch exceeded the database time limit. No patients were merged. Retry the same batch; it is safe and idempotent.");
+      }
+      throw new SettingsError(error.message);
+    }
     const result = data as { processed?: number; created?: number; next_cursor?: string | null; complete?: boolean };
     await logActivity({ actorId: actor.id, action: "duplicates.backfill_batch_run", entityType: "duplicate_backfill", entityId: result.next_cursor ?? cursor ?? "start", newValues: result as Record<string, unknown> });
     revalidatePath("/duplicates");

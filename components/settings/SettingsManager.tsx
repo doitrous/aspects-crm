@@ -41,8 +41,8 @@ const SETTINGS_IDLE: SettingsActionState = { ok: false };
 const SETTINGS_PAGE_SIZE = 30;
 
 const field =
-  "min-w-0 rounded-control border border-line-soft bg-white px-2 py-1.5 text-[12px] text-ink-800 outline-none focus:border-primary disabled:opacity-60";
-const label = "flex flex-col gap-1 text-[11px] font-semibold text-ink-500";
+  "min-w-0 rounded-control border border-line-soft bg-white px-2.5 py-2 text-[13px] text-ink-800 outline-none focus:border-primary disabled:opacity-60";
+const label = "flex flex-col gap-1 text-[12px] font-semibold text-ink-500";
 
 function Feedback({ state }: { state: SettingsActionState }) {
   if (state.error) return <span className="text-[11px] font-semibold text-red-600">{state.error}</span>;
@@ -56,7 +56,7 @@ function SaveButton({ pending, children = "Save" }: { pending: boolean; children
     <button
       type="submit"
       disabled={pending}
-      className="h-8 rounded-control bg-primary px-3 text-[12px] font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
+      className="h-9 rounded-control bg-primary px-4 text-[13px] font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
     >
       {pending ? "Saving…" : children}
     </button>
@@ -65,7 +65,7 @@ function SaveButton({ pending, children = "Save" }: { pending: boolean; children
 
 function DuplicateBackfill({ canManage }: { canManage: boolean }) {
   const [state, action, pending] = useActionState(backfillDuplicatesAction, SETTINGS_IDLE);
-  return <form action={action} className="mt-4 rounded-control border border-primary/20 bg-primary-soft/30 p-3"><input type="hidden" name="cursor" value={state.cursor ?? ""}/><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[12px] font-black text-ink-900">Backfill existing database records</div><p className="mt-1 text-[11px] text-ink-500">Runs the same live detector in idempotent batches of 500; it never merges patients automatically.</p></div>{canManage && <SaveButton pending={pending}>{state.cursor ? "Run next batch" : state.complete ? "Run safety check again" : "Start duplicate backfill"}</SaveButton>}</div><Feedback state={state}/></form>;
+  return <form action={action} className="mt-4 rounded-control border border-primary/20 bg-primary-soft/30 p-3"><input type="hidden" name="cursor" value={state.cursor ?? ""}/><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[13px] font-black text-ink-900">Backfill existing database records</div><p className="mt-1 text-[12px] text-ink-500">Runs the same live detector in idempotent batches of 50 to stay within the database timeout; it never merges patients automatically.</p></div>{canManage && <SaveButton pending={pending}>{state.cursor ? "Run next batch" : state.complete ? "Run safety check again" : "Start duplicate backfill"}</SaveButton>}</div><Feedback state={state}/></form>;
 }
 
 function PagedItems<T>({ items, render }: { items: T[]; render: (item: T) => ReactNode }) {
@@ -383,16 +383,14 @@ function ConnectedBadge({ ok }: { ok: boolean }) {
 
 /* ── Shell ────────────────────────────────────────────────────── */
 export type SettingsTabKey =
-  | "general"
+  | "account"
   | "bulkImport"
-  | "leadFields"
   | "tags"
   | "lost"
   | "escalation"
   | "followup"
   | "rules"
   | "sources"
-  | "idRules"
   | "duplicates"
   | "reporting"
   | "ai"
@@ -404,16 +402,14 @@ export type SettingsTabKey =
   | "users";
 
 const TABS: Array<{ key: SettingsTabKey; label: string }> = [
-  { key: "general", label: "General CRM Settings" },
+  { key: "account", label: "Profile & Security" },
   { key: "bulkImport", label: "Bulk Import" },
-  { key: "leadFields", label: "Lead Fields" },
   { key: "tags", label: "Tags & Colors" },
   { key: "lost", label: "Lost Reasons" },
   { key: "escalation", label: "Escalation Reasons" },
   { key: "followup", label: "Follow-Up Stages" },
   { key: "rules", label: "Rules" },
   { key: "sources", label: "Sources & Campaigns" },
-  { key: "idRules", label: "ID / MRN Rules" },
   { key: "duplicates", label: "Duplicate Rules" },
   { key: "reporting", label: "Reporting Settings" },
   { key: "ai", label: "AI Reply Assistant" },
@@ -433,7 +429,7 @@ export interface IntegrationStatus {
 }
 
 export function SettingsManager({
-  initialTab = "general",
+  initialTab = "scheduling",
   canManage,
   tags,
   lostReasons,
@@ -468,8 +464,7 @@ export function SettingsManager({
   function selectTab(next: SettingsTabKey) {
     setTab(next);
     const url = new URL(window.location.href);
-    if (next === "general") url.searchParams.delete("section");
-    else url.searchParams.set("section", next);
+    url.searchParams.set("section", next);
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   }
 
@@ -483,7 +478,7 @@ export function SettingsManager({
             aria-pressed={tab === t.key}
             onClick={() => selectTab(t.key)}
             className={
-              "shrink-0 rounded-control px-3 py-2 text-left text-[12.5px] font-semibold transition-colors lg:shrink " +
+              "shrink-0 rounded-control px-3.5 py-2.5 text-left text-[13.5px] font-semibold transition-colors lg:shrink " +
               (tab === t.key ? "bg-primary-soft text-primary" : "text-ink-600 hover:bg-line-faint/60")
             }
           >
@@ -499,19 +494,8 @@ export function SettingsManager({
           </p>
         )}
 
-        {tab === "general" && (
-          <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">General CRM Settings</h3>
-            <p className="mb-3 text-[11.5px] text-ink-500">Operational settings that are actually consumed by the current CRM runtime.</p>
-            <InfoGrid
-              rows={[
-                { label: "Lead list page size", value: "30 leads", hint: "Used by server-side list pagination." },
-                { label: "Canonical lead drawer", value: "Single drawer", hint: "Overview, Messenger, WhatsApp, Comments, Notes, Follow-Up, Booking, Payments / Financials, Log." },
-                { label: "Primary stages", value: "Exclusive", hint: "New, Qualified/Booked, Follow-Up, Post-Op Follow-Up, Lost." },
-                { label: "Booking source", value: "Booking platform database", hint: "Public booking and CRM reservations read the booking source. CRM Settings scheduling is intentionally stored separately." },
-              ]}
-            />
-          </Card>
+        {tab === "account" && (
+          <Card className="p-4"><h3 className="mb-1 text-[14px] font-bold text-ink-900">Profile &amp; Security</h3><p className="mb-3 text-[12px] text-ink-500">Manage your profile, password, and account security.</p><Link href="/settings/account" className="inline-flex h-10 items-center rounded-control bg-primary px-4 text-[13px] font-semibold text-white">Open profile &amp; security</Link></Card>
         )}
 
         {tab === "bulkImport" && (
@@ -523,22 +507,6 @@ export function SettingsManager({
           </div>
         )}
 
-        {tab === "leadFields" && (
-          <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">Lead Fields</h3>
-            <p className="mb-3 text-[11.5px] text-ink-500">
-              These are the current persisted lead fields. Arbitrary schema-changing fields are intentionally not exposed from the browser.
-            </p>
-            <InfoGrid
-              rows={[
-                { label: "Identity", value: "Lead ID, MRN, name, phone", hint: "Lead ID generation uses the database function crm_generate_lead_id." },
-                { label: "Attribution", value: "Platform, source, campaign-ready metadata", hint: "Source filters use lead_sources; platform remains the communication channel." },
-                { label: "Workflow", value: "Status, tags, unread, SLA, escalations", hint: "Status is a single primary stage; follow-up tasks are separate records." },
-                { label: "Clinical notes", value: "Client Notes, Medical History, Notes", hint: "Saved directly on the lead and audited." },
-              ]}
-            />
-          </Card>
-        )}
 
         {tab === "tags" && (
           <Card className="p-4">
@@ -602,17 +570,6 @@ export function SettingsManager({
           </Card>
         )}
 
-        {tab === "idRules" && (
-          <Card className="p-4">
-            <h3 className="mb-1 text-[13px] font-bold text-ink-900">ID / MRN Rules</h3>
-            <InfoGrid
-              rows={[
-                { label: "Lead ID generation", value: "crm_generate_lead_id()", hint: "New manual/imported leads call the database function. Existing IDs are never rewritten." },
-                { label: "MRN", value: "Persisted field", hint: "Used for search and import matching when supplied; no retroactive auto-generation is enabled." },
-              ]}
-            />
-          </Card>
-        )}
 
         {tab === "duplicates" && (
           <Card className="p-4">

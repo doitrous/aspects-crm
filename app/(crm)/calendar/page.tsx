@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Topbar } from "@/components/shell/Topbar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { getReservations } from "@/lib/booking/reservations";
-import { bookingConfigured } from "@/lib/booking/client";
+import { bookingConfigured, bookingDb } from "@/lib/booking/client";
 import { syncReservationsToLeads } from "@/lib/booking/sync";
 import { RESERVATION_STATUS_META } from "@/lib/reservationStatus";
 import { formatClock, formatDate } from "@/lib/format";
@@ -86,7 +86,32 @@ export default async function CalendarPage({
   const monthPrefix = monthParam(year, month);
 
   // Same rule as the booking admin calendar: cancelled reservations don't occupy the grid.
-  const all = await getReservations({ from: rangeFrom, to: rangeTo });
+  const [all, closureResult] = await Promise.all([
+    getReservations({ from: rangeFrom, to: rangeTo }),
+    bookingDb().from("blocked_times")
+      .select("block_date,end_date,title,reason")
+      .eq("block_type", "closure")
+      .eq("is_active", true)
+      .eq("status", "approved")
+      .eq("is_full_day", true)
+      .is("room_id", null)
+      .lte("block_date", rangeTo)
+      .gte("end_date", rangeFrom),
+  ]);
+  const clinicClosures = new Map<string, string[]>();
+  if (!closureResult.error) {
+    for (const closure of closureResult.data ?? []) {
+      const cursor = new Date(`${closure.block_date}T00:00:00Z`);
+      const end = new Date(`${closure.end_date || closure.block_date}T00:00:00Z`);
+      while (cursor <= end) {
+        const key = ymd(cursor);
+        const labels = clinicClosures.get(key) ?? [];
+        labels.push(closure.title || closure.reason || "Clinic closed");
+        clinicClosures.set(key, labels);
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+    }
+  }
   const reservations = all.filter((r) => r.status !== "cancelled");
   const syncedLeadByAppointment = await syncReservationsToLeads(reservations);
 
@@ -164,6 +189,7 @@ export default async function CalendarPage({
 
         {/* Legend */}
         <div className="mb-2.5 flex flex-wrap gap-x-3 gap-y-1">
+          <span className="flex items-center gap-1.5 text-[11.5px] text-ink-500"><span className="h-3 w-3 rounded-sm border border-ink-200 bg-ink-100"/>Clinic closed / Friday</span>
           {Object.entries(RESERVATION_STATUS_META)
             .filter(([s]) => s !== "cancelled")
             .map(([s, m]) => (
@@ -191,12 +217,17 @@ export default async function CalendarPage({
               {grid.map((cell) => {
                 const dayRes = byDate.get(cell.key) ?? [];
                 const isToday = cell.key === todayKey;
+                const isFriday = new Date(`${cell.key}T00:00:00Z`).getUTCDay() === 5;
+                const closureLabels = clinicClosures.get(cell.key) ?? [];
+                const isClosed = isFriday || closureLabels.length > 0;
                 return (
                   <div
                     key={cell.key}
                     className={
                       "flex min-h-[112px] flex-col rounded-control border p-1.5 " +
-                      (cell.inMonth ? "border-line bg-panel" : "border-line-faint bg-line-faint/40")
+                      (isClosed
+                        ? "border-ink-200 bg-ink-100/90"
+                        : cell.inMonth ? "border-line bg-panel" : "border-line-faint bg-line-faint/40")
                     }
                   >
                     <div className="mb-1 flex items-center justify-between">
@@ -218,6 +249,7 @@ export default async function CalendarPage({
                         </span>
                       )}
                     </div>
+                    {isClosed && <div className="mb-1 rounded bg-ink-200/70 px-1.5 py-1 text-[10.5px] font-bold text-ink-600" title={closureLabels.join(", ")}>{closureLabels[0] ?? "Friday · clinic closed"}</div>}
 
                     {/* Every booking is shown. A busy day scrolls inside its own
                         cell rather than hiding appointments behind "+N more". */}

@@ -233,7 +233,7 @@ body {
 .crm-schedule-hero-stats strong { color: white; display: block; font-size: 18px; line-height: 1.1; }
 
 .crm-schedule-tabs { background: rgb(var(--c-panel)); border: 1px solid rgb(var(--c-line)); border-radius: 14px; display: flex; gap: 4px; overflow-x: auto; padding: 6px; }
-.crm-schedule-tabs button { border-radius: 9px; color: rgb(var(--c-ink-600)); flex: 0 0 auto; font-size: 12px; font-weight: 800; min-height: 38px; padding: 8px 14px; }
+.crm-schedule-tabs button { border-radius: 9px; color: rgb(var(--c-ink-600)); flex: 0 0 auto; font-size: 13px; font-weight: 800; min-height: 42px; padding: 9px 15px; }
 .crm-schedule-tabs button:hover { background: rgb(var(--c-primary-soft)); color: rgb(var(--c-primary)); }
 .crm-schedule-tabs button.is-active { background: rgb(var(--c-primary)); box-shadow: 0 4px 10px rgb(var(--c-primary) / 0.18); color: white; }
 
@@ -247,13 +247,14 @@ body {
 
 .crm-doctor-calendar { background: rgb(var(--c-panel)); border: 1px solid rgb(var(--c-line)); border-radius: 16px; box-shadow: 0 7px 22px rgb(16 24 40 / 0.05); overflow: hidden; }
 .crm-doctor-calendar > header { align-items: center; background: rgb(var(--c-primary-softer)); border-bottom: 1px solid rgb(var(--c-line-soft)); display: flex; gap: 16px; justify-content: space-between; padding: 14px 18px; }
-.crm-doctor-calendar h3 { color: rgb(var(--c-ink-900)); font-size: 14px; font-weight: 900; }
-.crm-doctor-calendar header p { color: rgb(var(--c-ink-500)); font-size: 10.5px; margin-top: 2px; }
+.crm-doctor-calendar h3 { color: rgb(var(--c-ink-900)); font-size: 15px; font-weight: 900; }
+.crm-doctor-calendar header p { color: rgb(var(--c-ink-500)); font-size: 11.5px; margin-top: 2px; }
 .crm-doctor-capacity { display: flex; flex: 1; gap: 6px; justify-content: flex-end; }
 .crm-doctor-capacity span { background: rgb(var(--c-panel)); border: 1px solid rgb(var(--c-line-soft)); border-radius: 8px; min-width: 96px; padding: 7px 9px; }
-.crm-doctor-capacity small { color: rgb(var(--c-ink-400)); display: block; font-size: 8px; font-weight: 700; }
-.crm-doctor-capacity strong { color: rgb(var(--c-ink-800)); display: block; font-size: 10.5px; margin-top: 2px; }
+.crm-doctor-capacity small { color: rgb(var(--c-ink-400)); display: block; font-size: 9.5px; font-weight: 700; }
+.crm-doctor-capacity strong { color: rgb(var(--c-ink-800)); display: block; font-size: 11.5px; margin-top: 2px; }
 .crm-doctor-avatar { align-items: center; background: rgb(var(--c-primary-avatar)); border: 1px solid rgb(var(--c-primary) / 0.12); border-radius: 50%; color: rgb(var(--c-primary)); display: flex; flex: 0 0 auto; font-size: 11px; font-weight: 900; height: 42px; justify-content: center; overflow: hidden; width: 42px; }
+.crm-doctor-avatar img { height: 100%; object-fit: cover; width: 100%; }
 .crm-week-grid { display: grid; grid-template-columns: repeat(7, minmax(126px, 1fr)); min-width: 882px; }
 .crm-day-card { background: rgb(var(--c-panel)); border-inline-end: 1px solid rgb(var(--c-line-soft)); min-height: 190px; padding: 11px; }
 .crm-day-card:last-child { border-inline-end: 0; }
@@ -264,21 +265,23 @@ body {
 .crm-day-heading i { background: rgb(34 197 94); border-radius: 50%; height: 7px; width: 7px; }
 .crm-day-card.is-off .crm-day-heading i { background: rgb(var(--c-ink-400)); }
 .crm-session-card { background: rgb(var(--c-panel)); border: 1px solid rgb(var(--c-line)); border-radius: 9px; padding: 8px; }
-.crm-session-card strong { align-items: center; color: rgb(var(--c-ink-900)); display: flex; font-size: 10.5px; gap: 4px; white-space: nowrap; }
-.crm-session-card small { color: rgb(var(--c-primary)); display: block; font-size: 8.5px; font-weight: 800; line-height: 1.35; margin-top: 3px; }
+.crm-session-card strong { align-items: center; color: rgb(var(--c-ink-900)); display: flex; font-size: 11.5px; gap: 4px; white-space: nowrap; }
+.crm-session-card small { color: rgb(var(--c-primary)); display: block; font-size: 9.5px; font-weight: 800; line-height: 1.4; margin-top: 3px; }
 .crm-session-card button { border-radius: 5px; color: rgb(var(--c-ink-500)); font-size: 15px; line-height: 1; padding: 4px; }
 .crm-session-card button:hover { background: rgb(var(--c-primary-soft)); color: rgb(var(--c-primary)); }
+.crm-session-card .crm-schedule-delete-button, .crm-schedule-delete-button { align-items: center; border-radius: 6px; color: rgb(var(--c-danger)); display: inline-flex; font-size: 15px; justify-content: center; min-height: 32px; min-width: 32px; padding: 4px; }
+.crm-schedule-delete-button:hover { background: rgb(var(--c-danger-bg)); }
 .crm-day-off { align-items: center; border: 1px dashed rgb(var(--c-line)); border-radius: 9px; color: rgb(var(--c-ink-400)); display: flex; flex-direction: column; font-size: 10px; font-weight: 800; justify-content: center; min-height: 62px; }
 .crm-day-off > span:first-child { font-size: 17px; }
 .crm-day-off small { font-size: 8px; font-weight: 600; margin-top: 2px; }
-.crm-day-action { align-items: center; border: 1px solid rgb(var(--c-line)); border-radius: 7px; color: rgb(var(--c-ink-600)); display: flex; font-size: 9.5px; font-weight: 800; gap: 3px; justify-content: center; min-height: 31px; padding: 5px; width: 100%; }
+.crm-day-action { align-items: center; border: 1px solid rgb(var(--c-line)); border-radius: 7px; color: rgb(var(--c-ink-600)); display: flex; font-size: 10.5px; font-weight: 800; gap: 3px; justify-content: center; min-height: 36px; padding: 6px; width: 100%; }
 .crm-day-action:hover { background: rgb(var(--c-primary-soft)); border-color: rgb(var(--c-primary) / 0.45); color: rgb(var(--c-primary)); }
 .crm-day-action.is-add { color: rgb(var(--c-primary)); }
 .crm-day-capacity { background: rgb(var(--c-primary-softer)); border-radius: 7px; display: flex; justify-content: space-between; margin-top: 8px; padding: 6px 7px; }
 .crm-day-capacity strong { color: rgb(var(--c-primary)); font-size: 8.5px; }
 .crm-day-capacity span { color: rgb(var(--c-ink-500)); font-size: 8px; }
 
-.crm-schedule-button { align-items: center; border-radius: 8px; display: inline-flex; font-size: 11px; font-weight: 900; gap: 5px; justify-content: center; min-height: 38px; padding: 8px 13px; white-space: nowrap; }
+.crm-schedule-button { align-items: center; border-radius: 8px; display: inline-flex; font-size: 12.5px; font-weight: 900; gap: 5px; justify-content: center; min-height: 42px; padding: 9px 15px; white-space: nowrap; }
 .crm-schedule-button.primary { background: rgb(var(--c-primary)); color: white; }
 .crm-schedule-button.primary:hover { background: rgb(var(--c-primary-hover)); }
 .crm-schedule-button.secondary { background: rgb(var(--c-panel)); border: 1px solid rgb(var(--c-line)); color: rgb(var(--c-ink-700)); }
@@ -294,8 +297,8 @@ body {
 .crm-schedule-close:hover { background: rgb(var(--c-danger-bg)); color: rgb(var(--c-danger)); }
 .crm-schedule-modal-body { display: flex; flex-direction: column; gap: 16px; padding: 20px 22px 22px; }
 .crm-schedule-modal-footer { border-top: 1px solid rgb(var(--c-line-soft)); display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; padding-top: 16px; }
-.crm-schedule-label { color: rgb(var(--c-ink-600)); display: flex; flex-direction: column; font-size: 10.5px; font-weight: 800; gap: 6px; }
-.crm-schedule-field { background: rgb(var(--c-panel)); border: 1px solid rgb(var(--c-line)); border-radius: 8px; color: rgb(var(--c-ink-900)); font-size: 12px; height: 40px; padding: 0 11px; width: 100%; }
+.crm-schedule-label { color: rgb(var(--c-ink-600)); display: flex; flex-direction: column; font-size: 11.5px; font-weight: 800; gap: 6px; }
+.crm-schedule-field { background: rgb(var(--c-panel)); border: 1px solid rgb(var(--c-line)); border-radius: 8px; color: rgb(var(--c-ink-900)); font-size: 13px; height: 44px; padding: 0 12px; width: 100%; }
 .crm-schedule-dialog-section { background: rgb(var(--c-primary-softer)); border: 1px solid rgb(var(--c-line)); border-radius: 10px; padding: 13px; }
 .crm-schedule-notice { background: rgb(255 251 235); border: 1px solid rgb(245 158 11 / 0.28); border-radius: 9px; color: rgb(146 64 14); font-size: 10.5px; font-weight: 700; padding: 10px 12px; }
 .crm-schedule-error { background: rgb(var(--c-danger-bg)); border: 1px solid rgb(var(--c-danger) / 0.24); border-radius: 9px; color: rgb(var(--c-danger)); font-size: 11px; font-weight: 700; padding: 10px 12px; }

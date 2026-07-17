@@ -2,6 +2,7 @@
 
 import {
   CrmSchedulingError,
+  deleteCrmSchedule,
   deleteCrmRoom,
   duplicateCrmSchedule,
   saveCrmClosure,
@@ -38,6 +39,9 @@ export async function duplicateScheduleAction(_: SchedulingActionState, data: Fo
     const result = await duplicateCrmSchedule({ scheduleId: str(data, "scheduleId"), doctorIds: data.getAll("doctorIds").map(String), daysOfWeek: data.getAll("daysOfWeek").map(Number) });
     return { ok: true, message: `${result.created} schedule${result.created === 1 ? "" : "s"} duplicated.${result.skipped.length ? ` ${result.skipped.length} target${result.skipped.length === 1 ? " was" : "s were"} skipped: ${result.skipped.join(", ")}.` : ""}` };
   } catch (error) { return state(error); }
+}
+export async function deleteScheduleAction(_: SchedulingActionState, data: FormData): Promise<SchedulingActionState> {
+  try { await deleteCrmSchedule(str(data, "id")); return { ok: true, message: "Schedule deleted from CRM and the booking website." }; } catch (error) { return state(error); }
 }
 export async function saveRoomAction(_: SchedulingActionState, data: FormData): Promise<SchedulingActionState> {
   try { await saveCrmRoom({ id: str(data,"id") || undefined, branchId: str(data,"branchId"), nameEn: str(data,"nameEn"), nameAr: str(data,"nameAr"), roomType: str(data,"roomType"), active: data.get("active") === "on" }); return OK; } catch (error) { return state(error); }

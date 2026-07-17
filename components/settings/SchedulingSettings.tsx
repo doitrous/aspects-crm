@@ -5,6 +5,7 @@ import {
   saveClosureAction,
   saveBranchAssignmentsAction,
   deleteRoomAction,
+  deleteScheduleAction,
   duplicateScheduleAction,
   saveRoomAction,
   saveScheduleAction,
@@ -45,6 +46,17 @@ function Feedback({ state }: { state: SchedulingActionState }) {
   if (state.error) return <p role="alert" className="crm-schedule-error">{state.error}</p>;
   if (state.ok) return <p role="status" className="crm-schedule-success">{state.message ?? "Saved to shared scheduling."}</p>;
   return null;
+}
+
+function DeleteScheduleButton({ schedule, doctorName, dayLabel }: { schedule: CrmScheduleRow; doctorName: string; dayLabel: string }) {
+  const [state, action, pending] = useActionState(deleteScheduleAction, IDLE);
+  return (
+    <form action={action} onSubmit={(event) => { if (!window.confirm(`Delete ${doctorName}'s ${dayLabel} schedule (${schedule.startTime}–${schedule.endTime})? This deletes it from BOTH CRM and the booking website. This cannot be undone.`)) event.preventDefault(); }}>
+      <input type="hidden" name="id" value={schedule.id}/>
+      <button disabled={pending} type="submit" className="crm-schedule-delete-button" aria-label={`Delete ${dayLabel} hours for ${doctorName}`} title={state.error ?? "Delete schedule from CRM and booking website"}>{pending ? "…" : "⌫"}</button>
+      {state.error && <span className="fixed bottom-4 end-4 z-[120] max-w-sm rounded-lg bg-danger-bg p-3 text-[12px] font-bold text-danger shadow-xl" role="alert">{state.error}</span>}
+    </form>
+  );
 }
 
 function ScheduleEditor({
@@ -234,7 +246,12 @@ function Availability({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
           <section key={doctor.id} className="crm-doctor-calendar">
             <header>
               <div className="flex min-w-0 items-center gap-3">
-                <div className="crm-doctor-avatar">{initials || "DR"}</div>
+                <div className="crm-doctor-avatar">
+                  {doctor.photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={doctor.photoUrl} alt=""/>
+                  ) : initials || "DR"}
+                </div>
                 <div className="min-w-0">
                   <h3>{doctor.nameEn}</h3>
                   <p>{activeDays} scheduled day{activeDays === 1 ? "" : "s"} at {selectedBranch?.nameEn ?? "this branch"}{assignedDoctorIds.has(doctor.id) ? "" : " · Branch assignment removed"}</p>
@@ -269,7 +286,7 @@ function Availability({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
                                 {schedule.firstComeFirstServe && <small>First come · {schedule.firstComeCapacity}</small>}
                                 <small>{schedule.showOnBookingWebsite ? "Visible on booking website" : "CRM only · hidden from website"}</small>
                               </div>
-                              <span className="flex"><button type="button" aria-label={`Duplicate ${day.label} hours for ${doctor.nameEn}`} title="Duplicate schedule" onClick={() => setDuplicate(schedule)}>⧉</button><button type="button" aria-label={`Edit ${day.label} hours for ${doctor.nameEn}`} onClick={() => setEditor({ schedule })}>✎</button></span>
+                              <div className="flex"><button type="button" aria-label={`Duplicate ${day.label} hours for ${doctor.nameEn}`} title="Duplicate schedule" onClick={() => setDuplicate(schedule)}>⧉</button><button type="button" aria-label={`Edit ${day.label} hours for ${doctor.nameEn}`} title="Edit schedule" onClick={() => setEditor({ schedule })}>✎</button><DeleteScheduleButton schedule={schedule} doctorName={doctor.nameEn} dayLabel={day.label}/></div>
                             </div>
                           </article>
                         ))}
@@ -277,7 +294,7 @@ function Availability({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
                       </div>
                       {!dayOff && <div className="crm-day-capacity"><strong>Max {dailyCapacity.get(day.value) ?? 0}</strong><span>80% goal {eightyPercentGoal(dailyCapacity.get(day.value) ?? 0)}</span></div>}
                       <div className="mt-3 space-y-1.5">
-                        {inactiveRows.map((schedule) => <button key={schedule.id} type="button" onClick={() => setEditor({ schedule })} className="crm-day-action">Restore {schedule.startTime}</button>)}
+                        {inactiveRows.map((schedule) => <div key={schedule.id} className="flex items-center gap-1"><button type="button" onClick={() => setEditor({ schedule })} className="crm-day-action flex-1">Restore {schedule.startTime}</button><DeleteScheduleButton schedule={schedule} doctorName={doctor.nameEn} dayLabel={day.label}/></div>)}
                         <button type="button" disabled={!assignedDoctorIds.has(doctor.id)} onClick={() => setEditor({ doctorId: doctor.id, dayOfWeek: day.value })} className="crm-day-action is-add">＋ Add {dayOff ? "hours" : "session"}</button>
                       </div>
                     </div>

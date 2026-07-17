@@ -8,7 +8,7 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 
 export class CrmSchedulingError extends Error {}
 
-export interface CatalogItem { id: string; nameEn: string; nameAr?: string; active: boolean; branchId?: string; roomType?: string; specialtyId?: string }
+export interface CatalogItem { id: string; nameEn: string; nameAr?: string; active: boolean; branchId?: string; roomType?: string; specialtyId?: string; photoUrl?: string }
 export interface CrmScheduleRow {
   id: string; doctorId: string; doctorName: string; branchId: string; branchName: string; roomId: string | null;
   roomName: string | null; dayOfWeek: number; startTime: string; endTime: string; slotDurationMinutes: number;
@@ -82,7 +82,7 @@ export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
   if (!bookingConfigured()) return empty;
   const db = bookingDb();
   const [doctors, branches, rooms, assignments, services, hours, schedules, blocks] = await Promise.all([
-    db.from("doctors").select("id,name_en,name_ar,is_active,specialty_id").order("display_order"),
+    db.from("doctors").select("id,name_en,name_ar,is_active,specialty_id,photo_url").order("display_order"),
     db.from("branches").select("id,name_en,name_ar,is_active").order("display_order"),
     db.from("rooms").select("id,branch_id,name_en,name_ar,room_type,is_active").order("branch_id").order("name_en"),
     db.from("doctor_branch_assignments").select("doctor_id,branch_id,is_active").eq("is_active", true),
@@ -98,7 +98,7 @@ export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
   }
   for (const response of [schedules, blocks]) if (response.error) throw new CrmSchedulingError(`Could not read shared scheduling data: ${response.error.message}`);
 
-  type DoctorDb = { id:string;name_en:string;name_ar:string|null;is_active:boolean;specialty_id:string };
+  type DoctorDb = { id:string;name_en:string;name_ar:string|null;is_active:boolean;specialty_id:string;photo_url:string|null };
   type BranchDb = { id:string;name_en:string;name_ar:string|null;is_active:boolean };
   type RoomDb = { id:string;branch_id:string;name_en:string;name_ar:string|null;room_type:string;is_active:boolean };
   type ServiceDb = { id:string;name_en:string;duration_minutes:number;specialty_id:string;doctor_id:string|null;service_doctors:Array<{doctor_id:string}>|null };
@@ -114,7 +114,7 @@ export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
   return {
     catalogConfigured: true,
     migrationReady: true,
-    doctors: doctorRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, active: row.is_active, specialtyId: row.specialty_id })),
+    doctors: doctorRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, active: row.is_active, specialtyId: row.specialty_id, photoUrl: row.photo_url ?? undefined })),
     branches: branchRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, active: row.is_active })),
     rooms: roomRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, roomType: row.room_type, active: row.is_active, branchId: row.branch_id })),
     schedules: scheduleRows.map((row) => {
@@ -200,6 +200,21 @@ export async function saveCrmSchedule(input: { id?: string; doctorId: string; br
   const assigned = await db.from("schedule_room_assignments").insert({ schedule_template_id: id, room_id: room.id });
   if (assigned.error) throw new CrmSchedulingError(`Schedule saved, but room assignment failed: ${assigned.error.message}`);
   await audit(currentActor.id, input.id ? "shared.schedule.updated" : "shared.schedule.created", id!, { ...patch, room_id: room.id });
+  refreshScheduling();
+}
+
+export async function deleteCrmSchedule(id: string) {
+  const currentActor = await actor();
+  if (!id) throw new CrmSchedulingError("Schedule id is required.");
+  const db = bookingDb();
+  const existing = await db.from("doctor_schedule_templates")
+    .select("id,doctor_id,branch_id,day_of_week,start_time,end_time")
+    .eq("id", id)
+    .maybeSingle<{id:string;doctor_id:string;branch_id:string;day_of_week:number;start_time:string;end_time:string}>();
+  if (existing.error || !existing.data) throw new CrmSchedulingError(existing.error?.message ?? "Schedule not found.");
+  const removed = await db.from("doctor_schedule_templates").delete().eq("id", id);
+  if (removed.error) throw new CrmSchedulingError(removed.error.message);
+  await audit(currentActor.id, "shared.schedule.deleted", id, existing.data);
   refreshScheduling();
 }
 
