@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useActionState, useMemo, useRef, useState } from "react";
 import { createOperationalReportAction, saveModeratorScoreAction, type ReportActionState } from "@/app/(crm)/reports/actions";
 import { DateField } from "@/components/ui/DateField";
-import { copyElementImage } from "@/components/reports/QuickCopy";
+import { copyElementImage, downloadElementImage } from "@/components/reports/QuickCopy";
 import { PLATFORM_META } from "@/lib/badges";
 import type { ModeratorScorecard, ReportAutoData, ReportType } from "@/lib/data/reporting";
 import { formatDate } from "@/lib/format";
@@ -22,8 +22,8 @@ const IDLE: ReportActionState = { ok: false };
 
 function ExportButtons({ text, target }: { text: string; target: React.RefObject<HTMLDivElement | null> }) {
   const [status, setStatus] = useState("");
-  async function run(work: () => Promise<void>, success: string) { try { await work(); setStatus(success); } catch { setStatus("Copy failed — check browser clipboard permission"); } }
-  return <div className="flex flex-wrap items-center gap-2"><button onClick={() => void run(() => navigator.clipboard.writeText(text), "Text copied")} className="rounded-control border border-line bg-white px-3 py-2 text-[11px] font-bold text-ink-700">Copy text</button><button onClick={() => target.current && void run(() => copyElementImage(target.current!), "Image copied")} className="rounded-control bg-primary px-3 py-2 text-[11px] font-bold text-white hover:bg-primary-hover">Copy image</button>{status && <span className="text-[10.5px] font-semibold text-ink-500">{status}</span>}</div>;
+  async function run(work: () => Promise<void | string>, success: string, failure: string) { try { const outcome = await work(); setStatus(outcome ?? success); } catch (error) { console.error("Report export failed", error); setStatus(failure); } }
+  return <div className="flex flex-wrap items-center gap-2"><button onClick={() => void run(() => navigator.clipboard.writeText(text), "Text copied", "Text copy failed — select the report text and copy manually")} className="rounded-control border border-line bg-white px-3 py-2 text-[11px] font-bold text-ink-700">Copy text</button><button onClick={() => target.current && void run(async () => (await copyElementImage(target.current!)) === "downloaded" ? "Clipboard blocked — PNG downloaded instead" : undefined, "Image copied", "Image generation failed — reload the report and try again")} className="rounded-control bg-primary px-3 py-2 text-[11px] font-bold text-white hover:bg-primary-hover">Copy image</button><button onClick={() => target.current && void run(() => downloadElementImage(target.current!), "Report PNG downloaded", "Image generation failed — reload the report and try again")} className="rounded-control border border-line bg-white px-3 py-2 text-[11px] font-bold text-ink-700">Download PNG</button>{status && <span className="text-[10.5px] font-semibold text-ink-500">{status}</span>}</div>;
 }
 
 function AutomaticSnapshot({ auto }: { auto: ReportAutoData }) {

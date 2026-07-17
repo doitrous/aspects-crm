@@ -5,6 +5,7 @@ import type {
   CrmSetting,
   DuplicateGroup,
   DuplicatePair,
+  DuplicateQueueFilters,
   DuplicateQueueResult,
   DuplicateQueueView,
   Escalation,
@@ -19,6 +20,7 @@ import type {
   TimelineEvent,
 } from "@/lib/types";
 import { nestComments } from "@/lib/data/comments";
+import { duplicateMatchesFilters } from "@/lib/data/duplicateFilters";
 import { isDatabaseOnly, isDatabasePatientSource } from "@/lib/data/databasePatientVisibility";
 import {
   NOW,
@@ -226,10 +228,12 @@ export const mockProvider: DataProvider = {
     view: DuplicateQueueView = "open",
     requestedPage = 1,
     requestedPageSize = 30,
+    filters?: DuplicateQueueFilters,
   ): Promise<DuplicateQueueResult> {
     const all = await this.duplicateQueue();
-    const open = all.filter((pair) => pair.status === "suspected");
-    const resolved = all.filter((pair) => pair.status !== "suspected");
+    const filtered = all.filter((pair) => duplicateMatchesFilters(pair, filters));
+    const open = filtered.filter((pair) => pair.status === "suspected");
+    const resolved = filtered.filter((pair) => pair.status !== "suspected");
     const selected = view === "open" ? open : resolved;
     const pageSize = Math.min(30, Math.max(1, Math.floor(requestedPageSize)));
     const page = Math.max(1, Math.floor(requestedPage));

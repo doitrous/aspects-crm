@@ -17,6 +17,7 @@ import type {
   DuplicateDecision,
   DuplicateGroup,
   DuplicatePair,
+  DuplicateQueueFilters,
   DuplicateQueueResult,
   DuplicateQueueView,
   DuplicateStatus,
@@ -46,6 +47,7 @@ import type {
   LeadFilters,
   LeadListResult,
 } from "@/lib/data/contracts";
+import { normalizeDuplicateFilters } from "@/lib/data/duplicateFilters";
 
 /* ── enum / value translation (DB ⇆ UI view model) ───────────── */
 
@@ -554,6 +556,13 @@ type DuplicateFlagRow = {
   confidence_score: number | null;
   match_priority?: number | null;
   created_at: string;
+};
+
+type DuplicateQueuePayload = {
+  items?: DuplicateFlagRow[];
+  total?: number;
+  open_total?: number;
+  resolved_total?: number;
 };
 
 const DUPLICATE_TYPE_PRIORITY: Record<string, number> = {
@@ -1263,29 +1272,31 @@ export const supabaseProvider: DataProvider = {
     view: DuplicateQueueView = "open",
     requestedPage = 1,
     requestedPageSize = 30,
+    filters?: DuplicateQueueFilters,
   ): Promise<DuplicateQueueResult> {
     const db = supabaseAdmin();
     const pageSize = Math.min(30, Math.max(1, Math.floor(requestedPageSize)));
     const page = Math.max(1, Math.floor(requestedPage));
-    const columns = "id,lead_id,duplicate_lead_id,duplicate_type,identifier_value,status,notes,reviewed_by,confidence_score,match_priority,created_at";
-    const from = (page - 1) * pageSize;
-    const rowsQuery = db.from("lead_duplicate_flags").select(columns)
-      .order("match_priority", { ascending: true }).order("created_at", { ascending: false })
-      .range(from, from + pageSize - 1);
-    const selectedQuery = view === "open" ? rowsQuery.eq("status", "pending") : rowsQuery.neq("status", "pending");
-    const [usersById, rowsResult, openCount, resolvedCount] = await Promise.all([
+    const normalized = normalizeDuplicateFilters(filters);
+    const [usersById, queueResult] = await Promise.all([
       loadUserMap(),
-      selectedQuery,
-      db.from("lead_duplicate_flags").select("id", { count: "exact", head: true }).eq("status", "pending"),
-      db.from("lead_duplicate_flags").select("id", { count: "exact", head: true }).neq("status", "pending"),
+      db.rpc("crm_duplicate_queue_page", {
+        queue_view: view,
+        search_term: normalized.q || null,
+        search_field: normalized.field,
+        match_type_filter: normalized.matchType || null,
+        page_offset: (page - 1) * pageSize,
+        page_limit: pageSize,
+      }),
     ]);
-    if (rowsResult.error) throw new Error(`duplicateQueuePage: ${rowsResult.error.message}`);
-    const selected = await enrichDuplicateRows((rowsResult.data ?? []) as unknown as DuplicateFlagRow[], usersById);
+    if (queueResult.error) throw new Error(`duplicateQueuePage: ${queueResult.error.message}`);
+    const payload = (queueResult.data ?? {}) as DuplicateQueuePayload;
+    const selected = await enrichDuplicateRows(payload.items ?? [], usersById);
     return {
       items: selected,
-      total: view === "open" ? (openCount.count ?? 0) : (resolvedCount.count ?? 0),
-      openTotal: openCount.count ?? 0,
-      resolvedTotal: resolvedCount.count ?? 0,
+      total: payload.total ?? 0,
+      openTotal: payload.open_total ?? 0,
+      resolvedTotal: payload.resolved_total ?? 0,
       page,
       pageSize,
       view,

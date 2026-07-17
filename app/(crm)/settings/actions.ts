@@ -29,32 +29,44 @@ export interface SettingsActionState {
   cursor?: string | null;
   complete?: boolean;
   processedLeads?: string[];
+  processed?: number;
+  created?: number;
+  remaining?: number;
+  batchNumber?: number;
+  runId?: string;
+  retryable?: boolean;
 }
 
 export async function backfillDuplicatesAction(_prev: SettingsActionState, formData: FormData): Promise<SettingsActionState> {
+  const cursor = String(formData.get("cursor") ?? "").trim() || null;
+  const batchNumber = Math.max(1, Number.parseInt(String(formData.get("batchNumber") ?? "1"), 10) || 1);
+  const runId = String(formData.get("runId") ?? "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80) || crypto.randomUUID();
   try {
     const actor = await writeActor();
     assertCan(actor.role, "settings.manage");
-    const cursor = String(formData.get("cursor") ?? "").trim() || null;
     const db = supabaseAdmin();
-    let candidatesQuery = db.from("leads").select("id,lead_id").is("merged_into_lead_id", null).order("id").limit(50);
+    let candidatesQuery = db.from("leads").select("id,lead_id", { count: "exact" }).is("merged_into_lead_id", null).order("id").limit(50);
     if (cursor) candidatesQuery = candidatesQuery.gt("id", cursor);
     const candidates = await candidatesQuery;
     if (candidates.error) throw new SettingsError(candidates.error.message);
     const { data, error } = await db.rpc("crm_backfill_duplicate_flags_batch", { after_lead_id: cursor, batch_size: 50 });
     if (error) {
       if (error.code === "57014" || error.message.toLowerCase().includes("statement timeout")) {
-        throw new SettingsError("This duplicate-check batch exceeded the database time limit. No patients were merged. Retry the same batch; it is safe and idempotent.");
+        return { ok: false, error: "This duplicate-check batch exceeded the database time limit. No patients were merged. It will be retried from the same cursor.", cursor, batchNumber, runId, remaining: candidates.count ?? undefined, retryable: true };
       }
       throw new SettingsError(error.message);
     }
     const result = data as { processed?: number; created?: number; next_cursor?: string | null; complete?: boolean };
+    if (!result.complete && !result.next_cursor) throw new SettingsError("The database returned an incomplete batch without a continuation cursor. The automatic run was stopped safely.");
     const processedLeads = (candidates.data ?? []).slice(0, result.processed ?? 0).map((lead) => String(lead.lead_id || lead.id));
-    await logActivity({ actorId: actor.id, action: "duplicates.backfill_batch_run", entityType: "duplicate_backfill", entityId: result.next_cursor ?? cursor ?? "start", newValues: { ...result, processed_lead_numbers: processedLeads } });
+    const remaining = Math.max(0, (candidates.count ?? result.processed ?? 0) - (result.processed ?? 0));
+    await logActivity({ actorId: actor.id, action: "duplicates.backfill_batch_run", entityType: "duplicate_backfill", entityId: result.next_cursor ?? cursor ?? "complete", newValues: { ...result, run_id: runId, batch_number: batchNumber, remaining, processed_lead_numbers: processedLeads } });
     revalidatePath("/duplicates");
-    return { ok: true, cursor: result.complete ? null : result.next_cursor ?? null, complete: Boolean(result.complete), processedLeads, message: result.complete ? `Duplicate backfill is complete. Final batch checked ${processedLeads.length} lead${processedLeads.length === 1 ? "" : "s"}.` : `Processed ${result.processed ?? 0} records and created ${result.created ?? 0} new review flags. Run the next batch to continue.` };
+    revalidatePath("/activity");
+    revalidatePath("/audit-logs");
+    return { ok: true, cursor: result.complete ? null : result.next_cursor ?? null, complete: Boolean(result.complete), processedLeads, processed: result.processed ?? 0, created: result.created ?? 0, remaining, batchNumber, runId, message: result.complete ? `Duplicate backfill is complete. Final batch checked ${processedLeads.length} lead${processedLeads.length === 1 ? "" : "s"}.` : `Batch ${batchNumber} checked ${result.processed ?? 0} records and created ${result.created ?? 0} new review flags. Continuing automatically.` };
   } catch (err) {
-    return fail(err);
+    return { ...fail(err), cursor, batchNumber, runId };
   }
 }
 

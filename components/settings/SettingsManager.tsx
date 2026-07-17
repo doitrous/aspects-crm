@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useActionState, useState, type ReactNode } from "react";
+import { useActionState, useRef, useState, type ReactNode } from "react";
 import {
   type SettingsActionState,
   upsertTagAction,
@@ -66,8 +66,65 @@ function SaveButton({ pending, children = "Save" }: { pending: boolean; children
 }
 
 function DuplicateBackfill({ canManage }: { canManage: boolean }) {
-  const [state, action, pending] = useActionState(backfillDuplicatesAction, SETTINGS_IDLE);
-  return <form action={action} className="mt-4 rounded-control border border-primary/20 bg-primary-soft/30 p-3"><input type="hidden" name="cursor" value={state.cursor ?? ""}/><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[13px] font-black text-ink-900">Backfill existing database records</div><p className="mt-1 text-[12px] text-ink-500">Runs the same live detector in idempotent batches of 50 to stay within the database timeout; it never merges patients automatically.</p></div>{canManage && <SaveButton pending={pending}>{state.cursor ? "Run next batch" : state.complete ? "Run safety check again" : "Start duplicate backfill"}</SaveButton>}</div><Feedback state={state}/>{state.processedLeads && state.processedLeads.length > 0 && <details className="mt-3 rounded-lg border border-line bg-panel p-3"><summary className="cursor-pointer text-[12px] font-bold text-ink-800">Last batch log · {state.processedLeads.length} lead number{state.processedLeads.length === 1 ? "" : "s"}</summary><ol className="mt-2 grid max-h-52 list-decimal gap-x-5 gap-y-1 overflow-y-auto ps-5 text-[11.5px] text-ink-600 sm:grid-cols-2 lg:grid-cols-3">{state.processedLeads.map((leadNumber) => <li key={leadNumber} className="font-mono" data-no-translate>{leadNumber}</li>)}</ol><p className="mt-2 text-[10.5px] text-ink-400">This batch and its lead-number list are also recorded in the Activity Log.</p></details>}</form>;
+  const [state, setState] = useState<SettingsActionState>(SETTINGS_IDLE);
+  const [running, setRunning] = useState(false);
+  const [logs, setLogs] = useState<Array<{ batch: number; processed: number; created: number; leads: string[] }>>([]);
+  const stopRequested = useRef(false);
+  const processedTotal = logs.reduce((sum, batch) => sum + batch.processed, 0);
+  const createdTotal = logs.reduce((sum, batch) => sum + batch.created, 0);
+  const estimatedTotal = processedTotal + (state.remaining ?? 0);
+  const progress = state.complete ? 100 : estimatedTotal ? Math.min(99, Math.round((processedTotal / estimatedTotal) * 100)) : 0;
+
+  async function runAutomatically() {
+    const resuming = Boolean(state.cursor && !state.complete);
+    let runLogs = resuming ? logs : [];
+    let cursor = resuming ? state.cursor ?? null : null;
+    const lastBatchNumber = state.batchNumber ?? runLogs.at(-1)?.batch ?? 0;
+    let batchNumber = resuming ? state.error ? Math.max(1, lastBatchNumber) : lastBatchNumber + 1 : 1;
+    const runId = resuming && state.runId ? state.runId : crypto.randomUUID();
+    stopRequested.current = false;
+    if (!resuming) { setLogs([]); setState(SETTINGS_IDLE); }
+    setRunning(true);
+    try {
+      while (true) {
+        let attempt = 0;
+        let result: SettingsActionState;
+        do {
+          const formData = new FormData();
+          if (cursor) formData.set("cursor", cursor);
+          formData.set("batchNumber", String(batchNumber));
+          formData.set("runId", runId);
+          result = await backfillDuplicatesAction(SETTINGS_IDLE, formData);
+          attempt += 1;
+          if (!result.ok && result.retryable && attempt < 4) await new Promise((resolve) => window.setTimeout(resolve, attempt * 500));
+        } while (!result.ok && result.retryable && attempt < 4 && !stopRequested.current);
+
+        if (!result.ok) {
+          setState({ ...result, cursor, batchNumber, runId, message: undefined });
+          break;
+        }
+
+        const entry = { batch: batchNumber, processed: result.processed ?? 0, created: result.created ?? 0, leads: result.processedLeads ?? [] };
+        runLogs = [...runLogs, entry];
+        setLogs(runLogs);
+        setState(result);
+        if (result.complete) break;
+        cursor = result.cursor ?? null;
+        if (stopRequested.current) {
+          setState({ ...result, cursor, batchNumber, runId, message: `Automatic backfill paused safely after batch ${batchNumber}. Select Resume to continue from the next 50 records.` });
+          break;
+        }
+        batchNumber += 1;
+      }
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return <section className="mt-4 rounded-control border border-primary/20 bg-primary-soft/30 p-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="text-[13px] font-black text-ink-900">Backfill existing database records</div><p className="mt-1 text-[12px] text-ink-500">Automatically checks the entire database in sequential, idempotent batches of 50. It never merges patients automatically; keep this page open until the run completes.</p></div>{canManage && <div className="flex gap-2">{running && <button type="button" onClick={() => { stopRequested.current = true; }} className="h-9 rounded-control border border-line bg-panel px-4 text-[13px] font-semibold text-ink-700">Stop after this batch</button>}<button type="button" disabled={running} onClick={runAutomatically} className="h-9 rounded-control bg-primary px-4 text-[13px] font-semibold text-white hover:bg-primary-hover disabled:opacity-60">{running ? "Running automatically…" : state.cursor && !state.complete ? "Resume automatic backfill" : state.complete ? "Run full safety check again" : "Start automatic backfill"}</button></div>}</div>
+    {(running || logs.length > 0) && <div className="mt-3 rounded-lg border border-primary/15 bg-panel/80 p-3"><div className="flex flex-wrap items-center justify-between gap-2 text-[11.5px]"><strong className="text-ink-800">{state.complete ? "Database scan complete" : running ? `Running batch ${(logs.at(-1)?.batch ?? 0) + 1}` : "Database scan paused"}</strong><span className="font-semibold tabular-nums text-ink-500">{processedTotal} leads checked · {createdTotal} review flags created{estimatedTotal ? ` · ${progress}%` : ""}</span></div><div className="mt-2 h-2 overflow-hidden rounded-pill bg-line"><span className="block h-full rounded-pill bg-primary transition-[width]" style={{ width: `${progress}%` }}/></div></div>}
+    <div className="mt-2"><Feedback state={state}/></div>
+    {logs.length > 0 && <details className="mt-3 rounded-lg border border-line bg-panel p-3" open={state.complete}><summary className="cursor-pointer text-[12px] font-bold text-ink-800">Run log · {logs.length} batch{logs.length === 1 ? "" : "es"} · {processedTotal} lead number{processedTotal === 1 ? "" : "s"}</summary><div className="mt-3 max-h-80 space-y-3 overflow-y-auto">{logs.map((batch) => <section key={batch.batch} className="rounded-control border border-line-faint p-2.5"><div className="mb-2 flex justify-between gap-2 text-[11px]"><strong>Batch {batch.batch}</strong><span>{batch.processed} checked · {batch.created} flags created</span></div><ol className="grid list-decimal gap-x-5 gap-y-1 ps-5 text-[11.5px] text-ink-600 sm:grid-cols-2 lg:grid-cols-3">{batch.leads.map((leadNumber, index) => <li key={`${batch.batch}-${leadNumber}-${index}`} className="font-mono" data-no-translate>{leadNumber}</li>)}</ol></section>)}</div><p className="mt-2 text-[10.5px] text-ink-400">Every batch and its lead-number list are also recorded permanently in the Activity Log.</p></details>}</section>;
 }
 
 function PagedItems<T>({ items, render }: { items: T[]; render: (item: T) => ReactNode }) {

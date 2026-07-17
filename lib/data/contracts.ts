@@ -7,6 +7,7 @@ import type {
   DuplicateGroup,
   DuplicatePair,
   DuplicateQueueResult,
+  DuplicateQueueFilters,
   DuplicateQueueView,
   Escalation,
   EscalationQueueItem,
@@ -103,7 +104,7 @@ export interface DataProvider {
   // Phase 3 — auditor queues + previous-day report
   escalationQueue(): Promise<EscalationQueueItem[]>;
   duplicateQueue(): Promise<DuplicatePair[]>;
-  duplicateQueuePage(view?: DuplicateQueueView, page?: number, pageSize?: number): Promise<DuplicateQueueResult>;
+  duplicateQueuePage(view?: DuplicateQueueView, page?: number, pageSize?: number, filters?: DuplicateQueueFilters): Promise<DuplicateQueueResult>;
   followUpQueue(stage?: "follow_up" | "post_op", page?: number, pageSize?: number): Promise<FollowUpListResult>;
   auditorReport(date?: string): Promise<AuditReport | null>;
   auditorReportDates(): Promise<string[]>;

@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 const upgrade = readFileSync(new URL("../../supabase/migrations/0037_lead_drawer_financial_and_duplicate_upgrade.sql", import.meta.url), "utf8");
 const baseline = readFileSync(new URL("../../supabase/baseline/014_crm_schema.sql", import.meta.url), "utf8");
+const filtering = readFileSync(new URL("../../supabase/migrations/0042_duplicate_queue_filtering.sql", import.meta.url), "utf8");
 
 test("duplicate backfill calls the same live detectors in bounded batches", () => {
   assert.match(upgrade, /crm_flag_duplicate_for_lead\(target\.id\)/);
@@ -14,6 +15,13 @@ test("duplicate backfill calls the same live detectors in bounded batches", () =
 test("unchanged duplicate evidence remains idempotent across backfill runs", () => {
   assert.match(baseline, /unique \(lead_id, duplicate_lead_id, duplicate_type, identifier_value\)/);
   assert.match(upgrade, /canonical-pair uniqueness makes every retry idempotent/i);
+});
+
+test("duplicate review filters both patient records before pagination", () => {
+  assert.match(filtering, /join public\.leads as primary_lead/);
+  assert.match(filtering, /join public\.leads as duplicate_lead/);
+  assert.ok(filtering.indexOf("matching as") < filtering.indexOf("page_rows as"));
+  for (const field of ["name", "phone", "mrn", "lead_id", "platform_id"]) assert.match(filtering, new RegExp(`when '${field}'`));
 });
 
 test("same-patient linking preserves leads and records a canonical audited decision", () => {

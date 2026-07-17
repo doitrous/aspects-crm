@@ -433,6 +433,14 @@ export interface DuplicatePair {
 
 export type DuplicateQueueView = "open" | "resolved";
 
+export type DuplicateSearchField = "all" | "name" | "phone" | "mrn" | "lead_id" | "platform_id";
+
+export interface DuplicateQueueFilters {
+  q?: string;
+  field?: DuplicateSearchField;
+  matchType?: string;
+}
+
 export interface DuplicateQueueResult {
   items: DuplicatePair[];
   total: number;
