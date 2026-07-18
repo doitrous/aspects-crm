@@ -9,7 +9,7 @@ import { supabaseAdmin } from "@/lib/supabase/server";
 
 export class CrmSchedulingError extends Error {}
 
-export interface CatalogItem { id: string; nameEn: string; nameAr?: string; active: boolean; branchId?: string; roomType?: string; specialtyId?: string; photoUrl?: string }
+export interface CatalogItem { id: string; nameEn: string; nameAr?: string; active: boolean; publicBooking?: boolean; branchId?: string; roomType?: string; specialtyId?: string; photoUrl?: string }
 export interface CrmScheduleRow {
   id: string; doctorId: string; doctorName: string; branchId: string; branchName: string; roomId: string | null;
   roomName: string | null; dayOfWeek: number; startTime: string; endTime: string; slotDurationMinutes: number;
@@ -96,7 +96,7 @@ export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
   const db = bookingDb();
   const [doctors, branches, rooms, assignments, services, hours, schedules, specialSchedules, blocks] = await Promise.all([
     db.from("doctors").select("id,name_en,name_ar,is_active,specialty_id,photo_url").order("display_order"),
-    db.from("branches").select("id,name_en,name_ar,is_active").order("display_order"),
+    db.from("branches").select("id,name_en,name_ar,is_active,is_public_branch").order("display_order"),
     db.from("rooms").select("id,branch_id,name_en,name_ar,room_type,is_active").order("branch_id").order("name_en"),
     db.from("doctor_branch_assignments").select("doctor_id,branch_id,is_active").eq("is_active", true),
     db.from("services").select("id,name_en,duration_minutes,specialty_id,doctor_id,service_doctors(doctor_id)").eq("is_active", true),
@@ -113,7 +113,7 @@ export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
   for (const response of [schedules, specialSchedules, blocks]) if (response.error) throw new CrmSchedulingError(`Could not read shared scheduling data: ${response.error.message}`);
 
   type DoctorDb = { id:string;name_en:string;name_ar:string|null;is_active:boolean;specialty_id:string;photo_url:string|null };
-  type BranchDb = { id:string;name_en:string;name_ar:string|null;is_active:boolean };
+  type BranchDb = { id:string;name_en:string;name_ar:string|null;is_active:boolean;is_public_branch:boolean };
   type RoomDb = { id:string;branch_id:string;name_en:string;name_ar:string|null;room_type:string;is_active:boolean };
   type ServiceDb = { id:string;name_en:string;duration_minutes:number;specialty_id:string;doctor_id:string|null;service_doctors:Array<{doctor_id:string}>|null };
   const doctorRows = (doctors.data ?? []) as DoctorDb[];
@@ -130,7 +130,7 @@ export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
     catalogConfigured: true,
     migrationReady: true,
     doctors: doctorRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, active: row.is_active, specialtyId: row.specialty_id, photoUrl: row.photo_url ?? undefined })),
-    branches: branchRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, active: row.is_active })),
+    branches: branchRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, active: row.is_active, publicBooking: row.is_public_branch })),
     rooms: roomRows.map((row) => ({ id: row.id, nameEn: row.name_en, nameAr: row.name_ar ?? undefined, roomType: row.room_type, active: row.is_active, branchId: row.branch_id })),
     schedules: scheduleRows.map((row) => {
       const assignment = row.schedule_room_assignments?.[0];

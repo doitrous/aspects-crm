@@ -284,6 +284,12 @@ body {
 .crm-day-capacity { background: rgb(var(--c-primary-softer)); border-radius: 7px; display: flex; justify-content: space-between; margin-top: 8px; padding: 6px 7px; }
 .crm-day-capacity strong { color: rgb(var(--c-primary)); font-size: 8.5px; }
 .crm-day-capacity span { color: rgb(var(--c-ink-500)); font-size: 8px; }
+.crm-booking-visibility { border: 1px solid; border-radius: 7px; display: grid; gap: 2px; margin-top: 7px; padding: 6px 7px; }
+.crm-booking-visibility strong { font-size: 9px; line-height: 1.25; }
+.crm-booking-visibility span { font-size: 8px; font-weight: 650; line-height: 1.35; }
+.crm-booking-visibility.is-seen { background: rgb(236 253 245); border-color: rgb(16 185 129 / 0.28); color: rgb(4 120 87); }
+.crm-booking-visibility.is-hidden { background: rgb(255 247 237); border-color: rgb(249 115 22 / 0.28); color: rgb(154 52 18); }
+.crm-inactive-session { background: rgb(var(--c-line-faint)); border: 1px dashed rgb(var(--c-line)); border-radius: 8px; padding: 6px; }
 
 .crm-schedule-button { align-items: center; border-radius: 8px; display: inline-flex; font-size: 12.5px; font-weight: 900; gap: 5px; justify-content: center; min-height: 42px; padding: 9px 15px; white-space: nowrap; }
 .crm-schedule-button.primary { background: rgb(var(--c-primary)); color: white; }

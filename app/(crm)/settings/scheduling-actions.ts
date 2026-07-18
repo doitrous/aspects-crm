@@ -72,7 +72,7 @@ export async function syncRoomsFromAdminAction(previous: SchedulingActionState, 
     const result = await syncCrmRoomsFromAdmin();
     return {
       ok: true,
-      message: `${result.totalAdminRooms} shared clinic rooms refreshed. CRM and Admin now read these same room records; no copy or deletion was required.`,
+      message: `${result.totalAdminRooms} canonical clinic rooms refreshed for CRM scheduling and online availability; no copy or deletion was required.`,
       roomSync: result,
     };
   } catch (error) { return state(error); }
