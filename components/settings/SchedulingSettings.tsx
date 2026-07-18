@@ -6,9 +6,11 @@ import {
   saveBranchAssignmentsAction,
   deleteRoomAction,
   deleteScheduleAction,
+  deleteSpecialScheduleAction,
   duplicateScheduleAction,
   saveRoomAction,
   saveScheduleAction,
+  saveSpecialScheduleAction,
   saveScheduleExceptionAction,
   saveTimeOffAction,
   syncRoomsFromAdminAction,
@@ -24,7 +26,7 @@ import {
   serviceDurationProfile,
   sessionPatientCapacity,
 } from "@/lib/scheduling/capacity";
-import type { CrmScheduleRow, CrmSchedulingSnapshot } from "@/lib/scheduling/crm";
+import type { CrmScheduleRow, CrmSchedulingSnapshot, CrmSpecialScheduleRow } from "@/lib/scheduling/crm";
 import { formatDateTime } from "@/lib/format";
 
 const IDLE: SchedulingActionState = { ok: false };
@@ -37,7 +39,7 @@ const DAYS = [
   { value: 4, short: "Thu", label: "Thursday" },
   { value: 5, short: "Fri", label: "Friday" },
 ] as const;
-const SECTIONS = ["Availability", "Exceptions & Time Off", "Rooms", "Room Week View", "Closures", "Branch Assignments"] as const;
+const SECTIONS = ["Availability", "Special Visits", "Exceptions & Time Off", "Rooms", "Room Week View", "Closures", "Branch Assignments"] as const;
 type Section = typeof SECTIONS[number];
 const field = "crm-schedule-field";
 const label = "crm-schedule-label";
@@ -205,6 +207,78 @@ function DuplicateScheduleEditor({ snapshot, schedule, onClose }: { snapshot: Cr
       </section>
     </div>
   );
+}
+
+function DeleteSpecialScheduleButton({ series }: { series: CrmSpecialScheduleRow[] }) {
+  const [state, action, pending] = useActionState(deleteSpecialScheduleAction, IDLE);
+  const first = series[0];
+  return (
+    <form action={action} onSubmit={(event) => { if (!window.confirm(`Delete all ${series.length} dated session${series.length === 1 ? "" : "s"} in this special visit series for ${first.doctorName}? Existing appointments are preserved.`)) event.preventDefault(); }}>
+      <input type="hidden" name="seriesId" value={first.seriesId}/>
+      <button disabled={pending} className="crm-schedule-button secondary" title={state.error ?? "Delete special visit series"}>{pending ? "Deleting…" : "Delete series"}</button>
+      {state.error && <span className="fixed bottom-4 end-4 z-[120] max-w-sm rounded-lg bg-danger-bg p-3 text-[12px] font-bold text-danger shadow-xl" role="alert">{state.error}</span>}
+    </form>
+  );
+}
+
+function SpecialScheduleEditor({ snapshot, onClose }: { snapshot: CrmSchedulingSnapshot; onClose: () => void }) {
+  const [state, action, pending] = useActionState(saveSpecialScheduleAction, IDLE);
+  const initialBranch = snapshot.branches.find((branch) => branch.active)?.id ?? "";
+  const [branchId, setBranchId] = useState(initialBranch);
+  const [doctorId, setDoctorId] = useState("");
+  const [roomId, setRoomId] = useState("");
+  const [repeatEveryMonths, setRepeatEveryMonths] = useState(0);
+  const [firstCome, setFirstCome] = useState(false);
+  const eligibleDoctors = snapshot.doctors.filter((doctor) => doctor.active && snapshot.branchAssignments.some((assignment) => assignment.doctorId === doctor.id && assignment.branchId === branchId));
+  const rooms = snapshot.rooms.filter((room) => room.active && room.branchId === branchId);
+  useEffect(() => { if (state.ok) onClose(); }, [onClose, state.ok]);
+  return (
+    <div className="crm-schedule-modal-backdrop" role="presentation">
+      <section role="dialog" aria-modal="true" aria-labelledby="crm-special-schedule-title" className="crm-schedule-modal max-w-2xl">
+        <header className="crm-schedule-modal-header"><div><p className="crm-schedule-eyebrow">Date-based availability</p><h3 id="crm-special-schedule-title">Add special doctor visits</h3><p>Create one visit, consecutive clinic days, or a pattern that repeats every few months.</p></div><button type="button" onClick={onClose} className="crm-schedule-close" aria-label="Close">×</button></header>
+        <form action={action} className="crm-schedule-modal-body">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className={label}>Branch *<select required name="branchId" value={branchId} onChange={(event) => { setBranchId(event.target.value); setDoctorId(""); setRoomId(""); }} className={field}><option value="">Choose branch</option>{snapshot.branches.filter((branch) => branch.active).map((branch) => <option key={branch.id} value={branch.id}>{branch.nameEn}</option>)}</select></label>
+            <label className={label}>Doctor *<select required name="doctorId" value={doctorId} onChange={(event) => setDoctorId(event.target.value)} className={field}><option value="">Choose doctor</option>{eligibleDoctors.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.nameEn}</option>)}</select></label>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className={label}>Room *<select required name="roomId" value={roomId} onChange={(event) => setRoomId(event.target.value)} className={field}><option value="">Choose room</option>{rooms.map((room) => <option key={room.id} value={room.id}>{room.nameEn}</option>)}</select></label>
+            <label className={label}>First visit date *<input required min={new Date().toISOString().slice(0, 10)} type="date" name="startDate" className={field}/></label>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className={label}>Consecutive days *<input required type="number" min={1} max={31} name="consecutiveDays" defaultValue={1} className={field}/><small>Use 1 for a single clinic day.</small></label>
+            <label className={label}>Repeat pattern *<select name="repeatEveryMonths" value={repeatEveryMonths} onChange={(event) => setRepeatEveryMonths(Number(event.target.value))} className={field}><option value={0}>One time only</option><option value={1}>Every month</option><option value={2}>Every 2 months</option><option value={3}>Every 3 months</option><option value={4}>Every 4 months</option><option value={6}>Every 6 months</option><option value={12}>Every 12 months</option></select></label>
+            <label className={label}>Number of visits *<input required disabled={repeatEveryMonths === 0} type="number" min={1} max={36} name="repeatCount" defaultValue={repeatEveryMonths === 0 ? 1 : 6} key={repeatEveryMonths} className={field}/><small>Each visit includes the consecutive days above.</small></label>
+          </div>
+          <div className="grid grid-cols-2 gap-4"><label className={label}>Start time *<input required type="time" name="startTime" defaultValue="09:00" className={field}/></label><label className={label}>End time *<input required type="time" name="endTime" defaultValue="17:00" className={field}/></label></div>
+          <div className="crm-schedule-dialog-section">
+            <label className="crm-toggle-row"><input type="checkbox" name="firstComeFirstServe" checked={firstCome} onChange={(event) => setFirstCome(event.target.checked)} className="crm-toggle-input"/><span className="crm-toggle-track" aria-hidden="true"><span/></span><span><strong>First-come clinic</strong><small>Patients reserve a place for the clinic day instead of an exact time.</small></span></label>
+            {firstCome ? <label className={`${label} mt-3 max-w-[180px]`}>Maximum patients<input type="number" min={1} max={500} name="firstComeCapacity" defaultValue={10} className={field}/></label> : <input type="hidden" name="firstComeCapacity" value="10"/>}
+          </div>
+          <label className="crm-toggle-row"><input type="checkbox" name="active" defaultChecked className="crm-toggle-input"/><span className="crm-toggle-track" aria-hidden="true"><span/></span><span><strong>Available for CRM booking</strong><small>The generated dates become active immediately.</small></span></label>
+          <label className="crm-toggle-row"><input type="checkbox" name="showOnBookingWebsite" defaultChecked className="crm-toggle-input"/><span className="crm-toggle-track" aria-hidden="true"><span/></span><span><strong>Show on Booking Website</strong><small>Patients can choose these exact dates in online booking.</small></span></label>
+          <div className="crm-schedule-notice">Before saving, the system checks every generated date against the doctor&apos;s weekly hours, other special visits, and room occupancy.</div>
+          <Feedback state={state}/>
+          <footer className="crm-schedule-modal-footer"><button type="button" onClick={onClose} className="crm-schedule-button secondary">Cancel</button><button disabled={pending || !doctorId || !roomId} className="crm-schedule-button primary">{pending ? "Checking and saving…" : "Create special visits"}</button></footer>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function SpecialVisits({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
+  const [editorOpen, setEditorOpen] = useState(false);
+  const series = useMemo(() => {
+    const grouped = new Map<string, CrmSpecialScheduleRow[]>();
+    for (const row of snapshot.specialSchedules) grouped.set(row.seriesId, [...(grouped.get(row.seriesId) ?? []), row]);
+    return [...grouped.values()].map((rows) => rows.sort((a, b) => a.scheduleDate.localeCompare(b.scheduleDate))).sort((a, b) => a[0].scheduleDate.localeCompare(b[0].scheduleDate));
+  }, [snapshot.specialSchedules]);
+  return <div className="space-y-4">
+    <section className="crm-schedule-branch-picker"><div><div className="crm-schedule-picker-title"><span aria-hidden="true">✦</span> Special doctor visits</div><p>Use exact dates for visiting doctors who attend monthly, for consecutive days, or every few months.</p></div><button type="button" onClick={() => setEditorOpen(true)} className="crm-schedule-button primary">＋ Add special visits</button></section>
+    <div className="grid gap-3 lg:grid-cols-2">{series.map((rows) => { const first = rows[0]; const last = rows[rows.length - 1]; return <Card key={first.seriesId} className="p-4"><div className="flex items-start justify-between gap-4"><div><p className="crm-schedule-eyebrow">{first.repeatEveryMonths === 0 ? "One-time visit" : `Every ${first.repeatEveryMonths} month${first.repeatEveryMonths === 1 ? "" : "s"}`}</p><h3 className="font-bold text-ink-900">{first.doctorName}</h3><p className="mt-1 text-[12px] text-ink-500">{first.branchName} · {first.roomName} · {first.startTime}–{first.endTime}</p></div><DeleteSpecialScheduleButton series={rows}/></div><div className="mt-4 rounded-lg bg-canvas-subtle p-3 text-[12px]"><strong>{rows.length} dated session{rows.length === 1 ? "" : "s"}</strong><p>{first.scheduleDate}{last.scheduleDate !== first.scheduleDate ? ` through ${last.scheduleDate}` : ""}</p><p>{first.consecutiveDays} consecutive day{first.consecutiveDays === 1 ? "" : "s"} per visit · {first.repeatCount} visit{first.repeatCount === 1 ? "" : "s"}</p><p>{first.showOnBookingWebsite ? "Visible on booking website" : "CRM only"}{first.active ? "" : " · Inactive"}</p></div></Card>; })}</div>
+    {series.length === 0 && <EmptyState title="No special visits scheduled" hint="Add exact dates for doctors who do not follow a regular weekly calendar."/>}
+    {editorOpen && <SpecialScheduleEditor snapshot={snapshot} onClose={() => setEditorOpen(false)}/>}
+  </div>;
 }
 
 function Availability({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
@@ -625,13 +699,13 @@ function BranchAssignments({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
 export function SchedulingSettings({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
   const [section, setSection] = useState<Section>("Availability");
   if (!snapshot.catalogConfigured) return <EmptyState title="Shared scheduling is not configured" hint="The CRM needs the booking Supabase server credentials to manage canonical schedules."/>;
-  if (!snapshot.migrationReady) return <EmptyState title="Shared scheduling migration required" hint="Apply 018_crm_scheduling_source_of_truth.sql in the booking database before managing schedules."/>;
+  if (!snapshot.migrationReady) return <EmptyState title="Shared scheduling migration required" hint="Apply booking migrations through 022_doctor_special_schedules.sql before managing schedules."/>;
 
   return (
     <div className="space-y-5">
       <header className="crm-schedule-hero">
-        <div><p className="crm-schedule-eyebrow">Single source of truth</p><h2>Doctors and Scheduling</h2><p>Manage the shared weekly calendar used by CRM and online booking, including rooms, exceptions, closures, time off, and website visibility.</p></div>
-        <div className="crm-schedule-hero-stats"><span><strong>{snapshot.doctors.filter((doctor) => doctor.active).length}</strong>Doctors</span><span><strong>{snapshot.schedules.filter((schedule) => schedule.active).length}</strong>Active sessions</span><span><strong>{snapshot.rooms.filter((room) => room.active).length}</strong>Rooms</span></div>
+        <div><p className="crm-schedule-eyebrow">Single source of truth</p><h2>Doctors and Scheduling</h2><p>Manage weekly calendars and exact-date special visits used by CRM and online booking, including rooms, exceptions, closures, time off, and website visibility.</p></div>
+        <div className="crm-schedule-hero-stats"><span><strong>{snapshot.doctors.filter((doctor) => doctor.active).length}</strong>Doctors</span><span><strong>{snapshot.schedules.filter((schedule) => schedule.active).length}</strong>Weekly sessions</span><span><strong>{snapshot.specialSchedules.filter((schedule) => schedule.active).length}</strong>Special dates</span><span><strong>{snapshot.rooms.filter((room) => room.active).length}</strong>Rooms</span></div>
       </header>
 
       <nav role="tablist" aria-label="Doctors and scheduling sections" className="crm-schedule-tabs">
@@ -639,6 +713,7 @@ export function SchedulingSettings({ snapshot }: { snapshot: CrmSchedulingSnapsh
       </nav>
 
       {section === "Availability" && <Availability snapshot={snapshot}/>}
+      {section === "Special Visits" && <SpecialVisits snapshot={snapshot}/>}
       {section === "Exceptions & Time Off" && <ExceptionsAndTimeOff snapshot={snapshot}/>}
       {section === "Rooms" && <Rooms snapshot={snapshot}/>}
       {section === "Room Week View" && <RoomWeekView snapshot={snapshot}/>}

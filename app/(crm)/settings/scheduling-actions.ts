@@ -3,11 +3,13 @@
 import {
   CrmSchedulingError,
   deleteCrmSchedule,
+  deleteCrmSpecialSchedule,
   deleteCrmRoom,
   duplicateCrmSchedule,
   saveCrmClosure,
   saveCrmRoom,
   saveCrmSchedule,
+  saveCrmSpecialSchedule,
   saveCrmScheduleException,
   saveCrmTimeOff,
   saveDoctorBranchAssignments,
@@ -42,6 +44,21 @@ export async function duplicateScheduleAction(_: SchedulingActionState, data: Fo
 }
 export async function deleteScheduleAction(_: SchedulingActionState, data: FormData): Promise<SchedulingActionState> {
   try { await deleteCrmSchedule(str(data, "id")); return { ok: true, message: "Schedule deleted from CRM and the booking website." }; } catch (error) { return state(error); }
+}
+export async function saveSpecialScheduleAction(_: SchedulingActionState, data: FormData): Promise<SchedulingActionState> {
+  try {
+    await saveCrmSpecialSchedule({
+      doctorId: str(data,"doctorId"), branchId: str(data,"branchId"), roomId: str(data,"roomId"), startDate: str(data,"startDate"),
+      consecutiveDays: Number(str(data,"consecutiveDays") || 1), repeatEveryMonths: Number(str(data,"repeatEveryMonths") || 0),
+      repeatCount: Number(str(data,"repeatCount") || 1), startTime: str(data,"startTime"), endTime: str(data,"endTime"),
+      firstComeFirstServe: data.get("firstComeFirstServe") === "on", firstComeCapacity: Number(str(data,"firstComeCapacity") || 10),
+      active: data.get("active") === "on", showOnBookingWebsite: data.get("showOnBookingWebsite") === "on",
+    });
+    return { ok: true, message: "Special visit dates saved for CRM and online booking." };
+  } catch (error) { return state(error); }
+}
+export async function deleteSpecialScheduleAction(_: SchedulingActionState, data: FormData): Promise<SchedulingActionState> {
+  try { await deleteCrmSpecialSchedule(str(data, "seriesId")); return { ok: true, message: "Special visit series deleted from CRM and online booking." }; } catch (error) { return state(error); }
 }
 export async function saveRoomAction(_: SchedulingActionState, data: FormData): Promise<SchedulingActionState> {
   try { await saveCrmRoom({ id: str(data,"id") || undefined, branchId: str(data,"branchId"), nameEn: str(data,"nameEn"), nameAr: str(data,"nameAr"), roomType: str(data,"roomType"), active: data.get("active") === "on" }); return OK; } catch (error) { return state(error); }

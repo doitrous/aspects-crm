@@ -32,6 +32,7 @@ export interface BookingDoctor extends BookingName {
   specialtyId: string;
   titleEn?: string;
   schedules: BookingSchedule[];
+  specialVisits: Array<{ branchId: string; date: string }>;
 }
 
 export interface AdminDoctor extends BookingName {
@@ -249,7 +250,7 @@ export async function bookingCatalog(): Promise<BookingCatalog> {
   }
 
   const db = bookingDb();
-  const [settings, specialtiesRes, doctorsRes, branchesRes, servicesRes] = await Promise.all([
+  const [settings, specialtiesRes, doctorsRes, branchesRes, servicesRes, specialSchedulesRes] = await Promise.all([
     bookingSettings(),
     db.from("specialties").select("id,name_en,name_ar").eq("is_active", true).order("display_order"),
     db
@@ -264,9 +265,10 @@ export async function bookingCatalog(): Promise<BookingCatalog> {
       .eq("is_active", true)
       .eq("is_visible_to_patients", true)
       .order("display_order"),
+    db.from("doctor_special_schedules").select("doctor_id,branch_id,schedule_date").eq("is_active", true).gte("schedule_date", todayYmd()).order("schedule_date").limit(1000),
   ]);
 
-  for (const res of [specialtiesRes, doctorsRes, branchesRes, servicesRes]) {
+  for (const res of [specialtiesRes, doctorsRes, branchesRes, servicesRes, specialSchedulesRes]) {
     if (res.error) throw new BookingError(`Could not read booking catalog: ${res.error.message}`);
   }
 
@@ -298,6 +300,9 @@ export async function bookingCatalog(): Promise<BookingCatalog> {
       firstComeCapacity: s.first_come_capacity ?? settings.firstComeDefaultCapacity,
       active: Boolean(s.is_active),
     })),
+    specialVisits: ((specialSchedulesRes.data ?? []) as Array<{doctor_id:string;branch_id:string;schedule_date:string}>)
+      .filter((visit) => visit.doctor_id === r.id)
+      .map((visit) => ({ branchId: visit.branch_id, date: visit.schedule_date })),
   }));
   const services = ((servicesRes.data ?? []) as {
     id: string;
@@ -576,12 +581,19 @@ export async function availableBookingSlots(params: {
     durationMinutes = service?.duration_minutes ?? durationMinutes;
   }
 
-  const [schedulesRes, bookingsRes, blockedRes] = await Promise.all([
+  const [schedulesRes, specialSchedulesRes, bookingsRes, blockedRes] = await Promise.all([
     db
       .from("doctor_schedule_templates")
       .select("id,doctor_id,branch_id,day_of_week,start_time,end_time,first_come_first_serve,first_come_capacity,is_active,schedule_room_assignments(room_id)")
       .eq("doctor_id", params.doctorId)
       .eq("branch_id", params.branchId)
+      .eq("is_active", true),
+    db
+      .from("doctor_special_schedules")
+      .select("id,doctor_id,branch_id,schedule_date,start_time,end_time,first_come_first_serve,first_come_capacity,is_active,room_id")
+      .eq("doctor_id", params.doctorId)
+      .eq("branch_id", params.branchId)
+      .eq("schedule_date", params.date)
       .eq("is_active", true),
     db
       .from("appointments")
@@ -591,13 +603,20 @@ export async function availableBookingSlots(params: {
       .in("status", ACTIVE_BOOKING_STATUSES),
     db.from("blocked_times").select("*").lte("block_date", params.date).gte("end_date", params.date).eq("is_active", true).eq("status", "approved"),
   ]);
-  for (const res of [schedulesRes, bookingsRes, blockedRes]) {
+  for (const res of [schedulesRes, specialSchedulesRes, bookingsRes, blockedRes]) {
     if (res.error) throw new BookingError(`Could not read availability: ${res.error.message}`);
   }
 
-  const schedules = ((schedulesRes.data ?? []) as DbSchedule[]).filter(
-    (s) => s.doctor_id === params.doctorId && s.branch_id === params.branchId && s.day_of_week === dayOfWeek(params.date),
-  );
+  const schedules = [
+    ...((schedulesRes.data ?? []) as DbSchedule[]).filter(
+      (s) => s.doctor_id === params.doctorId && s.branch_id === params.branchId && s.day_of_week === dayOfWeek(params.date),
+    ),
+    ...((specialSchedulesRes.data ?? []) as Array<{id:string;doctor_id:string;branch_id:string;start_time:string;end_time:string;first_come_first_serve:boolean;first_come_capacity:number;is_active:boolean;room_id:string}>).map((s) => ({
+      id: s.id, doctor_id: s.doctor_id, branch_id: s.branch_id, day_of_week: dayOfWeek(params.date), start_time: s.start_time, end_time: s.end_time,
+      first_come_first_serve: s.first_come_first_serve, first_come_capacity: s.first_come_capacity, is_active: s.is_active,
+      schedule_room_assignments: [{ room_id: s.room_id }],
+    })),
+  ];
   if (!schedules.length) return { slots: [], durationMinutes };
 
   const blocked = (blockedRes.data ?? []) as {
@@ -796,7 +815,19 @@ export async function createLeadBooking(input: {
     throw new BookingError(message);
   }
 
-  const { data: scheduleForRoom } = await db
+  const { data: specialScheduleForRoom } = await db
+    .from("doctor_special_schedules")
+    .select("room_id")
+    .eq("doctor_id", input.doctorId)
+    .eq("branch_id", input.branchId)
+    .eq("schedule_date", input.date)
+    .eq("is_active", true)
+    .lte("start_time", input.startTime)
+    .gte("end_time", selected.endTime)
+    .order("start_time")
+    .limit(1)
+    .maybeSingle<{ room_id:string }>();
+  const { data: scheduleForRoom } = specialScheduleForRoom ? { data: null } : await db
     .from("doctor_schedule_templates")
     .select("id,schedule_room_assignments(room_id)")
     .eq("doctor_id", input.doctorId)
@@ -808,7 +839,7 @@ export async function createLeadBooking(input: {
     .order("start_time")
     .limit(1)
     .maybeSingle<{ id:string; schedule_room_assignments:Array<{room_id:string}>|null }>();
-  const appointmentRooms = scheduleForRoom?.schedule_room_assignments ?? [];
+  const appointmentRooms = specialScheduleForRoom ? [{ room_id: specialScheduleForRoom.room_id }] : (scheduleForRoom?.schedule_room_assignments ?? []);
   if (appointmentRooms.length) {
     const roomResult = await db.from("appointment_rooms").insert(appointmentRooms.map((room) => ({ appointment_id: appointment.id, room_id: room.room_id })));
     if (roomResult.error) throw new BookingError(`Appointment was created, but its clinic room could not be assigned: ${roomResult.error.message}`);

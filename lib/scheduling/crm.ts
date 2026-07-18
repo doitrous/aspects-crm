@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { assertCan } from "@/lib/auth/permissions";
 import { bookingConfigured, bookingDb } from "@/lib/booking/client";
@@ -15,6 +16,13 @@ export interface CrmScheduleRow {
   firstComeFirstServe: boolean; firstComeCapacity: number; effectiveFrom: string | null; effectiveTo: string | null;
   active: boolean; showOnBookingWebsite: boolean;
 }
+export interface CrmSpecialScheduleRow {
+  id: string; seriesId: string; doctorId: string; doctorName: string; branchId: string; branchName: string;
+  roomId: string; roomName: string; scheduleDate: string; startTime: string; endTime: string;
+  firstComeFirstServe: boolean; firstComeCapacity: number; active: boolean; showOnBookingWebsite: boolean;
+  seriesStartDate: string; consecutiveDays: number; repeatEveryMonths: number; repeatCount: number;
+  cycleNumber: number; dayNumber: number;
+}
 export interface CrmClosureRow { id: string; title: string; scope: string; branchName: string | null; roomName: string | null; startsAt: string; endsAt: string; notes: string | null; active: boolean }
 export interface CrmTimeOffRow { id: string; doctorName: string; branchName: string | null; startsAt: string; endsAt: string; reason: string; notes: string | null; status: string }
 export interface CrmScheduleExceptionRow { id: string; doctorName: string; branchName: string; roomName: string | null; exceptionDate: string; startTime: string | null; endTime: string | null; exceptionType: string; reason: string | null; active: boolean }
@@ -24,7 +32,7 @@ export interface RoomSyncResult { added: RoomSyncItem[]; updated: RoomSyncItem[]
 export interface DuplicateScheduleResult { created: number; skipped: string[] }
 export interface CrmSchedulingSnapshot {
   catalogConfigured: boolean; migrationReady: boolean; doctors: CatalogItem[]; branches: CatalogItem[]; rooms: CatalogItem[];
-  schedules: CrmScheduleRow[]; exceptions: CrmScheduleExceptionRow[]; closures: CrmClosureRow[]; timeOff: CrmTimeOffRow[];
+  schedules: CrmScheduleRow[]; specialSchedules: CrmSpecialScheduleRow[]; exceptions: CrmScheduleExceptionRow[]; closures: CrmClosureRow[]; timeOff: CrmTimeOffRow[];
   branchAssignments: DoctorBranchAssignment[]; services: CapacityService[]; workingHours: WorkingHours;
 }
 
@@ -38,6 +46,11 @@ type BlockDb = {
   id:string; block_date:string; end_date:string; start_time:string|null; end_time:string|null; doctor_id:string|null;
   room_id:string|null; branch_id:string|null; reason:string|null; is_full_day:boolean; block_type:string; title:string|null;
   notes:string|null; status:string; is_active:boolean;
+};
+type SpecialScheduleDb = {
+  id:string;series_id:string;doctor_id:string;branch_id:string;room_id:string;schedule_date:string;start_time:string;end_time:string;
+  first_come_first_serve:boolean;first_come_capacity:number;is_active:boolean;show_on_booking_website:boolean;
+  series_start_date:string;consecutive_days:number;repeat_every_months:number;repeat_count:number;cycle_number:number;day_number:number;
 };
 
 const hhmm = (value: string) => value.slice(0, 5);
@@ -76,12 +89,12 @@ function refreshScheduling() { revalidatePath("/settings"); revalidatePath("/cal
 
 export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
   const empty: CrmSchedulingSnapshot = {
-    catalogConfigured: false, migrationReady: false, doctors: [], branches: [], rooms: [], schedules: [], exceptions: [], closures: [], timeOff: [],
+    catalogConfigured: false, migrationReady: false, doctors: [], branches: [], rooms: [], schedules: [], specialSchedules: [], exceptions: [], closures: [], timeOff: [],
     branchAssignments: [], services: [], workingHours: parseWorkingHours(null),
   };
   if (!bookingConfigured()) return empty;
   const db = bookingDb();
-  const [doctors, branches, rooms, assignments, services, hours, schedules, blocks] = await Promise.all([
+  const [doctors, branches, rooms, assignments, services, hours, schedules, specialSchedules, blocks] = await Promise.all([
     db.from("doctors").select("id,name_en,name_ar,is_active,specialty_id,photo_url").order("display_order"),
     db.from("branches").select("id,name_en,name_ar,is_active").order("display_order"),
     db.from("rooms").select("id,branch_id,name_en,name_ar,room_type,is_active").order("branch_id").order("name_en"),
@@ -89,14 +102,15 @@ export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
     db.from("services").select("id,name_en,duration_minutes,specialty_id,doctor_id,service_doctors(doctor_id)").eq("is_active", true),
     db.from("clinic_settings").select("value").eq("key", "working_hours_en").maybeSingle<{ value: string }>(),
     db.from("doctor_schedule_templates").select("id,doctor_id,branch_id,day_of_week,start_time,end_time,first_come_first_serve,first_come_capacity,is_active,show_on_booking_website,schedule_room_assignments(room_id,rooms(id,name_en))").order("doctor_id").order("day_of_week"),
+    db.from("doctor_special_schedules").select("id,series_id,doctor_id,branch_id,room_id,schedule_date,start_time,end_time,first_come_first_serve,first_come_capacity,is_active,show_on_booking_website,series_start_date,consecutive_days,repeat_every_months,repeat_count,cycle_number,day_number").order("schedule_date").limit(1000),
     db.from("blocked_times").select("id,block_date,end_date,start_time,end_time,doctor_id,room_id,branch_id,reason,is_full_day,block_type,title,notes,status,is_active").order("block_date", { ascending: false }).limit(250),
   ]);
   const responses = [doctors, branches, rooms, assignments, services, hours];
   for (const response of responses) if (response.error) throw new CrmSchedulingError(`Could not read shared scheduling data: ${response.error.message}`);
-  if (migrationMissing(schedules.error) || migrationMissing(blocks.error)) {
+  if (migrationMissing(schedules.error) || migrationMissing(specialSchedules.error) || migrationMissing(blocks.error)) {
     return { ...empty, catalogConfigured: true, migrationReady: false };
   }
-  for (const response of [schedules, blocks]) if (response.error) throw new CrmSchedulingError(`Could not read shared scheduling data: ${response.error.message}`);
+  for (const response of [schedules, specialSchedules, blocks]) if (response.error) throw new CrmSchedulingError(`Could not read shared scheduling data: ${response.error.message}`);
 
   type DoctorDb = { id:string;name_en:string;name_ar:string|null;is_active:boolean;specialty_id:string;photo_url:string|null };
   type BranchDb = { id:string;name_en:string;name_ar:string|null;is_active:boolean };
@@ -109,6 +123,7 @@ export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
   const branchById = new Map(branchRows.map((row) => [row.id, row]));
   const roomById = new Map(roomRows.map((row) => [row.id, row]));
   const scheduleRows = (schedules.data ?? []) as ScheduleDb[];
+  const specialScheduleRows = (specialSchedules.data ?? []) as SpecialScheduleDb[];
   const blockRows = (blocks.data ?? []) as BlockDb[];
 
   return {
@@ -129,6 +144,15 @@ export async function crmSchedulingSnapshot(): Promise<CrmSchedulingSnapshot> {
         effectiveFrom: null, effectiveTo: null, active: row.is_active, showOnBookingWebsite: row.show_on_booking_website !== false,
       };
     }),
+    specialSchedules: specialScheduleRows.map((row) => ({
+      id: row.id, seriesId: row.series_id, doctorId: row.doctor_id, doctorName: doctorById.get(row.doctor_id)?.name_en ?? "Unknown doctor",
+      branchId: row.branch_id, branchName: branchById.get(row.branch_id)?.name_en ?? "Unknown branch",
+      roomId: row.room_id, roomName: roomById.get(row.room_id)?.name_en ?? "Unknown room", scheduleDate: row.schedule_date,
+      startTime: hhmm(row.start_time), endTime: hhmm(row.end_time), firstComeFirstServe: row.first_come_first_serve === true,
+      firstComeCapacity: row.first_come_capacity ?? 10, active: row.is_active, showOnBookingWebsite: row.show_on_booking_website !== false,
+      seriesStartDate: row.series_start_date, consecutiveDays: row.consecutive_days, repeatEveryMonths: row.repeat_every_months,
+      repeatCount: row.repeat_count, cycleNumber: row.cycle_number, dayNumber: row.day_number,
+    })),
     exceptions: blockRows.filter((row) => row.block_type === "exception").map((row) => ({
       id: row.id, doctorName: row.doctor_id ? doctorById.get(row.doctor_id)?.name_en ?? "Unknown doctor" : "All doctors",
       branchName: row.branch_id ? branchById.get(row.branch_id)?.name_en ?? "Unknown branch" : "All branches",
@@ -162,6 +186,106 @@ function availableRoom(snapshot: CrmSchedulingSnapshot, branchId: string, day: n
   const occupied = new Set(snapshot.schedules.filter((row) => row.id !== ignoreScheduleId && row.branchId === branchId && row.roomId && overlaps(row, day, start, end)).map((row) => row.roomId));
   const rooms = snapshot.rooms.filter((room) => room.branchId === branchId && room.active);
   return rooms.find((room) => room.id === preferredId && !occupied.has(room.id)) ?? rooms.find((room) => !occupied.has(room.id)) ?? null;
+}
+
+function parseDateOnly(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) throw new CrmSchedulingError("Choose a valid start date.");
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (date.toISOString().slice(0, 10) !== value) throw new CrmSchedulingError("Choose a valid start date.");
+  return date;
+}
+
+function dateOnly(value: Date) { return value.toISOString().slice(0, 10); }
+function addDaysUtc(value: Date, days: number) {
+  const result = new Date(value);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
+}
+function addMonthsClamped(value: Date, months: number) {
+  const desiredDay = value.getUTCDate();
+  const first = new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth() + months, 1));
+  const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  first.setUTCDate(Math.min(desiredDay, lastDay));
+  return first;
+}
+
+export function buildSpecialScheduleOccurrences(input: { startDate: string; consecutiveDays: number; repeatEveryMonths: number; repeatCount: number }) {
+  const start = parseDateOnly(input.startDate);
+  const consecutiveDays = Math.floor(input.consecutiveDays);
+  const repeatEveryMonths = Math.floor(input.repeatEveryMonths);
+  const repeatCount = repeatEveryMonths === 0 ? 1 : Math.floor(input.repeatCount);
+  if (consecutiveDays < 1 || consecutiveDays > 31) throw new CrmSchedulingError("Consecutive days must be between 1 and 31.");
+  if (repeatEveryMonths < 0 || repeatEveryMonths > 24) throw new CrmSchedulingError("Repeat interval must be between 1 and 24 months, or one-time.");
+  if (repeatCount < 1 || repeatCount > 36) throw new CrmSchedulingError("Number of visits must be between 1 and 36.");
+  const occurrences = Array.from({ length: repeatCount }, (_, cycleIndex) => {
+    const cycleStart = addMonthsClamped(start, cycleIndex * repeatEveryMonths);
+    return Array.from({ length: consecutiveDays }, (_, dayIndex) => ({
+      scheduleDate: dateOnly(addDaysUtc(cycleStart, dayIndex)),
+      cycleNumber: cycleIndex + 1,
+      dayNumber: dayIndex + 1,
+    }));
+  }).flat();
+  if (new Set(occurrences.map((item) => item.scheduleDate)).size !== occurrences.length) {
+    throw new CrmSchedulingError("This repeat pattern overlaps itself. Reduce consecutive days or use a wider month interval.");
+  }
+  return occurrences;
+}
+
+export async function saveCrmSpecialSchedule(input: {
+  doctorId: string; branchId: string; roomId: string; startDate: string; consecutiveDays: number; repeatEveryMonths: number;
+  repeatCount: number; startTime: string; endTime: string; firstComeFirstServe: boolean; firstComeCapacity: number;
+  active: boolean; showOnBookingWebsite: boolean;
+}) {
+  const currentActor = await actor(); const snapshot = await crmSchedulingSnapshot();
+  if (!snapshot.migrationReady) throw new CrmSchedulingError("Apply booking migration 022 before saving special visits.");
+  const doctor = named(snapshot.doctors, input.doctorId, "doctor", true); const branch = named(snapshot.branches, input.branchId, "branch");
+  const room = named(snapshot.rooms.filter((item) => item.branchId === branch.id), input.roomId, "active room");
+  if (!snapshot.branchAssignments.some((item) => item.doctorId === doctor.id && item.branchId === branch.id)) throw new CrmSchedulingError(`${doctor.nameEn} is not assigned to ${branch.nameEn}. Add the branch assignment first.`);
+  const start = cleanTime(input.startTime); const end = cleanTime(input.endTime);
+  if (end <= start) throw new CrmSchedulingError("End time must be after start time.");
+  const occurrences = buildSpecialScheduleOccurrences(input);
+  for (const occurrence of occurrences) {
+    const day = parseDateOnly(occurrence.scheduleDate).getUTCDay();
+    const weeklyConflicts = snapshot.schedules.filter((row) => overlaps(row, day, start, end));
+    const doctorWeeklyConflict = weeklyConflicts.find((row) => row.doctorId === doctor.id);
+    if (doctorWeeklyConflict) throw new CrmSchedulingError(`${doctor.nameEn} already has weekly hours on ${occurrence.scheduleDate} from ${doctorWeeklyConflict.startTime} to ${doctorWeeklyConflict.endTime}.`);
+    const roomWeeklyConflict = weeklyConflicts.find((row) => row.branchId === branch.id && row.roomId === room.id);
+    if (roomWeeklyConflict) throw new CrmSchedulingError(`${room.nameEn} is occupied on ${occurrence.scheduleDate} from ${roomWeeklyConflict.startTime} to ${roomWeeklyConflict.endTime}.`);
+    const datedConflicts = snapshot.specialSchedules.filter((row) => row.active && row.scheduleDate === occurrence.scheduleDate && row.startTime < end && row.endTime > start);
+    const doctorDatedConflict = datedConflicts.find((row) => row.doctorId === doctor.id);
+    if (doctorDatedConflict) throw new CrmSchedulingError(`${doctor.nameEn} already has a special visit on ${occurrence.scheduleDate} from ${doctorDatedConflict.startTime} to ${doctorDatedConflict.endTime}.`);
+    const roomDatedConflict = datedConflicts.find((row) => row.branchId === branch.id && row.roomId === room.id);
+    if (roomDatedConflict) throw new CrmSchedulingError(`${room.nameEn} already has a special visit on ${occurrence.scheduleDate} from ${roomDatedConflict.startTime} to ${roomDatedConflict.endTime}.`);
+  }
+  const seriesId = randomUUID();
+  const repeatEveryMonths = Math.max(0, Math.min(24, Math.floor(input.repeatEveryMonths)));
+  const repeatCount = repeatEveryMonths === 0 ? 1 : Math.max(1, Math.min(36, Math.floor(input.repeatCount)));
+  const rows = occurrences.map((occurrence) => ({
+    series_id: seriesId, doctor_id: doctor.id, branch_id: branch.id, room_id: room.id, schedule_date: occurrence.scheduleDate,
+    start_time: start, end_time: end, first_come_first_serve: input.firstComeFirstServe,
+    first_come_capacity: Math.max(1, Math.min(500, Math.floor(input.firstComeCapacity || 10))),
+    is_active: input.active, show_on_booking_website: input.showOnBookingWebsite, series_start_date: input.startDate,
+    consecutive_days: Math.floor(input.consecutiveDays), repeat_every_months: repeatEveryMonths, repeat_count: repeatCount,
+    cycle_number: occurrence.cycleNumber, day_number: occurrence.dayNumber,
+  }));
+  const result = await bookingDb().from("doctor_special_schedules").insert(rows);
+  if (result.error) throw new CrmSchedulingError(result.error.message);
+  await audit(currentActor.id, "shared.special_schedule.created", seriesId, { doctor_id: doctor.id, branch_id: branch.id, room_id: room.id, dates: occurrences.map((item) => item.scheduleDate), start_time: start, end_time: end });
+  refreshScheduling();
+}
+
+export async function deleteCrmSpecialSchedule(seriesId: string) {
+  const currentActor = await actor();
+  if (!seriesId) throw new CrmSchedulingError("Special visit series id is required.");
+  const db = bookingDb();
+  const existing = await db.from("doctor_special_schedules").select("id,doctor_id,branch_id,schedule_date,start_time,end_time").eq("series_id", seriesId);
+  if (existing.error) throw new CrmSchedulingError(existing.error.message);
+  if (!existing.data?.length) throw new CrmSchedulingError("Special visit series not found.");
+  const removed = await db.from("doctor_special_schedules").delete().eq("series_id", seriesId);
+  if (removed.error) throw new CrmSchedulingError(removed.error.message);
+  await audit(currentActor.id, "shared.special_schedule.deleted", seriesId, { occurrences: existing.data });
+  refreshScheduling();
 }
 
 export async function saveCrmSchedule(input: { id?: string; doctorId: string; branchId: string; roomId: string; dayOfWeek: number; startTime: string; endTime: string; slotDurationMinutes: number; firstComeFirstServe: boolean; firstComeCapacity: number; effectiveFrom?: string; effectiveTo?: string; active: boolean; showOnBookingWebsite: boolean }) {

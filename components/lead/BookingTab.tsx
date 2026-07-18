@@ -34,6 +34,7 @@ interface BookingDoctor extends BookingName {
   specialtyId: string;
   titleEn?: string;
   schedules: BookingSchedule[];
+  specialVisits: Array<{ branchId: string; date: string }>;
 }
 
 interface BookingServiceItem extends BookingName {
@@ -321,7 +322,7 @@ export function BookingTab({
     lead.doctorId ?? (doctorsForSpecialty.length === 1 ? doctorsForSpecialty[0].id : ""),
   );
   const selectedDoctor = catalog.doctors.find((d) => d.id === doctorId);
-  const [branchId, setBranchId] = useState(selectedDoctor?.schedules.find((schedule) => schedule.active)?.branchId ?? "");
+  const [branchId, setBranchId] = useState(selectedDoctor?.schedules.find((schedule) => schedule.active)?.branchId ?? selectedDoctor?.specialVisits[0]?.branchId ?? "");
   const [serviceId, setServiceId] = useState("");
   const [date, setDate] = useState(today());
   const [slots, setSlots] = useState<BookingSlot[]>([]);
@@ -541,7 +542,7 @@ export function BookingTab({
                     const matchingDoctors = catalog.doctors.filter((d) => d.specialtyId === nextSpecialty);
                     const automaticDoctor = matchingDoctors.length === 1 ? matchingDoctors[0] : undefined;
                     setDoctorId(automaticDoctor?.id ?? "");
-                    setBranchId(automaticDoctor?.schedules.find((s) => s.active)?.branchId ?? "");
+                    setBranchId(automaticDoctor?.schedules.find((s) => s.active)?.branchId ?? automaticDoctor?.specialVisits[0]?.branchId ?? "");
                     setServiceId("");
                     setSlots([]);
                     setSlot("");
@@ -560,7 +561,7 @@ export function BookingTab({
                     const nextDoctor = catalog.doctors.find((d) => d.id === e.target.value);
                     setDoctorId(e.target.value);
                     if (nextDoctor) setSpecialtyId(nextDoctor.specialtyId);
-                    setBranchId(nextDoctor?.schedules.find((s) => s.active)?.branchId ?? "");
+                    setBranchId(nextDoctor?.schedules.find((s) => s.active)?.branchId ?? nextDoctor?.specialVisits[0]?.branchId ?? "");
                     setSlots([]);
                     setSlot("");
                   }}
