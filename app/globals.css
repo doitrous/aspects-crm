@@ -265,6 +265,10 @@ body {
 .crm-day-heading i { background: rgb(34 197 94); border-radius: 50%; height: 7px; width: 7px; }
 .crm-day-card.is-off .crm-day-heading i { background: rgb(var(--c-ink-400)); }
 .crm-session-card { background: rgb(var(--c-panel)); border: 1px solid rgb(var(--c-line)); border-radius: 9px; padding: 8px; }
+.crm-session-card.is-incomplete, .crm-special-series-card.is-incomplete { background: rgb(var(--c-danger-bg)); border-color: rgb(var(--c-danger) / 0.7); box-shadow: 0 0 0 2px rgb(var(--c-danger) / 0.08); }
+.crm-session-card.is-incomplete > div > div > strong, .crm-special-series-card.is-incomplete h3 { color: rgb(var(--c-danger)); }
+.crm-schedule-incomplete-warning { align-items: flex-start; background: rgb(var(--c-panel)); border: 1px solid rgb(var(--c-danger) / 0.32); border-radius: 7px; color: rgb(var(--c-danger)); display: flex; flex-direction: column; font-size: 9.5px; font-weight: 750; gap: 2px; line-height: 1.35; margin-top: 7px; padding: 6px 7px; }
+.crm-schedule-incomplete-warning strong { color: rgb(var(--c-danger)) !important; font-size: 10px; white-space: normal; }
 .crm-session-card strong { align-items: center; color: rgb(var(--c-ink-900)); display: flex; font-size: 11.5px; gap: 4px; white-space: nowrap; }
 .crm-session-card small { color: rgb(var(--c-primary)); display: block; font-size: 9.5px; font-weight: 800; line-height: 1.4; margin-top: 3px; }
 .crm-session-card button { border-radius: 5px; color: rgb(var(--c-ink-500)); font-size: 15px; line-height: 1; padding: 4px; }

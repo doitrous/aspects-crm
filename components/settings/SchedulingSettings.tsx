@@ -44,6 +44,32 @@ type Section = typeof SECTIONS[number];
 const field = "crm-schedule-field";
 const label = "crm-schedule-label";
 
+function scheduleCompletionIssues(schedule: CrmScheduleRow, snapshot: CrmSchedulingSnapshot): string[] {
+  const issues: string[] = [];
+  if (!snapshot.doctors.some((doctor) => doctor.id === schedule.doctorId)) issues.push("Doctor missing");
+  if (!snapshot.branches.some((branch) => branch.id === schedule.branchId)) issues.push("Clinic missing");
+  if (!snapshot.branchAssignments.some((assignment) => assignment.doctorId === schedule.doctorId && assignment.branchId === schedule.branchId)) issues.push("Clinic assignment missing");
+  const room = snapshot.rooms.find((item) => item.id === schedule.roomId && item.branchId === schedule.branchId);
+  if (!schedule.roomId || !room) issues.push("Clinic room missing");
+  else if (!room.active) issues.push("Clinic room inactive");
+  if (!Number.isInteger(schedule.dayOfWeek) || schedule.dayOfWeek < 0 || schedule.dayOfWeek > 6) issues.push("Day missing");
+  if (!schedule.startTime || !schedule.endTime || schedule.endTime <= schedule.startTime) issues.push("Clinic hours invalid");
+  return issues;
+}
+
+function specialScheduleCompletionIssues(schedule: CrmSpecialScheduleRow, snapshot: CrmSchedulingSnapshot): string[] {
+  const issues: string[] = [];
+  if (!snapshot.doctors.some((doctor) => doctor.id === schedule.doctorId)) issues.push("Doctor missing");
+  if (!snapshot.branches.some((branch) => branch.id === schedule.branchId)) issues.push("Clinic missing");
+  if (!snapshot.branchAssignments.some((assignment) => assignment.doctorId === schedule.doctorId && assignment.branchId === schedule.branchId)) issues.push("Clinic assignment missing");
+  const room = snapshot.rooms.find((item) => item.id === schedule.roomId && item.branchId === schedule.branchId);
+  if (!schedule.roomId || !room) issues.push("Clinic room missing");
+  else if (!room.active) issues.push("Clinic room inactive");
+  if (!schedule.scheduleDate) issues.push("Visit date missing");
+  if (!schedule.startTime || !schedule.endTime || schedule.endTime <= schedule.startTime) issues.push("Clinic hours invalid");
+  return issues;
+}
+
 function Feedback({ state }: { state: SchedulingActionState }) {
   if (state.error) return <p role="alert" className="crm-schedule-error">{state.error}</p>;
   if (state.ok) return <p role="status" className="crm-schedule-success">{state.message ?? "Saved to shared scheduling."}</p>;
@@ -275,7 +301,7 @@ function SpecialVisits({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
   }, [snapshot.specialSchedules]);
   return <div className="space-y-4">
     <section className="crm-schedule-branch-picker"><div><div className="crm-schedule-picker-title"><span aria-hidden="true">✦</span> Special doctor visits</div><p>Use exact dates for visiting doctors who attend monthly, for consecutive days, or every few months.</p></div><button type="button" onClick={() => setEditorOpen(true)} className="crm-schedule-button primary">＋ Add special visits</button></section>
-    <div className="grid gap-3 lg:grid-cols-2">{series.map((rows) => { const first = rows[0]; const last = rows[rows.length - 1]; return <Card key={first.seriesId} className="p-4"><div className="flex items-start justify-between gap-4"><div><p className="crm-schedule-eyebrow">{first.repeatEveryMonths === 0 ? "One-time visit" : `Every ${first.repeatEveryMonths} month${first.repeatEveryMonths === 1 ? "" : "s"}`}</p><h3 className="font-bold text-ink-900">{first.doctorName}</h3><p className="mt-1 text-[12px] text-ink-500">{first.branchName} · {first.roomName} · {first.startTime}–{first.endTime}</p></div><DeleteSpecialScheduleButton series={rows}/></div><div className="mt-4 rounded-lg bg-canvas-subtle p-3 text-[12px]"><strong>{rows.length} dated session{rows.length === 1 ? "" : "s"}</strong><p>{first.scheduleDate}{last.scheduleDate !== first.scheduleDate ? ` through ${last.scheduleDate}` : ""}</p><p>{first.consecutiveDays} consecutive day{first.consecutiveDays === 1 ? "" : "s"} per visit · {first.repeatCount} visit{first.repeatCount === 1 ? "" : "s"}</p><p>{first.showOnBookingWebsite ? "Visible on booking website" : "CRM only"}{first.active ? "" : " · Inactive"}</p></div></Card>; })}</div>
+    <div className="grid gap-3 lg:grid-cols-2">{series.map((rows) => { const first = rows[0]; const last = rows[rows.length - 1]; const issues = rows.flatMap((row) => specialScheduleCompletionIssues(row, snapshot)).filter((issue, index, all) => all.indexOf(issue) === index); return <Card key={first.seriesId} className={`crm-special-series-card p-4 ${issues.length ? "is-incomplete" : ""}`}><div className="flex items-start justify-between gap-4"><div><p className="crm-schedule-eyebrow">{first.repeatEveryMonths === 0 ? "One-time visit" : `Every ${first.repeatEveryMonths} month${first.repeatEveryMonths === 1 ? "" : "s"}`}</p><h3 className="font-bold text-ink-900">{first.doctorName}</h3><p className="mt-1 text-[12px] text-ink-500">{first.branchName} · {first.roomName} · {first.startTime}–{first.endTime}</p></div><DeleteSpecialScheduleButton series={rows}/></div>{issues.length > 0 && <div className="crm-schedule-incomplete-warning" role="alert"><strong>⚠ Incomplete schedule</strong><span>{issues.join(" · ")}</span></div>}<div className="mt-4 rounded-lg bg-canvas-subtle p-3 text-[12px]"><strong>{rows.length} dated session{rows.length === 1 ? "" : "s"}</strong><p>{first.scheduleDate}{last.scheduleDate !== first.scheduleDate ? ` through ${last.scheduleDate}` : ""}</p><p>{first.consecutiveDays} consecutive day{first.consecutiveDays === 1 ? "" : "s"} per visit · {first.repeatCount} visit{first.repeatCount === 1 ? "" : "s"}</p><p>{first.showOnBookingWebsite ? "Visible on booking website" : "CRM only"}{first.active ? "" : " · Inactive"}</p></div></Card>; })}</div>
     {series.length === 0 && <EmptyState title="No special visits scheduled" hint="Add exact dates for doctors who do not follow a regular weekly calendar."/>}
     {editorOpen && <SpecialScheduleEditor snapshot={snapshot} onClose={() => setEditorOpen(false)}/>}
   </div>;
@@ -352,13 +378,14 @@ function Availability({ snapshot }: { snapshot: CrmSchedulingSnapshot }) {
                       <div className="crm-day-heading"><span><strong>{day.short}</strong><small>{day.label}</small></span><i aria-hidden="true"/></div>
                       <div className="space-y-2">
                         {activeRows.map((schedule) => (
-                          <article key={schedule.id} className="crm-session-card">
+                          <article key={schedule.id} className={`crm-session-card ${scheduleCompletionIssues(schedule, snapshot).length ? "is-incomplete" : ""}`}>
                             <div className="flex items-start justify-between gap-1">
                               <div>
                                 <strong><span aria-hidden="true">◷</span>{schedule.startTime}–{schedule.endTime}</strong>
                                 <small>{schedule.roomName ?? "Room required"} · {durationProfile.averageMinutes} min service average</small>
                                 {schedule.firstComeFirstServe && <small>First come · {schedule.firstComeCapacity}</small>}
                                 <small>{schedule.showOnBookingWebsite ? "Visible on booking website" : "CRM only · hidden from website"}</small>
+                                {scheduleCompletionIssues(schedule, snapshot).length > 0 && <div className="crm-schedule-incomplete-warning" role="alert"><strong>⚠ Incomplete schedule</strong><span>{scheduleCompletionIssues(schedule, snapshot).join(" · ")}</span></div>}
                               </div>
                               <div className="flex"><button type="button" aria-label={`Duplicate ${day.label} hours for ${doctor.nameEn}`} title="Duplicate schedule" onClick={() => setDuplicate(schedule)}>⧉</button><button type="button" aria-label={`Edit ${day.label} hours for ${doctor.nameEn}`} title="Edit schedule" onClick={() => setEditor({ schedule })}>✎</button><DeleteScheduleButton schedule={schedule} doctorName={doctor.nameEn} dayLabel={day.label}/></div>
                             </div>
