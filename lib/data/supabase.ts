@@ -47,7 +47,7 @@ import type {
   LeadFilters,
   LeadListResult,
 } from "@/lib/data/contracts";
-import { normalizeDuplicateFilters } from "@/lib/data/duplicateFilters";
+import { duplicateMatchesFilters, duplicateQueueRpcUnavailable, normalizeDuplicateFilters } from "@/lib/data/duplicateFilters";
 
 /* ── enum / value translation (DB ⇆ UI view model) ───────────── */
 
@@ -606,6 +606,71 @@ async function enrichDuplicateRows(
       (DUPLICATE_TYPE_PRIORITY[left.type] ?? 99) - (DUPLICATE_TYPE_PRIORITY[right.type] ?? 99) ||
       new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
     );
+}
+
+const DUPLICATE_FLAG_COLUMNS =
+  "id,lead_id,duplicate_lead_id,duplicate_type,identifier_value,status,notes,reviewed_by,confidence_score,match_priority,created_at";
+
+async function duplicateQueuePageWithoutRpc(
+  view: DuplicateQueueView,
+  page: number,
+  pageSize: number,
+  filters: Required<DuplicateQueueFilters>,
+  usersById: Map<string, string>,
+): Promise<DuplicateQueueResult> {
+  const db = supabaseAdmin();
+
+  // Text search needs both patient records, so older databases without the
+  // filtering RPC use the established enrichment path. This is intentionally
+  // reserved for filtered requests; the normal queue remains database-paged.
+  if (filters.q) {
+    let allQuery = db.from("lead_duplicate_flags").select(DUPLICATE_FLAG_COLUMNS)
+      .not("identifier_value", "is", null)
+      .neq("identifier_value", "")
+      .order("match_priority", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: false });
+    if (filters.matchType) allQuery = allQuery.eq("duplicate_type", filters.matchType);
+    const { data, error } = await allQuery;
+    if (error) throw new Error(`duplicateQueuePage fallback: ${error.message}`);
+    const pairs = (await enrichDuplicateRows((data ?? []) as unknown as DuplicateFlagRow[], usersById))
+      .filter((pair) => duplicateMatchesFilters(pair, filters));
+    const open = pairs.filter((pair) => pair.status === "suspected");
+    const resolved = pairs.filter((pair) => pair.status !== "suspected");
+    const selected = view === "open" ? open : resolved;
+    const from = (page - 1) * pageSize;
+    return { items: selected.slice(from, from + pageSize), total: selected.length, openTotal: open.length, resolvedTotal: resolved.length, page, pageSize, view };
+  }
+
+  const pageStatus = view === "open" ? "pending" : null;
+  let pageQuery = db.from("lead_duplicate_flags").select(DUPLICATE_FLAG_COLUMNS)
+    .not("identifier_value", "is", null).neq("identifier_value", "");
+  let openCountQuery = db.from("lead_duplicate_flags").select("id", { count: "exact", head: true })
+    .not("identifier_value", "is", null).neq("identifier_value", "");
+  let resolvedCountQuery = db.from("lead_duplicate_flags").select("id", { count: "exact", head: true })
+    .not("identifier_value", "is", null).neq("identifier_value", "");
+  if (filters.matchType) {
+    pageQuery = pageQuery.eq("duplicate_type", filters.matchType);
+    openCountQuery = openCountQuery.eq("duplicate_type", filters.matchType);
+    resolvedCountQuery = resolvedCountQuery.eq("duplicate_type", filters.matchType);
+  }
+  pageQuery = pageStatus ? pageQuery.eq("status", pageStatus) : pageQuery.neq("status", "pending");
+  const from = (page - 1) * pageSize;
+  const [pageResult, openCount, resolvedCount] = await Promise.all([
+    pageQuery
+      .order("match_priority", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, from + pageSize - 1),
+    openCountQuery.eq("status", "pending"),
+    resolvedCountQuery.neq("status", "pending"),
+  ]);
+  for (const result of [pageResult, openCount, resolvedCount]) {
+    if (result.error) throw new Error(`duplicateQueuePage fallback: ${result.error.message}`);
+  }
+  const items = await enrichDuplicateRows((pageResult.data ?? []) as unknown as DuplicateFlagRow[], usersById);
+  const openTotal = openCount.count ?? 0;
+  const resolvedTotal = resolvedCount.count ?? 0;
+  return { items, total: view === "open" ? openTotal : resolvedTotal, openTotal, resolvedTotal, page, pageSize, view };
 }
 
 /** UTC calendar helpers for the previous-day auditor model. */
@@ -1289,7 +1354,12 @@ export const supabaseProvider: DataProvider = {
         page_limit: pageSize,
       }),
     ]);
-    if (queueResult.error) throw new Error(`duplicateQueuePage: ${queueResult.error.message}`);
+    if (queueResult.error) {
+      if (duplicateQueueRpcUnavailable(queueResult.error)) {
+        return duplicateQueuePageWithoutRpc(view, page, pageSize, normalized, usersById);
+      }
+      throw new Error(`duplicateQueuePage: ${queueResult.error.message}`);
+    }
     const payload = (queueResult.data ?? {}) as DuplicateQueuePayload;
     const selected = await enrichDuplicateRows(payload.items ?? [], usersById);
     return {

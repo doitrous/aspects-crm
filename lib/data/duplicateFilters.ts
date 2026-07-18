@@ -9,6 +9,10 @@ export function normalizeDuplicateFilters(filters?: DuplicateQueueFilters): Requ
   return { q, field, matchType };
 }
 
+export function duplicateQueueRpcUnavailable(error: { code?: string; message?: string } | null): boolean {
+  return error?.code === "PGRST202" || Boolean(error?.message?.includes("Could not find") && error.message.includes("crm_duplicate_queue_page"));
+}
+
 function searchableValues(pair: DuplicatePair, field: DuplicateSearchField): string[] {
   const leads = [pair.primary, pair.duplicate].filter(Boolean);
   if (field === "name") return leads.map((lead) => lead!.name);

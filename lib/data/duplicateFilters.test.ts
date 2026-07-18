@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { duplicateMatchesFilters, normalizeDuplicateFilters } from "@/lib/data/duplicateFilters";
+import { duplicateMatchesFilters, duplicateQueueRpcUnavailable, normalizeDuplicateFilters } from "@/lib/data/duplicateFilters";
 import type { DuplicatePair } from "@/lib/types";
 
 const pair: DuplicatePair = {
@@ -33,4 +33,11 @@ test("unsafe filter syntax is normalized before it reaches PostgREST", () => {
     field: "all",
     matchType: "phonedrop",
   });
+});
+
+test("missing duplicate queue RPC falls back without hiding unrelated database errors", () => {
+  assert.equal(duplicateQueueRpcUnavailable({ code: "PGRST202", message: "Function missing" }), true);
+  assert.equal(duplicateQueueRpcUnavailable({ code: "", message: "Could not find crm_duplicate_queue_page" }), true);
+  assert.equal(duplicateQueueRpcUnavailable({ code: "42501", message: "Permission denied" }), false);
+  assert.equal(duplicateQueueRpcUnavailable(null), false);
 });
