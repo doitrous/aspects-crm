@@ -14,6 +14,11 @@ reservations are linked to canonical CRM leads by booking appointment ID, with
 normalized phone as the fallback. The reservation ingest receiver is
 `POST /api/ingest/reservation` and requires `CRM_INGEST_API_KEY`.
 
+Website callback requests enter through `POST /api/ingest/callback` using the
+same ingest key. The receiver is idempotent on the website request ID, links an
+existing lead by normalized phone when possible, reopens it as unread, and
+assigns the exact `Website - Callback` tag.
+
 ## Facebook and Instagram
 
 Meta can post directly to `POST /api/webhooks/meta`, where signatures and ingest
