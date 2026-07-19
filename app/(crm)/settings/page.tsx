@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 import { Topbar } from "@/components/shell/Topbar";
 import { SchedulingSettings } from "@/components/settings/SchedulingSettings";
+import { DoctorsSettings } from "@/components/settings/DoctorsSettings";
 import { FinancialSettingsManager } from "@/components/financial/FinancialSettingsManager";
 import { SettingsManager, type IntegrationStatus, type SettingsTabKey } from "@/components/settings/SettingsManager";
 import { bookingConfigured } from "@/lib/booking/client";
+import { crmDoctorCatalogSnapshot } from "@/lib/booking/doctors";
 import { crmSchedulingSnapshot } from "@/lib/scheduling/crm";
 import { emailConfigured } from "@/lib/email/resend";
 import { whatsappConfigured } from "@/lib/whatsapp/config";
@@ -39,7 +41,7 @@ function integrations(): IntegrationStatus[] {
 
 const SETTINGS_SECTIONS = new Set<SettingsTabKey>([
   "account", "bulkImport", "tags", "lost", "escalation", "followup", "rules", "sources",
-  "duplicates", "reporting", "ai", "integrations", "ingestion", "users", "scheduling", "financial", "email",
+  "duplicates", "reporting", "ai", "integrations", "ingestion", "users", "doctors", "scheduling", "financial", "email",
 ]);
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ section?: string; financeTab?: string }> }) {
@@ -49,7 +51,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const params = await searchParams;
   const initialTab = SETTINGS_SECTIONS.has(params.section as SettingsTabKey) ? params.section as SettingsTabKey : "scheduling";
 
-  const [tags, lostReasons, escalationReasons, slaRules, followUpStages, auditorSettings, aiPrompt, sources, scheduling, financial, ingestLogs, ingestionFailures] =
+  const [tags, lostReasons, escalationReasons, slaRules, followUpStages, auditorSettings, aiPrompt, sources, doctors, scheduling, financial, ingestLogs, ingestionFailures] =
     await Promise.all([
       listTags(),
       listLostReasons(),
@@ -59,6 +61,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       getAuditorSettings(),
       getAiPrompt(),
       leadSourcesList(),
+      crmDoctorCatalogSnapshot(),
       can(user.role, "scheduling.view") ? crmSchedulingSnapshot() : Promise.resolve(null),
       financialSettingsData(),
       listIngestLogs(),
@@ -81,6 +84,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           aiPrompt={aiPrompt}
           sources={sources}
           integrations={integrations()}
+          doctors={<DoctorsSettings snapshot={doctors} />}
           scheduling={scheduling ? <SchedulingSettings snapshot={scheduling} /> : <div className="rounded-xl border border-line p-5 text-[12px] text-ink-500">You do not have permission to view CRM scheduling.</div>}
           financial={<FinancialSettingsManager data={financial} initialTab={params.financeTab} />}
           ingestLogs={ingestLogs}

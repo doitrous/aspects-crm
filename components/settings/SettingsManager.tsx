@@ -454,6 +454,7 @@ export type SettingsTabKey =
   | "reporting"
   | "ai"
   | "integrations"
+  | "doctors"
   | "scheduling"
   | "financial"
   | "email"
@@ -475,6 +476,7 @@ const TABS: Array<{ key: SettingsTabKey; label: string }> = [
   { key: "integrations", label: "Integrations" },
   { key: "ingestion", label: "Ingestion Log" },
   { key: "users", label: "Users & Roles" },
+  { key: "doctors", label: "Doctors" },
   { key: "scheduling", label: "Doctors & Scheduling" },
   { key: "financial", label: "Financial Settings" },
   { key: "email", label: "Email" },
@@ -499,6 +501,7 @@ export function SettingsManager({
   aiPrompt,
   sources,
   integrations,
+  doctors,
   scheduling,
   financial,
   ingestLogs,
@@ -515,6 +518,7 @@ export function SettingsManager({
   aiPrompt: AiPromptSetting;
   sources: LeadSourceInfo[];
   integrations: IntegrationStatus[];
+  doctors: ReactNode;
   scheduling: ReactNode;
   financial: ReactNode;
   ingestLogs: IngestLogSetting[];
@@ -699,6 +703,7 @@ export function SettingsManager({
           <Card className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between"><div><div className="text-[16px] font-black text-ink-900">Email settings</div><div className="text-[11.5px] text-ink-500">Automations, templates, manual tests, delivery history and failures now live in one section.</div></div><Link href="/settings/email" className="inline-flex h-10 items-center justify-center rounded-control bg-primary px-4 text-[12px] font-bold text-white">Open Email settings</Link></Card>
         )}
 
+        {tab === "doctors" && <div>{doctors}</div>}
         {tab === "scheduling" && <div>{scheduling}</div>}
       </div>
     </div>
