@@ -865,12 +865,14 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
           loadedTabs.has("WhatsApp") ? (
             data.whatsappConfigured ? (
               <MessageThread
+                key={`whatsapp-${lead.id}`}
                 leadId={lead.id}
                 messages={data.messages.filter((m) => m.channel === "whatsapp")}
                 title="WhatsApp conversation"
                 chatLink={lead.chatLink}
                 channelTone="green"
                 emptyHint="No WhatsApp messages have been ingested for this lead yet."
+                whatsappComposer
               />
             ) : (
               <div className="p-5">

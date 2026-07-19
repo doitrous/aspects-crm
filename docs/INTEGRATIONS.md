@@ -44,8 +44,14 @@ Normalized WhatsApp records enter through `POST /api/crm/ingest/whatsapp` using
 `WHATSAPP_INGEST_API_KEY` or `CRM_INGEST_API_KEY`. Access tokens and phone/account
 IDs remain server-only. When credentials are absent, the drawer reports that the
 integration is not configured and does not fabricate messages or connection
-state. Outbound WhatsApp sending still requires provider credentials and is not
-claimed as verified.
+state.
+
+Authenticated staff with `leads.edit` can send from the WhatsApp tab through
+`POST /api/crm/whatsapp/send`. Normal replies are allowed only during Meta's
+24-hour customer-service window. Outside that window, the composer loads the
+approved templates for `WHATSAPP_BUSINESS_ACCOUNT_ID`. The server calls the Meta
+Cloud API, stores the returned WhatsApp message ID, records delivery state, and
+audits the request without exposing `WHATSAPP_ACCESS_TOKEN` to the browser.
 
 The n8n Code-node normalizer is tracked at
 `docs/whatsapp-n8n-normalizer.js`. Subscribe the WhatsApp Business Account
@@ -54,6 +60,12 @@ The normalizer ignores non-message account/admin webhook fields, normalizes
 incoming messages and outgoing echoes into CRM message records, and turns
 WhatsApp `sent` / `delivered` / `read` status callbacks into monotonic CRM
 delivery-state updates.
+
+The published n8nSQ workflow `Meta WhatsApp Webhooks (Verification + Events)`
+uses `https://n8nsq.doitrous.com/webhook/meta-whatsapp`. Its POST branch runs the
+tracked normalizer and sends each normalized record to the CRM with the existing
+`Aspects CRM Ingest` Header Auth credential. `scripts/build-whatsapp-n8n-workflow.mjs`
+rebuilds the import payload from a downloaded copy of that workflow.
 
 ## Email
 

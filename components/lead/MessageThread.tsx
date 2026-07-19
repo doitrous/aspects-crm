@@ -1,7 +1,11 @@
+"use client";
+
+import { useState } from "react";
 import type { Message, MessageAttachment } from "@/lib/types";
 import { formatDateTime, formatTime } from "@/lib/format";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AiReplyAssistant } from "@/components/lead/AiReplyAssistant";
+import { WhatsAppComposer } from "@/components/lead/WhatsAppComposer";
 
 const CHANNEL_LABEL: Record<Message["channel"], string> = {
   facebook: "Messenger",
@@ -123,6 +127,7 @@ export function MessageThread({
   chatLink,
   channelTone = "blue",
   leadId,
+  whatsappComposer = false,
 }: {
   messages: Message[];
   emptyHint?: string;
@@ -130,14 +135,20 @@ export function MessageThread({
   chatLink?: string;
   channelTone?: "blue" | "green" | "pink";
   leadId: string;
+  whatsappComposer?: boolean;
 }) {
-  if (messages.length === 0) {
-    return <EmptyState icon="✉" title="No messages yet" hint={emptyHint} />;
-  }
+  const [localMessages, setLocalMessages] = useState(messages);
 
-  const latest = messages[messages.length - 1];
+  const latest = localMessages[localMessages.length - 1];
   const waiting = latest?.direction === "incoming";
   const tone = channelTone === "green" ? "bg-emerald-600" : channelTone === "pink" ? "bg-pink-600" : "bg-blue-600";
+  const lastIncomingAt = [...localMessages].reverse().find((message) => message.channel === "whatsapp" && message.direction === "incoming")?.createdAt;
+
+  function addSentMessage(message: Message) {
+    setLocalMessages((current) => current.some((item) => item.id === message.id)
+      ? current
+      : [...current, message].sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
+  }
 
   return (
     <div className="flex min-h-full flex-col bg-slate-50/70">
@@ -146,7 +157,7 @@ export function MessageThread({
           <div className="flex items-center gap-2">
             <span className={"h-2.5 w-2.5 rounded-full " + tone} />
             <h3 className="truncate text-[14px] font-black text-ink-900">{title}</h3>
-            <span className="rounded-full bg-line-faint px-2 py-0.5 text-[10px] font-bold text-ink-500">{messages.length}</span>
+            <span className="rounded-full bg-line-faint px-2 py-0.5 text-[10px] font-bold text-ink-500">{localMessages.length}</span>
           </div>
           <p className={"mt-0.5 text-[10.5px] font-semibold " + (waiting ? "text-warn" : "text-ink-400")}>
             {waiting ? "Patient is waiting for a reply" : "Latest message was sent by the clinic"}
@@ -159,11 +170,12 @@ export function MessageThread({
         )}
       </div>
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 p-3 sm:p-5">
-        {messages.map((m) => {
+        {localMessages.length === 0 && <EmptyState icon="✉" title="No messages yet" hint={emptyHint} />}
+        {localMessages.map((m) => {
           const out = m.direction === "outgoing";
           const attachments = m.attachments ?? [];
           const hasBody = m.body.trim().length > 0;
-          const unanswered = !out && m.id === messages[messages.length - 1]?.id;
+          const unanswered = !out && m.id === localMessages[localMessages.length - 1]?.id;
 
           return (
             <div key={m.id} id={`msg-${m.id}`} className={"flex flex-col " + (out ? "items-end" : "items-start")}>
@@ -246,8 +258,10 @@ export function MessageThread({
           );
         })}
       </div>
-      <AiReplyAssistant leadId={leadId} messages={messages} />
-      <div className="sticky bottom-0 border-t border-line bg-panel px-4 py-3">
+      <AiReplyAssistant leadId={leadId} messages={localMessages} />
+      {whatsappComposer ? (
+        <WhatsAppComposer leadId={leadId} lastIncomingAt={lastIncomingAt} onSent={addSentMessage} />
+      ) : <div className="sticky bottom-0 border-t border-line bg-panel px-4 py-3">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
           <div>
             <div className="text-[11.5px] font-bold text-ink-700">Conversation is read-only in the CRM</div>
@@ -255,7 +269,7 @@ export function MessageThread({
           </div>
           {chatLink && <a href={chatLink} target="_blank" rel="noreferrer" className="flex-none rounded-control border border-primary px-3 py-2 text-[11px] font-bold text-primary hover:bg-primary hover:text-white">Open chat ↗</a>}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
