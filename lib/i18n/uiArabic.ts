@@ -515,7 +515,7 @@ export const ARABIC_UI: Record<string, string> = {
   "The system prompt used to generate CRM suggested replies. Saving bumps the version.": "تعليمات النظام المستخدمة لإنشاء الردود المقترحة، ويؤدي الحفظ إلى إنشاء إصدار جديد.",
   "Server-side configuration status only. Secrets are never sent to the browser.": "حالة الإعداد من الخادم فقط، ولا تُرسل الأسرار إلى المتصفح أبدًا.",
   "Booking system": "نظام الحجز",
-  "Latest 30 message-ingestion events from the canonical ingest API log.": "أحدث 30 حدثًا لاستقبال الرسائل من سجل واجهة الاستقبال الموحدة.",
+  "Complete canonical webhook history, newest first. A duplicate is a successful retry that was already registered; a failure requires review.": "سجل ويب هوك الكامل، من الأحدث إلى الأقدم. التكرار هو إعادة محاولة ناجحة مسجلة مسبقًا، أما الفشل فيتطلب مراجعة.",
   "Latest 30 canonical webhook events. A duplicate is a successful retry that was already registered; a failure requires review.": "أحدث 30 حدثًا من سجل الاستقبال الموحد. التكرار هو إعادة محاولة ناجحة لحدث مسجل بالفعل، بينما يتطلب الفشل المراجعة.",
   "Event": "الحدث",
   "Direction": "الاتجاه",

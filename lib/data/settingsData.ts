@@ -275,13 +275,22 @@ export async function listEmailRules(): Promise<EmailRuleSetting[]> {
 }
 
 export async function listIngestLogs(): Promise<IngestLogSetting[]> {
-  const { data, error } = await supabaseAdmin()
-    .from("crm_ingest_logs")
-    .select("id,created_at,source,platform,event_type,event_action,event_key,direction,platform_user_id,conversation_key,message_text,created,updated,skipped,skip_reason,errors")
-    .order("created_at", { ascending: false })
-    .limit(30);
-  if (error) throw new Error(`listIngestLogs: ${error.message}`);
-  return (data ?? []).map((r) => ({
+  const db = supabaseAdmin();
+  const rows: Record<string, unknown>[] = [];
+  const pageSize = 1_000;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db
+      .from("crm_ingest_logs")
+      .select("id,created_at,source,platform,event_type,event_action,event_key,direction,platform_user_id,conversation_key,message_text,created,updated,skipped,skip_reason,errors")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`listIngestLogs: ${error.message}`);
+    const page = (data ?? []) as Record<string, unknown>[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return rows.map((r) => ({
     id: r.id as string, createdAt: r.created_at as string,
     source: (r.source as string | null) ?? null, platform: (r.platform as string | null) ?? null,
     eventType: (r.event_type as string | null) ?? null, eventAction: (r.event_action as string | null) ?? null,

@@ -233,7 +233,9 @@ export async function POST(request: Request) {
       sent_by_name: auth.session.real.name,
       created_by: auth.session.real.id,
       sender_phone: recipient,
-      delivery_status: "sent",
+      // A successful Graph API response means Meta accepted the message. The
+      // webhook receipt is the source of truth for sent/delivered/failed.
+      delivery_status: null,
       record_type: "message",
       event_type: "message",
       service: "WhatsApp",
@@ -262,7 +264,7 @@ export async function POST(request: Request) {
     const timeline = await db.from("lead_timeline_events").insert({
       lead_id: lead.id,
       event_type: "message_out",
-      title: "WhatsApp message sent",
+      title: "WhatsApp message accepted by Meta",
       body: messageText,
       actor_user_id: auth.session.real.id,
       metadata: { platform_message_id: sent.messageId, source: "whatsapp_cloud_api", mode },
@@ -272,7 +274,7 @@ export async function POST(request: Request) {
     try {
       await logActivity({
         actorId: auth.session.real.id,
-        action: "whatsapp.message_sent",
+        action: "whatsapp.message_accepted",
         entityType: "message",
         entityId: messageRow.id as string,
         newValues: { lead_id: lead.lead_id, platform_message_id: sent.messageId, mode },
@@ -281,7 +283,7 @@ export async function POST(request: Request) {
     } catch (auditError) {
       secondaryErrors.push(`audit: ${auditError instanceof Error ? auditError.message : "unknown error"}`);
     }
-    if (secondaryErrors.length) console.error("WhatsApp message sent with CRM follow-up errors", secondaryErrors);
+    if (secondaryErrors.length) console.error("WhatsApp message accepted with CRM follow-up errors", secondaryErrors);
 
     const message: Message = {
       id: messageRow.id as string,
@@ -293,9 +295,8 @@ export async function POST(request: Request) {
       authorName: auth.session.real.name,
       platformMessageId: sent.messageId,
       messageType,
-      deliveryStatus: "sent",
     };
-    return NextResponse.json({ ok: true, message, warning: secondaryErrors.length ? "The message was sent, but some CRM activity fields could not be updated." : undefined });
+    return NextResponse.json({ ok: true, message, warning: secondaryErrors.length ? "Meta accepted the message, but some CRM activity fields could not be updated." : undefined });
   } catch (error) {
     const details = apiMessage(error);
     console.error("WhatsApp send failed", error);

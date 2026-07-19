@@ -16,7 +16,7 @@ type Media = {
   stickerId?: string;
 };
 
-type DeliveryStatus = "sent" | "delivered" | "seen";
+type DeliveryStatus = "sent" | "delivered" | "seen" | "failed";
 
 type Payload = {
   messageId?: string;
@@ -36,6 +36,18 @@ type Payload = {
   statusOnly?: boolean;
   rawPayload?: unknown;
   messageMetadata?: Record<string, unknown>;
+};
+
+type IngestResult = {
+  messageId: string;
+  storedMessageId?: string;
+  leadId?: string;
+  leadUid?: string;
+  inserted: boolean;
+  statusUpdated?: boolean;
+  metadataUpdated?: boolean;
+  skipped?: boolean;
+  reason?: string;
 };
 
 const MAX_BODY_BYTES = 1_000_000;
@@ -105,28 +117,40 @@ async function updateExistingMessage(
 
   if (!input.deliveryStatus) return { statusUpdated: false, metadataUpdated };
 
-  const patch: Record<string, string> =
+  const { data: current, error: currentError } = await db
+    .from("crm_messages")
+    .select("delivery_status")
+    .eq("id", messageId)
+    .maybeSingle();
+  if (currentError) throw new Error(`whatsappMessage(status current): ${currentError.message}`);
+  const currentStatus = current?.delivery_status as string | null | undefined;
+  const mayAdvance = input.deliveryStatus === "seen"
+    ? currentStatus !== "seen"
+    : input.deliveryStatus === "delivered"
+      ? currentStatus !== "seen" && currentStatus !== "delivered"
+      : input.deliveryStatus === "sent"
+        ? !currentStatus
+        : currentStatus !== "seen" && currentStatus !== "delivered";
+  if (!mayAdvance) return { statusUpdated: false, metadataUpdated };
+
+  // Production currently constrains this column to sent/delivered/seen. A
+  // failed receipt is represented by NULL plus the complete Meta failure in
+  // message_metadata; the read model turns that into an explicit failed state.
+  const patch: Record<string, string | null> =
     input.deliveryStatus === "seen"
       ? { delivery_status: "seen", seen_at: at }
       : input.deliveryStatus === "delivered"
         ? { delivery_status: "delivered", delivered_at: at }
-        : { delivery_status: "sent" };
+        : input.deliveryStatus === "failed"
+          ? { delivery_status: null }
+          : { delivery_status: "sent" };
 
-  let query = db
+  const { data, error } = await db
     .from("crm_messages")
     .update(patch)
     .eq("id", messageId)
-    .eq("direction", "outgoing");
-
-  if (input.deliveryStatus === "seen") {
-    query = query.neq("delivery_status", "seen");
-  } else if (input.deliveryStatus === "delivered") {
-    query = query.neq("delivery_status", "seen").neq("delivery_status", "delivered");
-  } else {
-    query = query.is("delivery_status", null);
-  }
-
-  const { data, error } = await query.select("id");
+    .eq("direction", "outgoing")
+    .select("id");
   if (error) throw new Error(`whatsappMessage(status): ${error.message}`);
   return { statusUpdated: Boolean(data?.length), metadataUpdated };
 }
@@ -190,7 +214,7 @@ async function leadFor(input: Payload): Promise<{ id: string; lead_id: string }>
   return data as { id: string; lead_id: string };
 }
 
-async function ingestOne(input: Payload) {
+async function ingestOne(input: Payload): Promise<IngestResult> {
   if (!input.messageId) throw new Error("messageId is required.");
   const direction = input.direction === "outgoing" ? "outgoing" : "incoming";
   const db = supabaseAdmin();
@@ -199,14 +223,20 @@ async function ingestOne(input: Payload) {
 
   const { data: existing, error: existingError } = await db
     .from("crm_messages")
-    .select("id")
+    .select("id,lead_id")
     .eq("platform", "whatsapp")
     .eq("platform_message_id", input.messageId)
     .maybeSingle();
   if (existingError) throw new Error(`whatsappMessage(find): ${existingError.message}`);
   if (existing?.id) {
     const updates = await updateExistingMessage(db, existing.id as string, input, statusAt);
-    return { messageId: existing.id as string, inserted: false, ...updates };
+    return {
+      messageId: existing.id as string,
+      storedMessageId: existing.id as string,
+      leadUid: (existing.lead_id as string | null) ?? undefined,
+      inserted: false,
+      ...updates,
+    };
   }
 
   if (input.statusOnly) {
@@ -216,13 +246,17 @@ async function ingestOne(input: Payload) {
   const lead = await leadFor(input);
 
   const media = Array.isArray(input.media) ? input.media : [];
-  const deliveryStatus = direction === "outgoing" ? input.deliveryStatus ?? "sent" : input.deliveryStatus ?? null;
+  const deliveryStatus = direction === "outgoing"
+    ? input.deliveryStatus === "failed" ? null : input.deliveryStatus ?? "sent"
+    : null;
   const { data: message, error } = await db
     .from("crm_messages")
     .insert({
       lead_id: lead.id,
+      source: "whatsapp_cloud_api",
       platform: "whatsapp",
       platform_message_id: input.messageId,
+      event_key: `whatsapp-message:${input.messageId}`,
       conversation_key: input.conversationId || input.whatsappUserId || input.phone || null,
       platform_user_id: input.whatsappUserId || input.phone || input.conversationId || null,
       direction,
@@ -276,7 +310,50 @@ async function ingestOne(input: Payload) {
     metadata: { platform_message_id: input.messageId, source: "whatsapp" },
   });
 
-  return { leadId: lead.lead_id, messageId: message.id as string, inserted: true };
+  return {
+    leadId: lead.lead_id,
+    leadUid: lead.id,
+    messageId: message.id as string,
+    storedMessageId: message.id as string,
+    inserted: true,
+  };
+}
+
+function statusName(input: Payload): string | null {
+  const whatsapp = input.messageMetadata?.whatsapp;
+  if (!whatsapp || typeof whatsapp !== "object" || Array.isArray(whatsapp)) return input.deliveryStatus ?? null;
+  const value = (whatsapp as { status?: unknown }).status;
+  return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : input.deliveryStatus ?? null;
+}
+
+async function logIngest(input: Payload, result?: IngestResult, failure?: unknown): Promise<void> {
+  const errorMessage = failure instanceof Error ? failure.message : failure ? String(failure) : null;
+  const status = statusName(input);
+  const updated = Boolean(result?.statusUpdated || result?.metadataUpdated);
+  const duplicate = Boolean(result && !result.inserted && !updated && !result.skipped);
+  const { error } = await supabaseAdmin().from("crm_ingest_logs").insert({
+    source: "whatsapp_cloud_api",
+    platform: "whatsapp",
+    record_type: input.statusOnly ? "event" : "message",
+    event_type: input.statusOnly ? "delivery_status" : "message",
+    event_action: input.statusOnly ? status : null,
+    event_key: `whatsapp-${input.statusOnly ? status || "status" : "message"}:${input.messageId}`,
+    platform_user_id: input.whatsappUserId || input.phone || null,
+    conversation_key: input.conversationId || input.whatsappUserId || input.phone || null,
+    platform_message_id: input.messageId || null,
+    message_id: result?.storedMessageId ?? null,
+    lead_id: result?.leadUid ?? null,
+    direction: input.direction ?? (input.statusOnly ? "outgoing" : "incoming"),
+    message_text: input.statusOnly ? null : input.text ?? null,
+    created: Boolean(result?.inserted),
+    updated,
+    skipped: Boolean(errorMessage || result?.skipped || duplicate),
+    skip_reason: errorMessage ? "error" : result?.reason ?? (duplicate ? "duplicate" : null),
+    match_reason: result?.leadUid ? "phone_or_whatsapp_id" : null,
+    errors: errorMessage ? [{ message: errorMessage }] : [],
+    raw_payload: input.rawPayload ?? {},
+  });
+  if (error) throw new Error(`whatsappIngestLog: ${error.message}`);
 }
 
 export async function POST(req: Request) {
@@ -311,8 +388,34 @@ export async function POST(req: Request) {
 
     // Keep ordering deterministic and avoid racing two messages into duplicate
     // lead creation for the same new phone number.
-    const result = [];
-    for (const input of inputs) result.push(await ingestOne(input));
+    const result: Array<Omit<IngestResult, "leadUid" | "storedMessageId">> = [];
+    const failures: Array<{ messageId: string; error: string }> = [];
+    for (const input of inputs) {
+      try {
+        const ingested = await ingestOne(input);
+        await logIngest(input, ingested).catch((logError) => console.error("WhatsApp ingest logging failed", logError));
+        const publicResult: Omit<IngestResult, "leadUid" | "storedMessageId"> = {
+          messageId: ingested.messageId,
+          inserted: ingested.inserted,
+          ...(ingested.leadId ? { leadId: ingested.leadId } : {}),
+          ...(ingested.statusUpdated !== undefined ? { statusUpdated: ingested.statusUpdated } : {}),
+          ...(ingested.metadataUpdated !== undefined ? { metadataUpdated: ingested.metadataUpdated } : {}),
+          ...(ingested.skipped !== undefined ? { skipped: ingested.skipped } : {}),
+          ...(ingested.reason ? { reason: ingested.reason } : {}),
+        };
+        result.push(publicResult);
+      } catch (recordError) {
+        console.error("WhatsApp ingest record failed", { messageId: input.messageId, error: recordError });
+        await logIngest(input, undefined, recordError).catch((logError) => console.error("WhatsApp ingest failure logging failed", logError));
+        failures.push({
+          messageId: input.messageId ?? "unknown",
+          error: recordError instanceof Error ? recordError.message : String(recordError),
+        });
+      }
+    }
+    if (failures.length) {
+      return NextResponse.json({ ok: false, error: "WhatsApp ingest failed.", records: result, failures }, { status: 400 });
+    }
     return NextResponse.json({ ok: true, records: result });
   } catch (error) {
     console.error("WhatsApp ingest failed", error);

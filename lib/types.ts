@@ -72,7 +72,7 @@ export interface User {
 }
 
 /** How far an outgoing message has travelled. `null` for incoming messages. */
-export type DeliveryStatus = "sent" | "delivered" | "seen";
+export type DeliveryStatus = "sent" | "delivered" | "seen" | "failed";
 
 /** How sure we are that a platform identifier really identifies one person. */
 export type IdentityConfidence = "strong" | "medium" | "weak" | "none";
@@ -131,6 +131,8 @@ export interface Message {
   editCount?: number;
   editedAt?: string;
   deliveryStatus?: DeliveryStatus;
+  deliveryError?: string;
+  deliveryErrorCode?: string;
   deliveredAt?: string;
   seenAt?: string;
   /** Present when the bubble originated from a quick-reply chip. */

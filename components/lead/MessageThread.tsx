@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Message, MessageAttachment } from "@/lib/types";
 import { formatDateTime, formatTime } from "@/lib/format";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AiReplyAssistant } from "@/components/lead/AiReplyAssistant";
 import { WhatsAppComposer } from "@/components/lead/WhatsAppComposer";
+import { mergeMessages } from "@/lib/messages/merge";
 
 const CHANNEL_LABEL: Record<Message["channel"], string> = {
   facebook: "Messenger",
@@ -139,6 +140,13 @@ export function MessageThread({
 }) {
   const [localMessages, setLocalMessages] = useState(messages);
 
+  // The channel tabs load asynchronously. Without syncing fresh props, the
+  // thread remains stuck on the one-message Overview preview (or an empty
+  // array) that existed when this component first mounted.
+  useEffect(() => {
+    setLocalMessages((current) => mergeMessages(current, messages));
+  }, [messages]);
+
   const latest = localMessages[localMessages.length - 1];
   const waiting = latest?.direction === "incoming";
   const tone = channelTone === "green" ? "bg-emerald-600" : channelTone === "pink" ? "bg-pink-600" : "bg-blue-600";
@@ -235,22 +243,28 @@ export function MessageThread({
               {(m.editCount ?? 0) > 0 && (
                 <span title={m.editedAt ? `Edited ${formatDateTime(m.editedAt)}` : undefined}>· Edited</span>
               )}
-              {out && m.deliveryStatus && (
+              {out && (m.deliveryStatus || m.channel === "whatsapp") && (
                 <span
-                  className={m.deliveryStatus === "seen" ? "text-primary" : undefined}
+                  className={m.deliveryStatus === "failed" ? "font-bold text-danger" : m.deliveryStatus === "seen" ? "text-primary" : undefined}
                   title={
-                    m.seenAt
+                    m.deliveryStatus === "failed"
+                      ? [m.deliveryErrorCode ? `Error ${m.deliveryErrorCode}` : null, m.deliveryError].filter(Boolean).join(": ") || "WhatsApp could not deliver this message."
+                      : m.seenAt
                       ? `Seen ${formatDateTime(m.seenAt)}`
                       : m.deliveredAt
                         ? `Delivered ${formatDateTime(m.deliveredAt)}`
                         : undefined
                   }
                 >
-                  · {m.deliveryStatus === "seen"
+                  · {m.deliveryStatus === "failed"
+                    ? `Failed${m.deliveryErrorCode ? ` (${m.deliveryErrorCode})` : ""}`
+                    : m.deliveryStatus === "seen"
                     ? `Read${m.seenAt ? ` at ${formatTime(m.seenAt)}` : ""}`
                     : m.deliveryStatus === "delivered"
                       ? `Delivered${m.deliveredAt ? ` at ${formatTime(m.deliveredAt)}` : ""}`
-                      : `Sent at ${formatTime(m.createdAt)}`}
+                      : m.deliveryStatus === "sent"
+                        ? `Sent at ${formatTime(m.createdAt)}`
+                        : "Accepted by Meta · awaiting delivery"}
                 </span>
               )}
               </div>

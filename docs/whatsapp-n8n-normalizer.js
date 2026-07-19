@@ -35,6 +35,7 @@ function deliveryStatus(value) {
   if (status === "read" || status === "seen") return "seen";
   if (status === "delivered") return "delivered";
   if (status === "sent") return "sent";
+  if (status === "failed") return "failed";
   return null;
 }
 

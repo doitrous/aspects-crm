@@ -106,6 +106,29 @@ function toUiChannel(platform: string | null): MessageChannel {
   }
 }
 
+function chunks<T>(items: T[], size = 200): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
+  return result;
+}
+
+function whatsappFailure(metadata: unknown): { error?: string; code?: string } | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const whatsapp = (metadata as { whatsapp?: unknown }).whatsapp;
+  if (!whatsapp || typeof whatsapp !== "object" || Array.isArray(whatsapp)) return null;
+  const detail = whatsapp as { status?: unknown; errors?: unknown };
+  if (String(detail.status ?? "").toLowerCase() !== "failed") return null;
+  const errors = Array.isArray(detail.errors) ? detail.errors : detail.errors ? [detail.errors] : [];
+  const first = errors[0];
+  if (!first || typeof first !== "object" || Array.isArray(first)) return {};
+  const error = first as { code?: unknown; title?: unknown; message?: unknown; error_data?: { details?: unknown } };
+  const text = error.error_data?.details ?? error.message ?? error.title;
+  return {
+    error: typeof text === "string" && text.trim() ? text.trim() : undefined,
+    code: error.code === undefined || error.code === null ? undefined : String(error.code),
+  };
+}
+
 const ESCALATED_STATES = ["escalated", "in_review"];
 
 function toUiEscalationStatus(status: string | null): EscalationStatus {
@@ -779,48 +802,60 @@ export const supabaseProvider: DataProvider = {
     // `is_conversation_content` is the gate that keeps delivery receipts, read
     // receipts, reactions and referrals out of the chat thread. Those live in
     // `crm_conversation_events` and are rendered as timeline cards, not bubbles.
-    let query = db
-      .from("crm_messages")
-      .select(
-        "id,platform,direction,message_text,sent_by_name,message_at,platform_message_id,message_type," +
-          "attachment_count,quick_reply_text,postback_title,reply_to_message_id,reply_to," +
-          "edit_count,edited_at,delivery_status,delivered_at,seen_at," +
-          "message_is_deleted,message_is_unsupported",
-      )
-      .eq("lead_id", uid)
-      .eq("is_conversation_content", true)
-      .order("message_at", { ascending: false })
-      .limit(100);
-    if (channels?.length) query = query.in("platform", channels);
-    const { data, error } = await query;
-    if (error) throw new Error(`messagesFor: ${error.message}`);
-
-    const rows = ((data ?? []) as unknown as Row[]).reverse();
+    const rows: Row[] = [];
+    const pageSize = 500;
+    for (let from = 0; ; from += pageSize) {
+      let query = db
+        .from("crm_messages")
+        .select(
+          "id,platform,direction,message_text,sent_by_name,message_at,platform_message_id,message_type," +
+            "attachment_count,quick_reply_text,postback_title,reply_to_message_id,reply_to," +
+            "edit_count,edited_at,delivery_status,delivered_at,seen_at,message_metadata," +
+            "message_is_deleted,message_is_unsupported",
+        )
+        .eq("lead_id", uid)
+        .eq("is_conversation_content", true)
+        .order("message_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (channels?.length) query = query.in("platform", channels);
+      const { data, error } = await query;
+      if (error) throw new Error(`messagesFor: ${error.message}`);
+      const page = (data ?? []) as unknown as Row[];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
     if (rows.length === 0) return [];
 
     const ids = rows.map((m) => m.id as string);
     const platformIds = rows.map((m) => m.platform_message_id as string | null).filter((v): v is string => Boolean(v));
 
-    const [attachments, reactions] = await Promise.all([
+    const [attachmentGroups, reactionGroups] = await Promise.all([
       rows.some((m) => ((m.attachment_count as number | null) ?? 0) > 0)
-        ? db
-            .from("crm_message_attachments")
-            .select("id,message_id,attachment_index,type,raw_type,url,title,name,sticker_id")
-            .in("message_id", ids)
-            .order("attachment_index", { ascending: true })
-        : Promise.resolve({ data: [] as Row[] }),
+        ? Promise.all(chunks(ids).map((batch) => db
+          .from("crm_message_attachments")
+          .select("id,message_id,attachment_index,type,raw_type,url,title,name,sticker_id")
+          .in("message_id", batch)
+          .order("attachment_index", { ascending: true })))
+        : Promise.resolve([]),
       platformIds.length
-        ? db
-            .from("crm_message_reactions")
-            .select("id,target_message_id,reaction_emoji,reaction_type,actor_platform_user_id,reacted_at")
-            .in("target_message_id", platformIds)
-            .eq("is_active", true)
-            .order("reacted_at", { ascending: true })
-        : Promise.resolve({ data: [] as Row[] }),
+        ? Promise.all(chunks(platformIds).map((batch) => db
+          .from("crm_message_reactions")
+          .select("id,target_message_id,reaction_emoji,reaction_type,actor_platform_user_id,reacted_at")
+          .in("target_message_id", batch)
+          .eq("is_active", true)
+          .order("reacted_at", { ascending: true })))
+        : Promise.resolve([]),
     ]);
 
+    for (const result of [...attachmentGroups, ...reactionGroups]) {
+      if (result.error) throw new Error(`messagesFor(relations): ${result.error.message}`);
+    }
+    const attachments = attachmentGroups.flatMap((result) => (result.data ?? []) as unknown as Row[]);
+    const reactions = reactionGroups.flatMap((result) => (result.data ?? []) as unknown as Row[]);
+
     const attByMessage = new Map<string, MessageAttachment[]>();
-    for (const a of (attachments.data ?? []) as unknown as Row[]) {
+    for (const a of attachments) {
       const key = a.message_id as string;
       const list = attByMessage.get(key) ?? [];
       list.push({
@@ -839,7 +874,7 @@ export const supabaseProvider: DataProvider = {
     // Reactions are keyed by the PLATFORM message id, because a reaction can
     // arrive before the message it targets has been ingested.
     const rxnByPlatformId = new Map<string, MessageReaction[]>();
-    for (const r of (reactions.data ?? []) as unknown as Row[]) {
+    for (const r of reactions) {
       const key = r.target_message_id as string;
       const list = rxnByPlatformId.get(key) ?? [];
       list.push({
@@ -863,6 +898,7 @@ export const supabaseProvider: DataProvider = {
       const replyToId = m.reply_to_message_id as string | null;
       const original = replyToId ? byPlatformId.get(replyToId) : undefined;
       const replyToRaw = (m.reply_to ?? null) as { message_text?: string; sender_name?: string } | null;
+      const failed = m.platform === "whatsapp" ? whatsappFailure(m.message_metadata) : null;
 
       return {
         id: m.id as string,
@@ -888,7 +924,9 @@ export const supabaseProvider: DataProvider = {
           : undefined,
         editCount: (m.edit_count as number | null) ?? 0,
         editedAt: (m.edited_at as string) ?? undefined,
-        deliveryStatus: (m.delivery_status as Message["deliveryStatus"]) ?? undefined,
+        deliveryStatus: failed ? "failed" : (m.delivery_status as Message["deliveryStatus"]) ?? undefined,
+        deliveryError: failed?.error,
+        deliveryErrorCode: failed?.code,
         deliveredAt: (m.delivered_at as string) ?? undefined,
         seenAt: (m.seen_at as string) ?? undefined,
         quickReplyText: (m.quick_reply_text as string) ?? undefined,

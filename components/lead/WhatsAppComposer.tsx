@@ -122,7 +122,7 @@ export function WhatsAppComposer({
       }
       onSent(result.message);
       setText("");
-      setStatus(result.warning || "WhatsApp message sent");
+      setStatus(result.warning || "Accepted by Meta; awaiting WhatsApp delivery confirmation");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "WhatsApp could not send the message.");
     } finally {
