@@ -47,6 +47,10 @@ list, not `ls`:
    metadata **on top of** the baseline (e.g. `crm_lead_financials` has an FK to
    `leads`, created in `014`).
 
+The current repository ledger ends at `0043_lead_trash_retention.sql`. Apply
+`0043` before deploying the matching Lead Trash application code; it adds the
+recoverable state and service-role-only atomic trash, restore, and purge functions.
+
 `baseline/` is history, already applied — do not re-run it against the live
 database. New work goes in `migrations/` with the next `00NN_` number.
 

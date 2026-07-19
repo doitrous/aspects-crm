@@ -30,6 +30,14 @@ const T0 = "2026-07-01T10:00:00.000Z";
 const at = (minutes: number) => new Date(Date.parse(T0) + minutes * 60_000).toISOString();
 const ms = (minutes: number) => Date.parse(T0) + minutes * 60_000;
 
+function assertClinicBusinessSuiteRouting(url: URL) {
+  assert.equal(url.origin, "https://business.facebook.com");
+  assert.equal(url.searchParams.get("asset_id"), "108936313808091");
+  assert.equal(url.searchParams.get("business_id"), "259356358213562");
+  assert.equal(url.searchParams.get("ir_qe_exposed"), "1");
+  assert.equal(url.searchParams.get("mailbox_id"), "108936313808091");
+}
+
 function newStore(): MemoryStore {
   resetIds();
   return new MemoryStore();
@@ -175,6 +183,7 @@ test("01 — FB incoming text creates the lead, one bubble, unread + SLA clock",
   assert.equal(lead.replyOverdueAt, at(REPLY_SLA_MINUTES));
   const sourceLink = new URL(lead.conversationLink!);
   assert.equal(sourceLink.pathname, "/latest/inbox/all");
+  assertClinicBusinessSuiteRouting(sourceLink);
   assert.equal(sourceLink.searchParams.get("selected_item_id"), "PSID_1");
   assert.equal(sourceLink.searchParams.get("thread_type"), "FB_MESSAGE");
 
@@ -549,9 +558,23 @@ test("17 — new FB comment creates the lead and marks it unread", async () => {
   assert.equal(c.postId, "POST1");
   const sourceLink = new URL(c.commentLink!);
   assert.equal(sourceLink.pathname, "/latest/inbox/facebook");
+  assertClinicBusinessSuiteRouting(sourceLink);
   assert.equal(sourceLink.searchParams.get("selected_item_id"), "POST1");
   assert.equal(sourceLink.searchParams.get("thread_type"), "FB_PAGE_POST");
   assert.equal(s.leads[0].hasUnread, true, "a real customer comment is incoming content");
+});
+
+test("17b — FB ad comments retain the FB_AD_POST Business Suite classification", async () => {
+  const event = toEvents(fbComment({
+    post_id: "1698976024804104",
+    ad_id: "synthetic-ad-id",
+  }))[0];
+  assert.equal(event.recordType, "comment");
+  if (event.recordType !== "comment") assert.fail("expected comment event");
+  const sourceLink = new URL(event.commentLink!);
+  assertClinicBusinessSuiteRouting(sourceLink);
+  assert.equal(sourceLink.searchParams.get("selected_item_id"), "1698976024804104");
+  assert.equal(sourceLink.searchParams.get("thread_type"), "FB_AD_POST");
 });
 
 test("18 — FB comment reply is threaded under its parent", async () => {
@@ -645,7 +668,22 @@ test("22 — IG incoming DM creates the lead and marks it unread", async () => {
   assert.equal(s.leads[0].hasUnread, true);
   const sourceLink = new URL(s.leads[0].conversationLink!);
   assert.equal(sourceLink.pathname, "/latest/inbox/instagram_direct");
+  assertClinicBusinessSuiteRouting(sourceLink);
   assert.equal(sourceLink.searchParams.get("selected_item_id"), "IGSID_1");
+  assert.equal(sourceLink.searchParams.get("thread_type"), "IG_MESSAGE");
+});
+
+test("22b — explicit n8n selected_item_id wins for Instagram DM", () => {
+  const event = toEvents(igIncoming({
+    platform_user_id: "wrong-customer-id",
+    customer_instagram_id: "wrong-customer-id",
+    selected_item_id: "340282366841710301244259915952811050007",
+  }))[0];
+  assert.equal(event.recordType, "message");
+  if (event.recordType !== "message") assert.fail("expected message event");
+  const sourceLink = new URL(event.conversationLink!);
+  assertClinicBusinessSuiteRouting(sourceLink);
+  assert.equal(sourceLink.searchParams.get("selected_item_id"), "340282366841710301244259915952811050007");
   assert.equal(sourceLink.searchParams.get("thread_type"), "IG_MESSAGE");
 });
 
@@ -840,6 +878,7 @@ test("34 — new IG comment creates the lead", async () => {
   assert.equal(s.comments[0].mediaId, "MEDIA1");
   const sourceLink = new URL(s.comments[0].commentLink!);
   assert.equal(sourceLink.pathname, "/latest/inbox/instagram");
+  assertClinicBusinessSuiteRouting(sourceLink);
   assert.equal(sourceLink.searchParams.get("selected_item_id"), "MEDIA1");
   assert.equal(sourceLink.searchParams.get("thread_type"), "INSTAGRAM_POST");
   assert.equal(s.leads.length, 1);
@@ -1201,7 +1240,7 @@ test("49 — CRM rebuilds a broken n8n conversation link for an existing lead", 
   assert.equal(s.contentMessages().length, 1);
   const repaired = new URL(s.leads[0].conversationLink!);
   assert.equal(repaired.pathname, "/latest/inbox/all");
-  assert.equal(repaired.searchParams.get("asset_id"), "PAGE1");
+  assertClinicBusinessSuiteRouting(repaired);
   assert.equal(repaired.searchParams.get("selected_item_id"), "PSID_1");
   assert.equal(repaired.searchParams.get("thread_type"), "FB_MESSAGE");
   assert.equal(s.leads[0].fallbackInboxLink, "https://business.facebook.com/latest/inbox/all");

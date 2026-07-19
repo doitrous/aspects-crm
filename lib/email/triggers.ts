@@ -11,7 +11,7 @@ import { dispatchTrigger, type DispatchOutcome } from "@/lib/email/send";
 
 async function leadUidFromHumanId(leadId: string): Promise<string | null> {
   if (!leadId) return null;
-  const { data } = await supabaseAdmin().from("leads").select("id").eq("lead_id", leadId).maybeSingle();
+  const { data } = await supabaseAdmin().from("leads").select("id").eq("lead_id", leadId).is("deleted_at", null).maybeSingle();
   return (data?.id as string) ?? null;
 }
 

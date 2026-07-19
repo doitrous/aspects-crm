@@ -337,19 +337,17 @@ function normalizeMessage(input: Rec, now: () => Date): MetaMessageEvent {
   });
   const pageId = str(o, "page_id");
   const recipientPageId = str(o, "recipient_page_id");
-  const selectedItemId = identity.isFallback ? null : identity.platformUserId;
+  const selectedItemId =
+    str(o, "selected_item_id", "business_suite_selected_item_id") ??
+    (identity.isFallback ? null : identity.platformUserId);
   const generatedConversationLink = buildMetaBusinessSuiteLink({
     platform,
     kind: "message",
     selectedItemId,
-    pageId,
-    recipientPageId,
   });
   const generatedInboxLink = buildMetaBusinessSuiteLink({
     platform,
     kind: "message",
-    pageId,
-    recipientPageId,
   });
 
   return {
@@ -483,15 +481,17 @@ function normalizeComment(input: Rec, now: () => Date): MetaCommentEvent {
   const postId = str(o, "post_id");
   const mediaId = str(o, "media_id");
   const adId = str(o, "ad_id");
-  const selectedItemId = platform === "instagram"
-    ? (mediaId ?? postId ?? str(o, "thread_root_comment_id") ?? commentId)
-    : (postId ?? str(o, "thread_root_comment_id") ?? commentId);
+  const selectedItemId =
+    str(o, "selected_item_id", "business_suite_selected_item_id") ??
+    (platform === "instagram"
+      ? (mediaId ?? postId ?? str(o, "thread_root_comment_id") ?? commentId)
+      : (postId ?? str(o, "thread_root_comment_id") ?? commentId));
   const generatedCommentLink = buildMetaBusinessSuiteLink({
     platform,
     kind: "comment",
     selectedItemId,
-    pageId,
     adId,
+    threadType: str(o, "thread_type", "business_suite_thread_type"),
   });
 
   return {
@@ -605,6 +605,8 @@ function messagingToFlat(m: Rec, entry: Rec, webhookObject: string | null): Rec 
     sender_id: str(sender, "id"),
     recipient_id: str(recipient, "id"),
     platform_user_id: customerId,
+    selected_item_id: str(m, "selected_item_id") ?? (message ? str(message, "selected_item_id") : null),
+    thread_type: str(m, "thread_type") ?? (message ? str(message, "thread_type") : null),
     message_timestamp: m["timestamp"] ?? null,
     is_echo: isEcho,
     direction: isEcho ? "outgoing" : "incoming",
@@ -690,6 +692,9 @@ function changeToFlat(c: Rec, entry: Rec, webhookObject: string | null): Rec {
     raw_parent_id: str(value, "parent_id"),
     post_id: str(value, "post_id") ?? (post ? str(post, "id") : null),
     media_id: media ? str(media, "id") : null,
+    selected_item_id: str(value, "selected_item_id"),
+    thread_type: str(value, "thread_type"),
+    ad_id: str(value, "ad_id"),
     media_product_type: media ? str(media, "media_product_type") : null,
     commenter_id: str(from, "id"),
     commenter_name: str(from, "name"),

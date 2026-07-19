@@ -60,6 +60,7 @@ import { resolveDuplicateAction } from "@/app/(crm)/duplicates/actions";
 import { EscalationResolutionControls } from "@/components/queues/EscalationResolutionControls";
 import { mergeMessages } from "@/lib/messages/merge";
 import { deriveLeadBookingSummary } from "@/lib/booking/leadSummary";
+import { DeleteLeadButton } from "@/components/leads/LeadDeletionControls";
 
 const TABS = [
   "Overview",
@@ -196,6 +197,7 @@ export interface LeadDetailData {
   escalationReasons: Array<ReferenceOption & { severity?: string }>;
   treatingDoctors: TreatingDoctorAssignment[];
   canReturnToDatabase: boolean;
+  canDelete: boolean;
 }
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -983,6 +985,7 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
               <SectionLabel>Timeline</SectionLabel>
               <TimelinePanel events={data.timeline} embedded />
             </div>
+            {data.canDelete && <DeleteLeadButton leadId={lead.id} patientName={lead.patientName} />}
           </div>
         )}
       </div>

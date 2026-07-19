@@ -64,6 +64,10 @@ trust the repository, restart Codex, and verify with `/mcp` or
 3. Run `npm ci`, `npm run build`, then `npm run start` (port 3100).
 4. Schedule `POST /api/cron/overdue-emails` with `Authorization: Bearer
    <CRON_SECRET>`. Do not place the secret in a URL for new schedulers.
+5. After applying migration `0043_lead_trash_retention.sql`, schedule
+   `POST /api/cron/purge-lead-trash` daily with the same authorization header.
+   This permanently removes items after their exact 30-day retention deadline.
+   Opening Settings → Trash also runs the same idempotent purge.
 
 The booking integration and messaging/email integrations degrade independently
 when they are not configured; CRM authentication and the CRM service-role key

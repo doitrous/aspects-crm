@@ -166,6 +166,7 @@ async function leadFor(input: Payload): Promise<{ id: string; lead_id: string }>
       .from("leads")
       .select("id,lead_id")
       .eq("normalized_phone", matchablePhone)
+      .is("deleted_at", null)
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -178,6 +179,7 @@ async function leadFor(input: Payload): Promise<{ id: string; lead_id: string }>
       .from("leads")
       .select("id,lead_id")
       .eq("platform_id", platformId)
+      .is("deleted_at", null)
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -299,7 +301,7 @@ async function ingestOne(input: Payload): Promise<IngestResult> {
   const patch = direction === "outgoing"
     ? { has_unread: false, last_outgoing_at: messageAt, last_contact_at: messageAt }
     : { has_unread: true, last_incoming_at: messageAt, last_contact_at: messageAt };
-  const { error: leadError } = await db.from("leads").update(patch).eq("id", lead.id);
+  const { error: leadError } = await db.from("leads").update(patch).eq("id", lead.id).is("deleted_at", null);
   if (leadError) throw new Error(`whatsappLead(update): ${leadError.message}`);
 
   await db.from("lead_timeline_events").insert({

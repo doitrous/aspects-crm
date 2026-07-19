@@ -24,6 +24,7 @@ async function leadByHumanId(leadId: string) {
   const { data, error } = await supabaseAdmin().from("leads")
     .select("id,lead_id,name")
     .eq("lead_id", leadId)
+    .is("deleted_at", null)
     .is("merged_into_lead_id", null)
     .maybeSingle();
   if (error) throw new Error(`leadRelationship(resolve): ${error.message}`);
@@ -72,7 +73,7 @@ export async function unlinkLeads(input: { leadId: string; linkId: string }): Pr
   if (readError) throw new Error(`unlinkLeads(read): ${readError.message}`);
   if (!link || (link.lead_a_id !== lead.id && link.lead_b_id !== lead.id)) throw new LeadRelationshipError("This relationship is no longer available.");
   const targetUid = link.lead_a_id === lead.id ? link.lead_b_id : link.lead_a_id;
-  const { data: target } = await db.from("leads").select("lead_id").eq("id", targetUid).maybeSingle();
+  const { data: target } = await db.from("leads").select("lead_id").eq("id", targetUid).is("deleted_at", null).maybeSingle();
   const { error } = await db.from("crm_lead_links").delete().eq("id", input.linkId);
   if (error) throw new Error(`unlinkLeads: ${error.message}`);
   await Promise.all([

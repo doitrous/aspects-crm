@@ -65,13 +65,13 @@ const EXISTING_COLUMNS = "id,lead_id,name,mrn,phone_number,service_name,gender,n
 async function existingLead(row: LeadImportRowInput, importId?: string): Promise<ExistingMatch | null> {
   const db = supabaseAdmin();
   if (row.mrn && /^\d{1,9}$/.test(row.mrn)) {
-    const { data, error } = await db.from("leads").select(EXISTING_COLUMNS).eq("mrn", row.mrn.trim()).is("merged_into_lead_id", null).limit(1).maybeSingle();
+    const { data, error } = await db.from("leads").select(EXISTING_COLUMNS).eq("mrn", row.mrn.trim()).is("deleted_at", null).is("merged_into_lead_id", null).limit(1).maybeSingle();
     if (error) throw error;
     if (data?.lead_id) return { match: "mrn", lead: data as ExistingMatch["lead"] };
   }
   const phone = phoneDuplicateKey(row.phone);
   if (phone) {
-    const phoneQuery = db.from("leads").select(EXISTING_COLUMNS).is("merged_into_lead_id", null).limit(1);
+    const phoneQuery = db.from("leads").select(EXISTING_COLUMNS).is("deleted_at", null).is("merged_into_lead_id", null).limit(1);
     const { data, error } = await (phone.length >= 7
       ? phoneQuery.ilike("normalized_phone", `%${phone}`)
       : phoneQuery.or(`normalized_phone.eq.${phone},normalized_phone.eq.20${phone}`)).maybeSingle();
@@ -87,6 +87,7 @@ async function existingLead(row: LeadImportRowInput, importId?: string): Promise
       .select(EXISTING_COLUMNS)
       .eq("metadata->>bulk_import_id", importId)
       .eq("metadata->>import_row", String(row.rowIndex + 1))
+      .is("deleted_at", null)
       .limit(1)
       .maybeSingle();
     if (error) throw error;

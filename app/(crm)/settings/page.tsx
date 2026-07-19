@@ -3,6 +3,7 @@ import { Topbar } from "@/components/shell/Topbar";
 import { SchedulingSettings } from "@/components/settings/SchedulingSettings";
 import { DoctorsSettings } from "@/components/settings/DoctorsSettings";
 import { FinancialSettingsManager } from "@/components/financial/FinancialSettingsManager";
+import { LeadTrashManager } from "@/components/settings/LeadTrashManager";
 import { SettingsManager, type IntegrationStatus, type SettingsTabKey } from "@/components/settings/SettingsManager";
 import { bookingConfigured } from "@/lib/booking/client";
 import { crmDoctorCatalogSnapshot } from "@/lib/booking/doctors";
@@ -13,6 +14,7 @@ import { can } from "@/lib/auth/permissions";
 import { requireSession } from "@/lib/data/session";
 import { leadSourcesList } from "@/lib/data";
 import { financialSettingsData } from "@/lib/data/financialSettings";
+import { listTrashedLeads } from "@/lib/data/leadTrash";
 import {
   getAiPrompt,
   getAuditorSettings,
@@ -41,7 +43,7 @@ function integrations(): IntegrationStatus[] {
 
 const SETTINGS_SECTIONS = new Set<SettingsTabKey>([
   "account", "bulkImport", "tags", "lost", "escalation", "followup", "rules", "sources",
-  "duplicates", "reporting", "ai", "integrations", "ingestion", "users", "doctors", "scheduling", "financial", "email",
+  "duplicates", "reporting", "ai", "integrations", "ingestion", "users", "doctors", "scheduling", "financial", "email", "trash",
 ]);
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ section?: string; financeTab?: string }> }) {
@@ -51,7 +53,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const params = await searchParams;
   const initialTab = SETTINGS_SECTIONS.has(params.section as SettingsTabKey) ? params.section as SettingsTabKey : "scheduling";
 
-  const [tags, lostReasons, escalationReasons, slaRules, followUpStages, auditorSettings, aiPrompt, sources, doctors, scheduling, financial, ingestLogs, ingestionFailures] =
+  const [tags, lostReasons, escalationReasons, slaRules, followUpStages, auditorSettings, aiPrompt, sources, doctors, scheduling, financial, ingestLogs, ingestionFailures, trashedLeads] =
     await Promise.all([
       listTags(),
       listLostReasons(),
@@ -66,6 +68,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       financialSettingsData(),
       listIngestLogs(),
       listIngestionFailures(),
+      listTrashedLeads(),
     ]);
 
   return (
@@ -89,6 +92,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           financial={<FinancialSettingsManager data={financial} initialTab={params.financeTab} />}
           ingestLogs={ingestLogs}
           ingestionFailures={ingestionFailures}
+          trash={<LeadTrashManager leads={trashedLeads} />}
         />
       </div>
     </>

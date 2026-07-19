@@ -459,7 +459,8 @@ export type SettingsTabKey =
   | "financial"
   | "email"
   | "ingestion"
-  | "users";
+  | "users"
+  | "trash";
 
 const TABS: Array<{ key: SettingsTabKey; label: string }> = [
   { key: "account", label: "Profile & Security" },
@@ -480,6 +481,7 @@ const TABS: Array<{ key: SettingsTabKey; label: string }> = [
   { key: "scheduling", label: "Doctors & Scheduling" },
   { key: "financial", label: "Financial Settings" },
   { key: "email", label: "Email" },
+  { key: "trash", label: "Trash" },
 ];
 
 export interface IntegrationStatus {
@@ -506,6 +508,7 @@ export function SettingsManager({
   financial,
   ingestLogs,
   ingestionFailures,
+  trash,
 }: {
   initialTab?: SettingsTabKey;
   canManage: boolean;
@@ -523,6 +526,7 @@ export function SettingsManager({
   financial: ReactNode;
   ingestLogs: IngestLogSetting[];
   ingestionFailures: IngestionFailureSetting[];
+  trash: ReactNode;
 }) {
   const [tab, setTab] = useState<SettingsTabKey>(initialTab);
 
@@ -705,6 +709,7 @@ export function SettingsManager({
 
         {tab === "doctors" && <div>{doctors}</div>}
         {tab === "scheduling" && <div>{scheduling}</div>}
+        {tab === "trash" && <div>{trash}</div>}
       </div>
     </div>
   );

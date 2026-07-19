@@ -2,30 +2,65 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { deleteAllLeadsAction, deleteLeadAction, type DeleteLeadState } from "@/app/(crm)/database/actions";
+import { deleteLeadAction, type DeleteLeadState } from "@/app/(crm)/database/actions";
+import { trashConfirmation } from "@/lib/leads/trash";
 
 const IDLE: DeleteLeadState = { ok: false };
 
-function WarningShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  return <div className="fixed inset-0 z-[80] flex items-center justify-center p-4" onClick={(event)=>event.stopPropagation()}><button type="button" aria-label="Close deletion warning" onClick={onClose} className="absolute inset-0 bg-black/60"/><div role="dialog" aria-modal="true" className="relative z-10 w-full max-w-lg rounded-2xl border border-red-200 bg-panel p-5 shadow-2xl">{children}</div></div>;
-}
-
 export function DeleteLeadButton({ leadId, patientName }: { leadId: string; patientName: string }) {
   const router = useRouter();
-  const [step,setStep]=useState(0); const [confirmation,setConfirmation]=useState("");
-  const [state,action,pending]=useActionState(deleteLeadAction,IDLE);
-  useEffect(()=>{if(state.ok){setStep(0);setConfirmation("");router.refresh();}},[state.ok,router]);
-  return <div onClick={(event)=>event.stopPropagation()} onKeyDown={(event)=>event.stopPropagation()}>
-    <button type="button" onClick={()=>setStep(1)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-bold text-red-700 hover:bg-red-100">Delete</button>
-    {step>0&&<WarningShell onClose={()=>setStep(0)}>{step===1?<><div className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Warning 1 of 2</div><h2 className="mt-2 text-xl font-black text-ink-900">Permanently delete {leadId}?</h2><p className="mt-2 text-sm text-ink-600"><strong>{patientName}</strong> and all linked messages, follow-ups, bookings, financial records, notes, and history may be permanently removed. This cannot be undone.</p><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={()=>setStep(0)} className="rounded-xl border border-line px-4 py-2 text-sm font-bold text-ink-600">Cancel</button><button type="button" onClick={()=>setStep(2)} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white">I understand — continue</button></div></>:<><div className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Warning 2 of 2 · Final warning</div><h2 className="mt-2 text-xl font-black text-red-700">There is no recovery after this step</h2><p className="mt-2 text-sm text-ink-600">Type <strong className="font-mono text-red-700">DELETE {leadId}</strong> to confirm permanent deletion.</p><form action={action} className="mt-4"><input type="hidden" name="leadId" value={leadId}/><input type="hidden" name="warningOne" value="acknowledged"/><input type="hidden" name="warningTwo" value="acknowledged"/><input name="confirmation" value={confirmation} onChange={(event)=>setConfirmation(event.target.value)} autoComplete="off" className="w-full rounded-xl border border-red-300 bg-red-50 px-3 py-3 font-mono text-base font-bold text-red-800" placeholder={`DELETE ${leadId}`}/>{state.error&&<p className="mt-2 text-xs font-bold text-red-600">{state.error}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={()=>setStep(0)} className="rounded-xl border border-line px-4 py-2 text-sm font-bold text-ink-600">Cancel</button><button disabled={pending||confirmation!==`DELETE ${leadId}`} className="rounded-xl bg-red-700 px-4 py-2 text-sm font-black text-white disabled:opacity-40">{pending?"Deleting…":"Permanently delete lead"}</button></div></form></>}</WarningShell>}
-  </div>;
-}
+  const [open, setOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [state, action, pending] = useActionState(deleteLeadAction, IDLE);
+  const expected = trashConfirmation(leadId);
 
-export function DeleteAllLeadsButton({ total }: { total: number }) {
-  const router=useRouter(); const [step,setStep]=useState(0); const [confirmation,setConfirmation]=useState("");
-  const [state,action,pending]=useActionState(deleteAllLeadsAction,IDLE);
-  useEffect(()=>{if(state.ok){setStep(0);setConfirmation("");router.refresh();}},[state.ok,router]);
-  return <><button type="button" disabled={total===0} onClick={()=>setStep(1)} className="min-h-10 rounded-xl border border-red-300 bg-red-50 px-3 text-xs font-black text-red-700 disabled:opacity-40">Delete all leads</button>
-    {step>0&&<WarningShell onClose={()=>setStep(0)}>{step===1?<><div className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Warning 1 of 2</div><h2 className="mt-2 text-xl font-black text-ink-900">Start with an empty lead database?</h2><p className="mt-2 text-sm text-ink-600">This will permanently delete <strong className="text-red-700">all {total} leads</strong> and their linked operational and financial data. User accounts, settings, services, and doctors are not deleted.</p><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={()=>setStep(0)} className="rounded-xl border border-line px-4 py-2 text-sm font-bold text-ink-600">Cancel</button><button type="button" onClick={()=>setStep(2)} className="rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white">I understand — show final warning</button></div></>:<><div className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">Warning 2 of 2 · Final warning</div><h2 className="mt-2 text-xl font-black text-red-700">Delete every lead permanently</h2><p className="mt-2 text-sm text-ink-600">Type <strong className="font-mono text-red-700">DELETE ALL LEADS</strong>. This action cannot be undone.</p><form action={action} className="mt-4"><input type="hidden" name="warningOne" value="acknowledged"/><input type="hidden" name="warningTwo" value="acknowledged"/><input name="confirmation" value={confirmation} onChange={(event)=>setConfirmation(event.target.value)} autoComplete="off" className="w-full rounded-xl border border-red-300 bg-red-50 px-3 py-3 font-mono text-base font-bold text-red-800" placeholder="DELETE ALL LEADS"/>{state.error&&<p className="mt-2 text-xs font-bold text-red-600">{state.error}</p>}<div className="mt-5 flex justify-end gap-2"><button type="button" onClick={()=>setStep(0)} className="rounded-xl border border-line px-4 py-2 text-sm font-bold text-ink-600">Cancel</button><button disabled={pending||confirmation!=="DELETE ALL LEADS"} className="rounded-xl bg-red-800 px-4 py-2 text-sm font-black text-white disabled:opacity-40">{pending?"Deleting all leads…":`Delete all ${total} leads`}</button></div></form></>}</WarningShell>}
-  </>;
+  useEffect(() => {
+    if (!state.ok) return;
+    setOpen(false);
+    setConfirmation("");
+    router.replace("/leads");
+    router.refresh();
+  }, [router, state.ok]);
+
+  return (
+    <section className="rounded-xl border border-red-200 bg-red-50/70 p-4" onClick={(event) => event.stopPropagation()}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[12px] font-black text-red-800">Delete lead</div>
+          <p className="mt-1 max-w-2xl text-[11.5px] leading-5 text-red-700">
+            Remove {patientName} from every CRM list, search, report, conversation, and workflow. The complete record remains recoverable in Settings → Trash for 30 days, then it is permanently purged.
+          </p>
+        </div>
+        <button type="button" onClick={() => setOpen(true)} className="rounded-control border border-red-300 bg-white px-3 py-2 text-[11.5px] font-black text-red-700 hover:bg-red-100">
+          Move to Trash
+        </button>
+      </div>
+      {open && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+          <button type="button" aria-label="Close delete confirmation" onClick={() => setOpen(false)} className="absolute inset-0 bg-black/60" />
+          <div role="dialog" aria-modal="true" className="relative z-10 w-full max-w-lg rounded-2xl border border-red-200 bg-panel p-5 shadow-2xl">
+            <div className="text-[10px] font-black uppercase tracking-[.16em] text-red-600">30-day recoverable deletion</div>
+            <h2 className="mt-2 text-xl font-black text-ink-900">Move {leadId} to Trash?</h2>
+            <p className="mt-2 text-sm leading-6 text-ink-600">
+              The lead immediately disappears from active CRM areas. Admins and auditors can restore the complete record from Settings → Trash during the next 30 days.
+            </p>
+            <form action={action} className="mt-4">
+              <input type="hidden" name="leadId" value={leadId} />
+              <label className="text-[12px] font-semibold text-ink-700">
+                Type <strong className="font-mono text-red-700">{expected}</strong>
+                <input name="confirmation" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" className="mt-2 w-full rounded-xl border border-red-300 bg-red-50 px-3 py-3 font-mono text-sm font-bold text-red-800" />
+              </label>
+              {state.error && <p className="mt-2 text-xs font-bold text-red-600">{state.error}</p>}
+              <div className="mt-5 flex justify-end gap-2">
+                <button type="button" onClick={() => setOpen(false)} className="rounded-xl border border-line px-4 py-2 text-sm font-bold text-ink-600">Cancel</button>
+                <button disabled={pending || confirmation !== expected} className="rounded-xl bg-red-700 px-4 py-2 text-sm font-black text-white disabled:opacity-40">
+                  {pending ? "Moving…" : "Move to Trash"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }

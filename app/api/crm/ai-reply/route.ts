@@ -62,6 +62,7 @@ export async function POST(request: Request) {
     .from("leads")
     .select("id,lead_id,name,phone_country_code,phone_number,status,platform,service_name")
     .eq("lead_id", humanLeadId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (leadError || !lead) return NextResponse.json({ error: "Lead could not be found." }, { status: 404 });
 

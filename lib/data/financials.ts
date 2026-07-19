@@ -351,6 +351,7 @@ async function leadRow(humanId: string): Promise<LeadRow> {
     .from("leads")
     .select("id, lead_id, service_name, booking_service_id, coordinator_user_id, doctor_id, initial_price, metadata")
     .eq("lead_id", humanId)
+    .is("deleted_at", null)
     .maybeSingle<LeadRow>();
   if (!data) throw new FinancialError("That lead no longer exists.");
   return data;

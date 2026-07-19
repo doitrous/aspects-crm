@@ -73,7 +73,7 @@ export async function samePatientDuplicateAction(flagId: string, canonicalLeadId
     const actor = await writeActor();
     assertCan(actor.role, "leads.edit");
     const db = supabaseAdmin();
-    const { data: canonical, error } = await db.from("leads").select("id").eq("lead_id", canonicalLeadId).maybeSingle();
+    const { data: canonical, error } = await db.from("leads").select("id").eq("lead_id", canonicalLeadId).is("deleted_at", null).maybeSingle();
     if (error || !canonical) throw new Error("Canonical lead not found.");
     const { error: rpcError } = await db.rpc("crm_link_duplicate_same_patient", { target_flag_id: flagId, canonical_lead_id: canonical.id, actor_id: actor.id, moderator_note: note?.trim() || null });
     if (rpcError) throw rpcError;

@@ -33,13 +33,17 @@ export async function listEmailLog(limit = 200): Promise<EmailLogRow[]> {
   const { data, error } = await db
     .from("crm_email_log")
     .select(
-      "id,created_at,sent_at,rule_key,trigger,recipients,subject,status,provider,provider_message_id,error,lead_id,leads(lead_id)",
+      "id,created_at,sent_at,rule_key,trigger,recipients,subject,status,provider,provider_message_id,error,lead_id,leads(lead_id,deleted_at)",
     )
     .order("created_at", { ascending: false })
     .limit(Math.min(limit, 500));
   if (error) throw new Error(`listEmailLog: ${error.message}`);
-  return (data ?? []).map((r) => {
-    const leadJoin = r.leads as { lead_id?: string } | { lead_id?: string }[] | null;
+  return (data ?? []).filter((r) => {
+    const leadJoin = r.leads as { deleted_at?: string | null } | { deleted_at?: string | null }[] | null;
+    const joined = Array.isArray(leadJoin) ? leadJoin[0] : leadJoin;
+    return !joined?.deleted_at;
+  }).map((r) => {
+    const leadJoin = r.leads as { lead_id?: string; deleted_at?: string | null } | { lead_id?: string; deleted_at?: string | null }[] | null;
     const leadHumanId = Array.isArray(leadJoin) ? leadJoin[0]?.lead_id : leadJoin?.lead_id;
     return {
       id: r.id as string,

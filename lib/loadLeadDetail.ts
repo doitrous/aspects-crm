@@ -102,6 +102,7 @@ async function loadLeadShell(id: string): Promise<Lead | null> {
     .from("leads")
     .select(SHELL_COLUMNS)
     .eq("lead_id", id)
+    .is("deleted_at", null)
     .maybeSingle<ShellRow>();
   if (error) throw new Error(`loadLeadShell: ${error.message}`);
   if (!row) return null;
@@ -211,7 +212,7 @@ async function patientConnectionsFor(leadUid: string): Promise<Pick<Lead, "linke
   const familyIds = [...new Set((familyPhoneRows.data ?? []).map((row) => row.lead_id as string).filter((id) => !linkedIds.includes(id)))];
   const allIds = [...new Set([...linkedIds, ...familyIds])];
   if (!allIds.length) return { linkedLeads: [], familyMembers: [] };
-  const { data: members, error } = await db.from("leads").select("id,lead_id,name,phone_country_code,phone_number,normalized_phone").in("id", allIds);
+  const { data: members, error } = await db.from("leads").select("id,lead_id,name,phone_country_code,phone_number,normalized_phone").in("id", allIds).is("deleted_at", null);
   if (error) throw new Error(`patientConnections(members): ${error.message}`);
   const byId = new Map((members ?? []).map((member) => [member.id as string, member]));
   return {
@@ -240,7 +241,7 @@ async function linkedHumanLeadIds(leadUid: string, currentId: string): Promise<s
   if (error) throw new Error(`linkedHumanLeadIds: ${error.message}`);
   const uids = (links ?? []).map((link) => link.lead_a_id === leadUid ? link.lead_b_id : link.lead_a_id) as string[];
   if (!uids.length) return [currentId];
-  const { data: rows, error: leadError } = await db.from("leads").select("lead_id").in("id", uids);
+  const { data: rows, error: leadError } = await db.from("leads").select("lead_id").in("id", uids).is("deleted_at", null);
   if (leadError) throw new Error(`linkedHumanLeadIds(leads): ${leadError.message}`);
   return [...new Set([currentId, ...(rows ?? []).map((row) => row.lead_id as string)])];
 }
@@ -322,6 +323,7 @@ export async function loadLeadDetail(id: string): Promise<LeadDetailData | null>
     escalationReasons,
     treatingDoctors: [],
     canReturnToDatabase: viewer ? can(viewer.role, "leads.returnToDatabase") : false,
+    canDelete: viewer ? can(viewer.role, "leads.delete") : false,
     bookingCatalog: {
       configured: false,
       specialties: [],
@@ -345,7 +347,8 @@ async function duplicateGroupsWithMembers(id: string): Promise<LeadDetailData["d
   const { data: leads, error } = await supabaseAdmin()
     .from("leads")
     .select("lead_id,name,mrn,phone_country_code,phone_number,normalized_phone")
-    .in("lead_id", ids);
+    .in("lead_id", ids)
+    .is("deleted_at", null);
   if (error) throw new Error(`duplicateGroupsWithMembers: ${error.message}`);
   const byId = new Map(
     (leads ?? []).map((l) => [
@@ -372,6 +375,7 @@ export async function loadLeadTab(
     .from("leads")
     .select("id")
     .eq("lead_id", id)
+    .is("deleted_at", null)
     .maybeSingle();
   if (error) throw new Error(`loadLeadTab: ${error.message}`);
   if (!lead) return null;
@@ -464,5 +468,6 @@ export async function loadFullLeadDetail(id: string): Promise<LeadDetailData | n
     bookingCatalog: catalog,
     treatingDoctors: await treatingDoctorsFor(shell.lead.uid!),
     canReturnToDatabase: shell.canReturnToDatabase,
+    canDelete: shell.canDelete,
   };
 }

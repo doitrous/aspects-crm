@@ -62,7 +62,8 @@ async function childAmountsByFinancialId(table: string, column: string, finIds: 
 async function recordsInServiceRange(range: DateRange): Promise<FinRecord[]> {
   const { data, error } = await supabaseAdmin()
     .from("crm_lead_financials")
-    .select("id,base_service_price,quoted_price,service_name,is_exceptional,lead_id,service_date,leads(doctor_id,source_id)")
+    .select("id,base_service_price,quoted_price,service_name,is_exceptional,lead_id,service_date,leads!inner(doctor_id,source_id,deleted_at)")
+    .is("leads.deleted_at", null)
     .gte("service_date", range.from)
     .lte("service_date", range.to);
   if (error) throw new Error(`recordsInServiceRange: ${error.message}`);
@@ -111,7 +112,8 @@ export interface GrossCollectedLeadRow {
 export async function grossCollectedByLead(range: DateRange): Promise<GrossCollectedLeadRow[]> {
   const { data, error } = await supabaseAdmin()
     .from("crm_financial_transactions")
-    .select("lead_id,amount,leads(lead_id,mrn,name)")
+    .select("lead_id,amount,leads!inner(lead_id,mrn,name,deleted_at)")
+    .is("leads.deleted_at", null)
     .eq("kind", "payment")
     .eq("status", "completed")
     .gte("occurred_on", range.from)
@@ -134,13 +136,15 @@ export async function cashFlowSummary(range: DateRange): Promise<CashFlowSummary
   const [{ data, error }, { data: funded, error: fundedError }] = await Promise.all([
     db
     .from("crm_financial_transactions")
-      .select("amount,kind,method,occurred_on,status")
+      .select("amount,kind,method,occurred_on,status,leads!inner(deleted_at)")
+      .is("leads.deleted_at", null)
     .gte("occurred_on", range.from)
       .lte("occurred_on", range.to)
       .eq("status", "completed"),
     db
       .from("crm_doctor_funded_payments")
-      .select("amount,occurred_on")
+      .select("amount,occurred_on,leads!inner(deleted_at)")
+      .is("leads.deleted_at", null)
       .gte("occurred_on", range.from)
       .lte("occurred_on", range.to),
   ]);
@@ -183,9 +187,9 @@ export async function cashFlowSummary(range: DateRange): Promise<CashFlowSummary
 async function outstandingCurrent(): Promise<number> {
   const db = supabaseAdmin();
   const [{ data: fin }, { data: txns }, { data: funded }] = await Promise.all([
-    db.from("crm_lead_financials").select("quoted_price"),
-    db.from("crm_financial_transactions").select("amount,kind,status").eq("status", "completed"),
-    db.from("crm_doctor_funded_payments").select("amount,reduces_patient_balance").eq("reduces_patient_balance", true),
+    db.from("crm_lead_financials").select("quoted_price,leads!inner(deleted_at)").is("leads.deleted_at", null),
+    db.from("crm_financial_transactions").select("amount,kind,status,leads!inner(deleted_at)").is("leads.deleted_at", null).eq("status", "completed"),
+    db.from("crm_doctor_funded_payments").select("amount,reduces_patient_balance,leads!inner(deleted_at)").is("leads.deleted_at", null).eq("reduces_patient_balance", true),
   ]);
   const recognized = addMoney(...(fin ?? []).map((r) => Number(r.quoted_price) || 0));
   let net = 0;
@@ -307,7 +311,8 @@ export async function exceptionalCases(status?: string): Promise<ExceptionalCase
   const db = supabaseAdmin();
   let q = db
     .from("crm_discount_approvals")
-    .select("id,lead_id,base_service_price,requested_quoted_price,requested_pct,max_allowed_pct,approved_quoted_price,status,reason,requested_by,decided_by,created_at,leads(lead_id)")
+    .select("id,lead_id,base_service_price,requested_quoted_price,requested_pct,max_allowed_pct,approved_quoted_price,status,reason,requested_by,decided_by,created_at,leads!inner(lead_id,deleted_at)")
+    .is("leads.deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(300);
   if (status && status !== "all") q = q.eq("status", status);
@@ -391,7 +396,8 @@ async function outstandingRows(): Promise<FinancialDrilldownRow[]> {
   const db = supabaseAdmin();
   const { data: records, error } = await db
     .from("crm_lead_financials")
-    .select("id,service_name,quoted_price,leads(lead_id,name)")
+    .select("id,service_name,quoted_price,leads!inner(lead_id,name,deleted_at)")
+    .is("leads.deleted_at", null)
     .order("updated_at", { ascending: false })
     .limit(1000);
   if (error) throw new Error(`outstandingRows(records): ${error.message}`);
@@ -460,7 +466,8 @@ async function recordMap(finIds: string[]): Promise<Map<string, { leadHumanId: s
   if (!finIds.length) return map;
   const { data, error } = await supabaseAdmin()
     .from("crm_lead_financials")
-    .select("id,service_name,leads(lead_id,name)")
+    .select("id,service_name,leads!inner(lead_id,name,deleted_at)")
+    .is("leads.deleted_at", null)
     .in("id", finIds);
   if (error) throw new Error(`recordMap: ${error.message}`);
   for (const r of data ?? []) {
@@ -491,7 +498,7 @@ async function childRows(
   if (error) throw new Error(`childRows(${table}): ${error.message}`);
   const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
   const records = await recordMap([...new Set(rows.map((r) => r.lead_financials_id as string))]);
-  return rows.map((r) => {
+  return rows.filter((r) => records.has(r.lead_financials_id as string)).map((r) => {
     const rec = records.get(r.lead_financials_id as string);
     const doctorMeta = `${r.kind ?? ""} ${r.value ?? ""}${r.kind === "percentage" ? "%" : " EGP"} · ${r.basis ?? ""}`;
     const externalMeta = [r.category, r.vendor].filter(Boolean).join(" · ");
@@ -514,7 +521,8 @@ async function transactionRows(type: "refunds" | "reversals" | "chargebacks", ra
   const kind = type === "refunds" ? "refund" : type === "reversals" ? "reversal" : "chargeback";
   const { data, error } = await supabaseAdmin()
     .from("crm_financial_transactions")
-    .select("id,lead_id,amount,method,status,occurred_on,reference,receipt_number,note,leads(lead_id,name)")
+    .select("id,lead_id,amount,method,status,occurred_on,reference,receipt_number,note,leads!inner(lead_id,name,deleted_at)")
+    .is("leads.deleted_at", null)
     .eq("kind", kind)
     .gte("occurred_on", range.from)
     .lte("occurred_on", range.to)

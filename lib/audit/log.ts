@@ -97,6 +97,12 @@ export async function listActivity(filters: ActivityFilters = {}): Promise<Activ
   if (error) throw new Error(`listActivity: ${error.message}`);
 
   const rows = data ?? [];
+  const { data: deletedLeads, error: deletedError } = await supabaseAdmin()
+    .from("leads")
+    .select("id,lead_id")
+    .not("deleted_at", "is", null);
+  if (deletedError) throw new Error(`listActivity(deleted leads): ${deletedError.message}`);
+  const deletedRefs = new Set((deletedLeads ?? []).flatMap((lead) => [String(lead.id), String(lead.lead_id).toLowerCase()]));
   const ids = [...new Set(rows.map((r) => r.actor_user_id as string).filter(Boolean))];
   const names = new Map<string, { name: string; role: string | null }>();
   if (ids.length) {
@@ -130,6 +136,16 @@ export async function listActivity(filters: ActivityFilters = {}): Promise<Activ
       createdAt: r.created_at as string,
     };
   }).filter((row) => {
+    const leadReferences = [
+      row.entityType === "lead" ? row.entityId : null,
+      row.oldValues.lead_id,
+      row.oldValues.leadId,
+      row.newValues.lead_id,
+      row.newValues.leadId,
+      row.metadata.lead_id,
+      row.metadata.leadId,
+    ].map((value) => String(value ?? "").toLowerCase()).filter(Boolean);
+    if (leadReferences.some((value) => deletedRefs.has(value))) return false;
     if (filters.actorRole && row.actorRole !== filters.actorRole) return false;
     if (filters.leadId) {
       const needle = filters.leadId.toLowerCase();

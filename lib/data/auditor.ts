@@ -57,7 +57,7 @@ export interface AuditorScope {
  *  which carry a lead_id but no doctor_id). Empty scope → null (no filtering). */
 async function scopedLeadUids(scope?: AuditorScope): Promise<string[] | null> {
   if (!scope?.doctorIds || scope.doctorIds.length === 0) return null;
-  const { data } = await supabaseAdmin().from("leads").select("id").in("doctor_id", scope.doctorIds);
+  const { data } = await supabaseAdmin().from("leads").select("id").in("doctor_id", scope.doctorIds).is("deleted_at", null);
   return (data ?? []).map((r) => r.id as string);
 }
 
@@ -80,6 +80,7 @@ export async function computeAutoSnapshot(date: string, scope?: AuditorScope): P
     const q = db
       .from("leads")
       .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
       .gte("created_at", start)
       .lt("created_at", end);
     return doctorIds ? q.in("doctor_id", doctorIds) : q;
@@ -432,6 +433,7 @@ export async function droppedLeadsForDate(date: string, scope?: AuditorScope): P
   let q = db
     .from("leads")
     .select("lead_id,name,lost_notes,lost_reason_id,lost_reasons(label)")
+    .is("deleted_at", null)
     .eq("status", "lost")
     .gte("created_at", start)
     .lt("created_at", end);
@@ -522,6 +524,7 @@ export async function auditorTrend(
   let query = supabaseAdmin()
     .from("leads")
     .select("created_at,status")
+    .is("deleted_at", null)
     .gte("created_at", `${dates[0]}T00:00:00.000Z`)
     .lt("created_at", afterEnd.toISOString());
   if (scope?.doctorIds?.length) query = query.in("doctor_id", scope.doctorIds);

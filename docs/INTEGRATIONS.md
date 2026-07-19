@@ -32,9 +32,9 @@ event records.
 The CRM rebuilds Business Suite deep links from normalized Meta identifiers,
 rather than trusting a legacy n8n URL. Messenger uses `FB_MESSAGE`, Instagram
 DM uses `IG_MESSAGE`, Facebook comments use `FB_PAGE_POST` or `FB_AD_POST`, and
-Instagram comments use `INSTAGRAM_POST`. Public routing identifiers can be
-overridden with `META_BUSINESS_SUITE_BUSINESS_ID`,
-`META_BUSINESS_SUITE_ASSET_ID`, and `META_BUSINESS_SUITE_MAILBOX_ID`.
+Instagram comments use `INSTAGRAM_POST`. The clinic's verified public routing
+triple (`business_id`, `asset_id`, and `mailbox_id`) is fixed in the link
+builder; webhook page/account IDs must never replace the inbox asset.
 
 The production-safe, node-by-node n8n configuration is documented in
 `docs/META_N8N_SETUP.md`. The CRM accepts the complete n8n Webhook item, a raw
@@ -78,9 +78,11 @@ rebuilds the import payload from a downloaded copy of that workflow.
 
 Resend delivery uses the server-only `RESEND_API_KEY` and `EMAIL_FROM`. Missing
 credentials produce a persisted skipped result, never a fabricated delivery.
-The overdue route requires `CRON_SECRET`.
-Schedulers should call `POST /api/cron/overdue-emails` with the secret in the
-`Authorization: Bearer` header. The legacy query-token form remains supported
+The overdue and lead-trash purge routes require `CRON_SECRET`.
+Schedulers should call `POST /api/cron/overdue-emails` and, once daily,
+`POST /api/cron/purge-lead-trash` with the secret in the
+`Authorization: Bearer` header. The trash route is idempotent and only purges
+leads after their exact 30-day retention deadline. The legacy query-token form remains supported
 for compatibility but should not be used for new configuration because URLs
 are commonly retained in proxy and scheduler logs.
 

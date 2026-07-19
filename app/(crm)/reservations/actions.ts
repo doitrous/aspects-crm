@@ -70,7 +70,7 @@ export async function deleteWebsiteReservationAction(_previous: ReservationManag
     const { data: linkedLead } = await crm.from("crm_lead_booking_links").select("lead_id").eq("appointment_id", appointmentId).maybeSingle();
     await crm.from("crm_lead_booking_links").delete().eq("appointment_id", appointmentId);
     await crm.from("crm_dismissed_website_reservations").delete().eq("appointment_id", appointmentId);
-    if (linkedLead?.lead_id) await crm.from("leads").update({ booking_appointment_id: null, updated_at: new Date().toISOString() }).eq("id", linkedLead.lead_id).eq("booking_appointment_id", appointmentId);
+    if (linkedLead?.lead_id) await crm.from("leads").update({ booking_appointment_id: null, updated_at: new Date().toISOString() }).eq("id", linkedLead.lead_id).eq("booking_appointment_id", appointmentId).is("deleted_at", null);
     await logActivity({ actorId: actor.id, action: "reservation.deleted", entityType: "website_reservation", entityId: appointmentId, oldValues: appointment as Record<string, unknown>, newValues: { deleted: true }, metadata: { warning_count: 2, actor_name: actor.name, actor_role: actor.role, linked_lead_id: linkedLead?.lead_id ?? null } });
     refreshReservationPages();
     return { ok: true, message: "Website reservation permanently deleted. The patient lead was retained in Database." };

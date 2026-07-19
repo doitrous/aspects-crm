@@ -44,9 +44,9 @@ test("lead mutations are server-authorized for operational roles only", () => {
   assert.equal(can("viewer", "leads.edit"), false);
 });
 
-test("the permanent patient Database cannot be deleted by any role", () => {
-  assert.equal(can("admin", "leads.delete"), false);
-  assert.equal(can("auditor", "leads.delete"), false);
+test("only admins and auditors may manage the 30-day lead trash", () => {
+  assert.equal(can("admin", "leads.delete"), true);
+  assert.equal(can("auditor", "leads.delete"), true);
   assert.equal(can("moderator", "leads.delete"), false);
   assert.equal(can("viewer", "leads.delete"), false);
 });

@@ -246,11 +246,18 @@ async function loadDuplicateSet(): Promise<Set<string>> {
   const { data } = await supabaseAdmin()
     .from("lead_duplicate_flags")
     .select("lead_id,duplicate_lead_id,status");
+  const referenced = [...new Set((data ?? []).flatMap((flag) => [flag.lead_id as string | null, flag.duplicate_lead_id as string | null]).filter((id): id is string => Boolean(id)))];
+  const activeRows = referenced.length
+    ? await supabaseAdmin().from("leads").select("id").in("id", referenced).is("deleted_at", null)
+    : { data: [], error: null };
+  if (activeRows.error) throw new Error(`loadDuplicateSet(active leads): ${activeRows.error.message}`);
+  const active = new Set((activeRows.data ?? []).map((lead) => lead.id as string));
   const set = new Set<string>();
   for (const f of data ?? []) {
     if (f.status === "linked" || f.status === "merged" || f.status === "dismissed" || f.status === "not_duplicate") continue;
-    if (f.lead_id) set.add(f.lead_id as string);
-    if (f.duplicate_lead_id) set.add(f.duplicate_lead_id as string);
+    if (!active.has(f.lead_id as string) || !active.has(f.duplicate_lead_id as string)) continue;
+    set.add(f.lead_id as string);
+    set.add(f.duplicate_lead_id as string);
   }
   return set;
 }
@@ -259,6 +266,7 @@ async function loadOperationalLeadIdSet(): Promise<Set<string>> {
   const { data, error } = await supabaseAdmin()
     .from("leads")
     .select("id")
+    .is("deleted_at", null)
     .is("merged_into_lead_id", null)
     .or(NON_DATABASE_ONLY_FILTER);
   if (error) throw new Error(`loadOperationalLeadIdSet: ${error.message}`);
@@ -276,11 +284,19 @@ async function loadDuplicateSetForLeadIds(leadIds: string[]): Promise<Set<string
   ]);
   if (primary.error) throw new Error(`loadDuplicateSetForLeadIds(primary): ${primary.error.message}`);
   if (secondary.error) throw new Error(`loadDuplicateSetForLeadIds(secondary): ${secondary.error.message}`);
+  const flags = [...(primary.data ?? []), ...(secondary.data ?? [])];
+  const referenced = [...new Set(flags.flatMap((flag) => [flag.lead_id as string | null, flag.duplicate_lead_id as string | null]).filter((id): id is string => Boolean(id)))];
+  const activeRows = referenced.length
+    ? await db.from("leads").select("id").in("id", referenced).is("deleted_at", null)
+    : { data: [], error: null };
+  if (activeRows.error) throw new Error(`loadDuplicateSetForLeadIds(active leads): ${activeRows.error.message}`);
+  const active = new Set((activeRows.data ?? []).map((lead) => lead.id as string));
   const set = new Set<string>();
-  for (const flag of [...(primary.data ?? []), ...(secondary.data ?? [])]) {
+  for (const flag of flags) {
     if (flag.status === "linked" || flag.status === "merged" || flag.status === "dismissed") continue;
-    if (flag.lead_id) set.add(flag.lead_id as string);
-    if (flag.duplicate_lead_id) set.add(flag.duplicate_lead_id as string);
+    if (!active.has(flag.lead_id as string) || !active.has(flag.duplicate_lead_id as string)) continue;
+    set.add(flag.lead_id as string);
+    set.add(flag.duplicate_lead_id as string);
   }
   return set;
 }
@@ -560,7 +576,8 @@ async function loadLeadSummaries(
   const { data } = await supabaseAdmin()
     .from("leads")
     .select(SUMMARY_COLUMNS)
-    .in("id", uuids);
+    .in("id", uuids)
+    .is("deleted_at", null);
   for (const r of (data as unknown as SummaryRow[]) ?? []) {
     map.set(r.id, rowToSummary(r, usersById));
   }
@@ -625,6 +642,7 @@ async function enrichDuplicateRows(
       primary: row.lead_id ? summaries.get(row.lead_id) : undefined,
       duplicate: row.duplicate_lead_id ? summaries.get(row.duplicate_lead_id) : undefined,
     }))
+    .filter((pair) => Boolean(pair.primary && pair.duplicate))
     .sort((left, right) =>
       (DUPLICATE_TYPE_PRIORITY[left.type] ?? 99) - (DUPLICATE_TYPE_PRIORITY[right.type] ?? 99) ||
       new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
@@ -712,6 +730,7 @@ async function resolveUid(leadId: string): Promise<string | undefined> {
     .from("leads")
     .select("id")
     .eq("lead_id", leadId)
+    .is("deleted_at", null)
     .maybeSingle();
   return (data?.id as string) ?? undefined;
 }
@@ -733,7 +752,7 @@ export const supabaseProvider: DataProvider = {
       filters.duplicate ? loadDuplicateSet() : Promise.resolve(new Set<string>()),
     ]);
 
-    const baseQuery = supabaseAdmin().from("leads").select(LEAD_COLUMNS, { count: "exact" });
+    const baseQuery = supabaseAdmin().from("leads").select(LEAD_COLUMNS, { count: "exact" }).is("deleted_at", null);
     let query = applyLeadFilters(
       filters.includeMerged ? baseQuery : baseQuery.is("merged_into_lead_id", null),
       filters,
@@ -776,6 +795,7 @@ export const supabaseProvider: DataProvider = {
       .from("leads")
       .select(LEAD_COLUMNS)
       .eq("lead_id", id)
+      .is("deleted_at", null)
       .is("merged_into_lead_id", null)
       .maybeSingle();
     if (error) throw new Error(`getLead: ${error.message}`);
@@ -1056,6 +1076,7 @@ export const supabaseProvider: DataProvider = {
       .from("leads")
       .select("id,booking_appointment_id")
       .eq("lead_id", leadId)
+      .is("deleted_at", null)
       .maybeSingle();
     if (leadError) throw new Error(`bookingsFor(lead): ${leadError.message}`);
     if (!leadRow) return [];
@@ -1154,7 +1175,8 @@ export const supabaseProvider: DataProvider = {
     const { data: rows } = await supabaseAdmin()
       .from("leads")
       .select("id,lead_id")
-      .in("id", [...uuids]);
+      .in("id", [...uuids])
+      .is("deleted_at", null);
     const humanById = new Map<string, string>();
     for (const r of rows ?? []) humanById.set(r.id as string, r.lead_id as string);
 
@@ -1175,7 +1197,7 @@ export const supabaseProvider: DataProvider = {
     if (!uid) return [];
     const [usersById, leadRow, events] = await Promise.all([
       loadUserMap(),
-      supabaseAdmin().from("leads").select("created_at").eq("id", uid).maybeSingle(),
+      supabaseAdmin().from("leads").select("created_at").eq("id", uid).is("deleted_at", null).maybeSingle(),
       supabaseAdmin()
         .from("lead_timeline_events")
         .select("id,event_type,title,body,actor_user_id,event_at")
@@ -1229,6 +1251,7 @@ export const supabaseProvider: DataProvider = {
       db
         .from("leads")
         .select("id", { count: "exact", head: true })
+        .is("deleted_at", null)
         .is("merged_into_lead_id", null)
         .eq("status", "new_lead")
         .or(NON_DATABASE_PATIENT_FILTER)
@@ -1270,6 +1293,7 @@ export const supabaseProvider: DataProvider = {
     const leadCount = () => db
       .from("leads")
       .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
       .or(NON_DATABASE_ONLY_FILTER);
     const n = async (p: PromiseLike<{ count: number | null }>) => (await p).count ?? 0;
 
@@ -1316,7 +1340,7 @@ export const supabaseProvider: DataProvider = {
     };
     const statuses = ["new_lead", "qualified", "booked", "follow_up", "post_op_follow_up", "lost"] as const;
     const counts = await Promise.all(statuses.map(async (status) => {
-      let query = db.from("leads").select("id", { count: "exact", head: true }).is("merged_into_lead_id", null).eq("status", status);
+      let query = db.from("leads").select("id", { count: "exact", head: true }).is("deleted_at", null).is("merged_into_lead_id", null).eq("status", status);
       query = query.or(NON_DATABASE_ONLY_FILTER);
       if (status === "new_lead") {
         query = query.or(NON_DATABASE_PATIENT_FILTER);
@@ -1355,7 +1379,7 @@ export const supabaseProvider: DataProvider = {
         resolvedAt: (e.resolved_at as string) ?? undefined,
         lead,
       };
-    }).filter((item) => !item.lead?.databaseOnly);
+    }).filter((item) => Boolean(item.lead && !item.lead.databaseOnly));
   },
 
   async duplicateQueue(): Promise<DuplicatePair[]> {
@@ -1425,6 +1449,7 @@ export const supabaseProvider: DataProvider = {
       .from("leads")
       .select(SUMMARY_COLUMNS, { count: "exact" })
       .in("status", statuses)
+      .is("deleted_at", null)
       .is("merged_into_lead_id", null)
       .or(NON_DATABASE_ONLY_FILTER)
       .order("updated_at", { ascending: false })

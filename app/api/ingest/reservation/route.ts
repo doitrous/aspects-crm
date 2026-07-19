@@ -197,6 +197,7 @@ export async function POST(req: Request) {
     .from(LEADS)
     .select("id, lead_id, metadata")
     .eq("booking_appointment_id", body.bookingAppointmentId)
+    .is("deleted_at", null)
     .maybeSingle();
 
   if (byAppt) {
@@ -215,7 +216,8 @@ export async function POST(req: Request) {
         metadata: { ...(byAppt.metadata ?? {}), ...channelMeta },
         updated_at: now,
       })
-      .eq("id", byAppt.id);
+      .eq("id", byAppt.id)
+      .is("deleted_at", null);
     if (updateError) {
       console.error("Reservation ingest existing-lead update failed", {
         appointmentId: body.bookingAppointmentId,
@@ -237,6 +239,7 @@ export async function POST(req: Request) {
       .from(LEADS)
       .select("id, lead_id, metadata")
       .eq("mrn", patientMrn)
+      .is("deleted_at", null)
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -254,6 +257,7 @@ export async function POST(req: Request) {
     let phoneQuery = db
       .from(LEADS)
       .select("id, lead_id, metadata")
+      .is("deleted_at", null)
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false })
       .limit(1);
@@ -284,7 +288,8 @@ export async function POST(req: Request) {
         metadata: withRevisitingMetadata({ ...(matchedLead.metadata ?? {}), ...channelMeta }, matchedBy, body.bookingAppointmentId),
         updated_at: now,
       })
-      .eq("id", matchedLead.id);
+      .eq("id", matchedLead.id)
+      .is("deleted_at", null);
     if (updateError) {
       console.error("Reservation ingest linked-lead update failed", {
         appointmentId: body.bookingAppointmentId,

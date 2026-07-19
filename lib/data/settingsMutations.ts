@@ -202,6 +202,7 @@ export async function updateSlaRule(input: {
     const { data: openLeads, error: openError } = await db
       .from("leads")
       .select("id,unread_since")
+      .is("deleted_at", null)
       .eq("status", before.stage_key)
       .eq("has_unread", true)
       .not("unread_since", "is", null);

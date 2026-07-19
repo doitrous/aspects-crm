@@ -72,10 +72,13 @@ The CRM derives channel-specific routes from normalized data:
 | Facebook page/ad comment | `/latest/inbox/facebook` | `FB_PAGE_POST` or `FB_AD_POST` |
 | Instagram comment | `/latest/inbox/instagram` | `INSTAGRAM_POST` |
 
-Each generated URL includes the configured `asset_id`, `business_id`,
-`mailbox_id`, and the event-specific `selected_item_id`. Configure the public
-routing identifiers with the variable names documented in `.env.example`; do
-not copy account secrets into source.
+Each generated URL uses the clinic's verified fixed `asset_id`, `business_id`,
+and `mailbox_id`, plus the event-specific `selected_item_id`. Webhook
+`page_id`/`instagram_account_id` values identify event sources and must not
+replace that Business Suite routing triple. An explicit normalized
+`selected_item_id` wins when supplied; otherwise Messenger/Instagram DM use the
+customer's scoped platform ID, Facebook comments use the post ID, and Instagram
+comments use the media ID.
 
 ## Retiring the legacy enrichment branch
 

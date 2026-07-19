@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     const { data: stages } = await query;
     const leadUids = [...new Set((stages ?? []).map((stage) => stage.lead_id as string))];
     const { data: leads } = leadUids.length
-      ? await db.from("leads").select("id,lead_id,name").in("id", leadUids)
+      ? await db.from("leads").select("id,lead_id,name").in("id", leadUids).is("deleted_at", null)
       : { data: [] as Array<{ id: string; lead_id: string; name: string }> };
     const leadById = new Map((leads ?? []).map((lead) => [lead.id as string, lead]));
 

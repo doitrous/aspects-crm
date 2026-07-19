@@ -45,7 +45,7 @@ export async function backfillDuplicatesAction(_prev: SettingsActionState, formD
     const actor = await writeActor();
     assertCan(actor.role, "settings.manage");
     const db = supabaseAdmin();
-    let candidatesQuery = db.from("leads").select("id,lead_id", { count: "exact" }).is("merged_into_lead_id", null).order("id").limit(50);
+    let candidatesQuery = db.from("leads").select("id,lead_id", { count: "exact" }).is("deleted_at", null).is("merged_into_lead_id", null).order("id").limit(50);
     if (cursor) candidatesQuery = candidatesQuery.gt("id", cursor);
     const candidates = await candidatesQuery;
     if (candidates.error) throw new SettingsError(candidates.error.message);

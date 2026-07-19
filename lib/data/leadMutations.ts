@@ -61,6 +61,7 @@ async function resolveLead(leadId: string) {
     .from("leads")
     .select("id,lead_id,name,status,notes,medical_notes,medical_history,lost_reason_id,lost_notes,escalation_status,metadata,has_unread")
     .eq("lead_id", leadId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (error) throw new Error(`resolveLead: ${error.message}`);
   if (!data) throw new LeadMutationError("Lead not found.");
@@ -154,10 +155,10 @@ export async function updateLeadProfile(input: {
   const { error: assignmentSchemaError } = await db.from("crm_lead_treating_doctors").select("id").limit(1);
   if (assignmentSchemaError) throw new LeadMutationError("Treating-doctor storage is not available until migration 0019 is applied.");
   if (mrn) {
-    const { data: duplicateMrn, error: duplicateError } = await db.from("leads").select("lead_id").eq("mrn", mrn).neq("id", lead.id).limit(1).maybeSingle();
+    const { data: duplicateMrn, error: duplicateError } = await db.from("leads").select("lead_id").eq("mrn", mrn).neq("id", lead.id).is("deleted_at", null).limit(1).maybeSingle();
     if (duplicateError) throw new Error(`updateLeadProfile(MRN check): ${duplicateError.message}`);
     if (duplicateMrn) {
-      const { data: duplicateLead } = await db.from("leads").select("id").eq("lead_id", duplicateMrn.lead_id).single();
+      const { data: duplicateLead } = await db.from("leads").select("id").eq("lead_id", duplicateMrn.lead_id).is("deleted_at", null).single();
       if (duplicateLead?.id) {
         await db.from("lead_duplicate_flags").upsert({
           lead_id: lead.id < duplicateLead.id ? lead.id : duplicateLead.id,
@@ -801,6 +802,7 @@ export async function resolveEscalationWorkflow(params: {
     .from("leads")
     .select("lead_id,metadata")
     .eq("id", leadUid)
+    .is("deleted_at", null)
     .maybeSingle<{ lead_id: string; metadata: Record<string, unknown> | null }>();
   if (leadLoadError) throw new Error(`resolveEscalationWorkflow(lead): ${leadLoadError.message}`);
   if (!leadRow) throw new LeadMutationError("Lead not found for this escalation.");
@@ -901,7 +903,7 @@ export async function createManualLead(params: {
 
   const db = supabaseAdmin();
   if (mrn) {
-    const { data: duplicateMrn, error: duplicateError } = await db.from("leads").select("lead_id").eq("mrn", mrn).limit(1).maybeSingle();
+    const { data: duplicateMrn, error: duplicateError } = await db.from("leads").select("lead_id").eq("mrn", mrn).is("deleted_at", null).limit(1).maybeSingle();
     if (duplicateError) throw new Error(`createManualLead(MRN check): ${duplicateError.message}`);
     if (duplicateMrn) throw new LeadMutationError(`MRN ${mrn} is already assigned to lead ${duplicateMrn.lead_id}.`);
   }

@@ -2,11 +2,7 @@ import type { Platform } from "./types";
 
 const BUSINESS_SUITE_ORIGIN = "https://business.facebook.com";
 
-/**
- * Public Meta identifiers for the clinic's Business Suite inbox. They are not
- * credentials. Environment overrides keep the URL builder portable if the
- * connected Meta business or inbox asset changes later.
- */
+/** Public identifiers copied from the clinic's verified working inbox URLs. */
 export const DEFAULT_META_INBOX_CONFIG = {
   businessId: "259356358213562",
   assetId: "108936313808091",
@@ -23,9 +19,8 @@ export interface MetaInboxLinkInput {
   platform: Platform;
   kind: "message" | "comment";
   selectedItemId?: string | null;
-  pageId?: string | null;
-  recipientPageId?: string | null;
   adId?: string | null;
+  threadType?: string | null;
 }
 
 function clean(value: string | null | undefined): string | null {
@@ -43,25 +38,15 @@ function selectedItem(value: string | null | undefined): string | null {
   return composite?.[1] ?? cleaned;
 }
 
-export function metaInboxConfig(input: MetaInboxLinkInput): MetaInboxConfig {
-  const payloadAsset = clean(input.pageId) ?? clean(input.recipientPageId);
-  const assetId = clean(process.env.META_BUSINESS_SUITE_ASSET_ID)
-    ?? payloadAsset
-    ?? DEFAULT_META_INBOX_CONFIG.assetId;
-
-  return {
-    businessId: clean(process.env.META_BUSINESS_SUITE_BUSINESS_ID)
-      ?? DEFAULT_META_INBOX_CONFIG.businessId,
-    assetId,
-    mailboxId: clean(process.env.META_BUSINESS_SUITE_MAILBOX_ID) ?? assetId,
-  };
+export function metaInboxConfig(): MetaInboxConfig {
+  // Meta webhook `page_id` / `instagram_account_id` values identify the event
+  // source, not necessarily the Business Suite inbox asset. Every verified URL
+  // supplied for this clinic uses this exact fixed routing triple.
+  return { ...DEFAULT_META_INBOX_CONFIG };
 }
 
-export function buildMetaBusinessSuiteLink(
-  input: MetaInboxLinkInput,
-  override?: Partial<MetaInboxConfig>,
-): string {
-  const config = { ...metaInboxConfig(input), ...override };
+export function buildMetaBusinessSuiteLink(input: MetaInboxLinkInput): string {
+  const config = metaInboxConfig();
   const isInstagram = input.platform === "instagram";
   const path = input.kind === "comment"
     ? (isInstagram ? "/latest/inbox/instagram" : "/latest/inbox/facebook")
@@ -80,7 +65,9 @@ export function buildMetaBusinessSuiteLink(
       "thread_type",
       input.kind === "message"
         ? (isInstagram ? "IG_MESSAGE" : "FB_MESSAGE")
-        : (isInstagram ? "INSTAGRAM_POST" : (clean(input.adId) ? "FB_AD_POST" : "FB_PAGE_POST")),
+        : (isInstagram
+          ? "INSTAGRAM_POST"
+          : (clean(input.threadType) === "FB_AD_POST" || clean(input.adId) ? "FB_AD_POST" : "FB_PAGE_POST")),
     );
   }
 

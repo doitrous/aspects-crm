@@ -91,6 +91,7 @@ export class SupabaseMetaStore implements MetaStore {
       .select("id, lead_id")
       .eq("platform", dbPlatform(platform))
       .eq("platform_id", platformUserId)
+      .is("deleted_at", null)
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
@@ -102,6 +103,7 @@ export class SupabaseMetaStore implements MetaStore {
       .from(LEADS)
       .select("id, lead_id")
       .eq("conversation_key", conversationKey)
+      .is("deleted_at", null)
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
@@ -122,6 +124,7 @@ export class SupabaseMetaStore implements MetaStore {
       .from(LEADS)
       .select("id, lead_id")
       .eq("id", conv.lead_id)
+      .is("deleted_at", null)
       .maybeSingle();
     return lead ? { id: lead.id as string, leadCode: lead.lead_id as string } : null;
   }
@@ -226,7 +229,7 @@ export class SupabaseMetaStore implements MetaStore {
     if (input.pageId) patch.page_id = input.pageId;
     if (input.instagramAccountId) patch.instagram_account_id = input.instagramAccountId;
     if (Object.keys(patch).length === 1) return;
-    const { error } = await this.db.from(LEADS).update(patch).eq("id", leadId);
+    const { error } = await this.db.from(LEADS).update(patch).eq("id", leadId).is("deleted_at", null);
     if (error) throw new Error(`updateLeadConversation: ${error.message}`);
   }
 
@@ -235,6 +238,7 @@ export class SupabaseMetaStore implements MetaStore {
       .from(LEADS)
       .select("has_unread, unread_message_count, unread_since, last_incoming_at, status")
       .eq("id", leadId)
+      .is("deleted_at", null)
       .maybeSingle();
     if (!lead) return;
 
@@ -265,7 +269,8 @@ export class SupabaseMetaStore implements MetaStore {
         is_reply_overdue: false,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", leadId);
+      .eq("id", leadId)
+      .is("deleted_at", null);
 
     await this.db.from("crm_unread_events").insert({
       lead_id: leadId,
@@ -282,6 +287,7 @@ export class SupabaseMetaStore implements MetaStore {
       .from(LEADS)
       .select("has_unread, unread_message_count, last_outgoing_at")
       .eq("id", leadId)
+      .is("deleted_at", null)
       .maybeSingle();
     if (!lead) return;
 
@@ -300,7 +306,8 @@ export class SupabaseMetaStore implements MetaStore {
         last_outgoing_at: !lastOutgoing || at > lastOutgoing ? at : lastOutgoing,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", leadId);
+      .eq("id", leadId)
+      .is("deleted_at", null);
 
     if (lead.has_unread) {
       await this.db.from("crm_unread_events").insert({

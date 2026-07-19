@@ -8,11 +8,13 @@ export async function refreshReplyOverdueFlags(now = new Date()): Promise<void> 
   const iso = now.toISOString();
   const [mark, clear] = await Promise.all([
     db.from("leads").update({ is_reply_overdue: true })
+      .is("deleted_at", null)
       .eq("has_unread", true)
       .not("reply_overdue_at", "is", null)
       .lte("reply_overdue_at", iso)
       .eq("is_reply_overdue", false),
     db.from("leads").update({ is_reply_overdue: false })
+      .is("deleted_at", null)
       .eq("is_reply_overdue", true)
       .or(`has_unread.eq.false,reply_overdue_at.gt.${iso}`),
   ]);

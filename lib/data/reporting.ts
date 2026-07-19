@@ -72,7 +72,7 @@ export async function reportAutoData(date: string): Promise<ReportAutoData> {
   const db = supabaseAdmin();
   const { start, end } = bounds(date);
   const leadCount = async (status?: string) => {
-    let q = db.from("leads").select("id", { count: "exact", head: true }).gte("created_at", start).lt("created_at", end);
+    let q = db.from("leads").select("id", { count: "exact", head: true }).is("deleted_at", null).gte("created_at", start).lt("created_at", end);
     if (status) q = q.eq("status", status);
     return (await q).count ?? 0;
   };
@@ -83,11 +83,11 @@ export async function reportAutoData(date: string): Promise<ReportAutoData> {
     return (await q).count ?? 0;
   };
   const overdueP = db.from("lead_follow_up_stages").select("id", { count: "exact", head: true }).lt("due_at", start).in("status", ["pending", "overdue"]);
-  const lostP = db.from("leads").select("lead_id,name,lost_notes,lost_reasons(label)").eq("status", "lost").gte("updated_at", start).lt("updated_at", end);
+  const lostP = db.from("leads").select("lead_id,name,lost_notes,lost_reasons(label)").is("deleted_at", null).eq("status", "lost").gte("updated_at", start).lt("updated_at", end);
   const escalationP = db.from("escalations").select("id", { count: "exact", head: true }).gte("created_at", start).lt("created_at", end);
   const txP = db.from("crm_financial_transactions").select("lead_id,amount,kind,status").eq("occurred_on", date);
   const costsP = db.from("crm_external_costs").select("amount").eq("occurred_on", date);
-  const incomingP = db.from("leads").select("id,platform").gte("created_at", start).lt("created_at", end);
+  const incomingP = db.from("leads").select("id,platform").is("deleted_at", null).gte("created_at", start).lt("created_at", end);
   const reservationsP = getReservations({ from: date, to: date }).catch(() => []);
   const [totalLeads, qualified, booked, lostRows, escalations, followupsDue, followupsDone, postOpDue, postOpDone, overdue, tx, costs, incoming, reservations] = await Promise.all([
     leadCount(), leadCount("qualified"), leadCount("booked"), lostP, escalationP, followCount(null, false), followCount("completed", false), followCount(null, true), followCount("completed", true), overdueP, txP, costsP, incomingP, reservationsP,
@@ -108,7 +108,7 @@ export async function reportAutoData(date: string): Promise<ReportAutoData> {
   const transactionLeadIds = (tx.data ?? []).map((row) => String(row.lead_id ?? "")).filter(Boolean);
   const lookupIds = [...new Set([...linkedLeadIds, ...transactionLeadIds])];
   const { data: attributedLeads } = lookupIds.length
-    ? await db.from("leads").select("id,platform").in("id", lookupIds)
+    ? await db.from("leads").select("id,platform").in("id", lookupIds).is("deleted_at", null)
     : { data: [] as Array<{ id: string; platform: string | null }> };
   const platformByLead = new Map<string, ReturnType<typeof platformMeta>>();
   for (const row of [...(incoming.data ?? []), ...(attributedLeads ?? [])]) platformByLead.set(String(row.id), platformMeta(row.platform));

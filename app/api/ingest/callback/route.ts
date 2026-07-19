@@ -115,6 +115,7 @@ export async function POST(req: Request) {
     .from("leads")
     .select("id,lead_id,metadata")
     .contains("metadata", { callback_request_id: body.callbackRequestId })
+    .is("deleted_at", null)
     .limit(1)
     .maybeSingle();
   if (byRequestId) {
@@ -130,6 +131,7 @@ export async function POST(req: Request) {
     let phoneQuery = db
       .from("leads")
       .select("id,lead_id,metadata")
+      .is("deleted_at", null)
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false })
       .limit(1);
@@ -158,7 +160,8 @@ export async function POST(req: Request) {
         metadata: { ...(matchedLead.metadata ?? {}), ...channelMeta },
         updated_at: now,
       })
-      .eq("id", matchedLead.id);
+      .eq("id", matchedLead.id)
+      .is("deleted_at", null);
     if (updateError) {
       console.error("Website callback lead update failed", { code: updateError.code });
       return NextResponse.json({ ok: false, error: "lead_update_failed" }, { status: 500 });

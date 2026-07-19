@@ -15,6 +15,7 @@ export async function returnLeadToDatabase(leadId: string): Promise<void> {
     .from("leads")
     .select("id,lead_id,status,metadata")
     .eq("lead_id", leadId)
+    .is("deleted_at", null)
     .is("merged_into_lead_id", null)
     .maybeSingle();
   if (readError) throw new Error(`returnLeadToDatabase(read): ${readError.message}`);

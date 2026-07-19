@@ -673,6 +673,7 @@ async function crmLeadById(leadId: string) {
     .from("leads")
     .select("id,lead_id,name,phone_country_code,phone_number,normalized_phone,service_name,status,metadata,booking_appointment_id")
     .eq("lead_id", leadId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (error) throw new BookingError(`Could not read CRM lead: ${error.message}`);
   if (!data) throw new BookingError("Lead not found.");
@@ -939,6 +940,7 @@ export async function updateReservationStatus(input: {
       .from("leads")
       .select("id,lead_id,name,phone_country_code,phone_number,normalized_phone,service_name,status,metadata,booking_appointment_id")
       .eq("booking_appointment_id", input.appointmentId)
+      .is("deleted_at", null)
       .maybeSingle();
     lead = data as Awaited<ReturnType<typeof crmLeadById>> | null;
   }

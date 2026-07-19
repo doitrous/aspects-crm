@@ -58,6 +58,7 @@ async function leadContext(leadId: string): Promise<{ uid: string; status: strin
     .from("leads")
     .select("id,status,created_at,updated_at")
     .eq("lead_id", leadId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (error) throw new Error(`followUpPlan(lead): ${error.message}`);
   if (!data) return null;

@@ -43,6 +43,7 @@ export async function POST(req: Request) {
   const { count } = await supabaseAdmin()
     .from("leads")
     .select("id", { count: "exact", head: true })
+    .is("deleted_at", null)
     .eq("is_reply_overdue", true);
   const overdueCount = count ?? 0;
   const reportDate = localDate();

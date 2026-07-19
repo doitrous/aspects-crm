@@ -281,7 +281,7 @@ export async function listIngestLogs(): Promise<IngestLogSetting[]> {
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await db
       .from("crm_ingest_logs")
-      .select("id,created_at,source,platform,event_type,event_action,event_key,direction,platform_user_id,conversation_key,message_text,created,updated,skipped,skip_reason,errors")
+      .select("id,created_at,source,platform,event_type,event_action,event_key,direction,platform_user_id,conversation_key,message_text,created,updated,skipped,skip_reason,errors,lead_id")
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
       .range(from, from + pageSize - 1);
@@ -290,7 +290,13 @@ export async function listIngestLogs(): Promise<IngestLogSetting[]> {
     rows.push(...page);
     if (page.length < pageSize) break;
   }
-  return rows.map((r) => ({
+  const leadIds = [...new Set(rows.map((row) => row.lead_id as string | null).filter((id): id is string => Boolean(id)))];
+  const deleted = leadIds.length
+    ? await db.from("leads").select("id").in("id", leadIds).not("deleted_at", "is", null)
+    : { data: [], error: null };
+  if (deleted.error) throw new Error(`listIngestLogs(deleted leads): ${deleted.error.message}`);
+  const deletedIds = new Set((deleted.data ?? []).map((lead) => lead.id as string));
+  return rows.filter((row) => !deletedIds.has(row.lead_id as string)).map((r) => ({
     id: r.id as string, createdAt: r.created_at as string,
     source: (r.source as string | null) ?? null, platform: (r.platform as string | null) ?? null,
     eventType: (r.event_type as string | null) ?? null, eventAction: (r.event_action as string | null) ?? null,
@@ -306,12 +312,19 @@ export async function listIngestLogs(): Promise<IngestLogSetting[]> {
 export async function listIngestionFailures(limit = 25): Promise<IngestionFailureSetting[]> {
   const db = supabaseAdmin();
   const { data, error } = await db.from("crm_ingest_logs")
-    .select("id,created_at,source,platform,event_type,event_action,event_key,direction,platform_user_id,conversation_key,message_text,created,updated,skipped,skip_reason,errors")
+    .select("id,created_at,source,platform,event_type,event_action,event_key,direction,platform_user_id,conversation_key,message_text,created,updated,skipped,skip_reason,errors,lead_id")
     .eq("skip_reason", "error")
     .order("created_at", { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 100));
   if (error) throw new Error(`listIngestionFailures: ${error.message}`);
-  const failed = data ?? [];
+  const failedRows = data ?? [];
+  const leadIds = [...new Set(failedRows.map((row) => row.lead_id as string | null).filter((id): id is string => Boolean(id)))];
+  const deleted = leadIds.length
+    ? await db.from("leads").select("id").in("id", leadIds).not("deleted_at", "is", null)
+    : { data: [], error: null };
+  if (deleted.error) throw new Error(`listIngestionFailures(deleted leads): ${deleted.error.message}`);
+  const deletedIds = new Set((deleted.data ?? []).map((lead) => lead.id as string));
+  const failed = failedRows.filter((row) => !deletedIds.has(row.lead_id as string));
   const keys = [...new Set(failed.map((row) => row.event_key as string | null).filter((key): key is string => Boolean(key)))];
   const attempts = keys.length
     ? await db.from("crm_ingest_logs").select("created_at,event_key,created,updated,skipped,skip_reason").in("event_key", keys)

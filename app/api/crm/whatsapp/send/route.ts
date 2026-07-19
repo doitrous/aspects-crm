@@ -70,6 +70,7 @@ async function resolveLead(humanLeadId: string): Promise<LeadRow | null> {
     .from("leads")
     .select("id,lead_id,name,phone_country_code,phone_number,normalized_phone,platform_id")
     .eq("lead_id", humanLeadId)
+    .is("deleted_at", null)
     .is("merged_into_lead_id", null)
     .maybeSingle<LeadRow>();
   if (error) throw new Error(`whatsappSend(lead): ${error.message}`);
@@ -258,7 +259,7 @@ export async function POST(request: Request) {
       reply_overdue_at: null,
       last_outgoing_at: messageAt,
       last_contact_at: messageAt,
-    }).eq("id", lead.id);
+    }).eq("id", lead.id).is("deleted_at", null);
     if (leadUpdate.error) secondaryErrors.push(`lead: ${leadUpdate.error.message}`);
 
     const timeline = await db.from("lead_timeline_events").insert({

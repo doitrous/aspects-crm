@@ -72,7 +72,7 @@ async function loadExistingReservations(reservations: Reservation[]): Promise<{
   const leadsById = new Map<string, ExistingLeadRow>();
   const linkedLeadIds = [...new Set(linkedLeadIdByAppointment.values())];
   for (const group of chunks(linkedLeadIds)) {
-    const { data, error } = await db.from("leads").select("id,lead_id,metadata").in("id", group);
+    const { data, error } = await db.from("leads").select("id,lead_id,metadata").in("id", group).is("deleted_at", null);
     if (error) throw new Error(`syncReservation(find linked leads): ${error.message}`);
     for (const row of (data ?? []) as ExistingLeadRow[]) leadsById.set(row.id, row);
   }
@@ -83,7 +83,8 @@ async function loadExistingReservations(reservations: Reservation[]): Promise<{
     const { data, error } = await db
       .from("leads")
       .select("id,lead_id,metadata,booking_appointment_id")
-      .in("booking_appointment_id", group);
+      .in("booking_appointment_id", group)
+      .is("deleted_at", null);
     if (error) throw new Error(`syncReservation(find legacy appointments): ${error.message}`);
     for (const row of (data ?? []) as ExistingLeadRow[]) {
       if (row.booking_appointment_id) legacyByAppointment.set(row.booking_appointment_id, row);
@@ -120,6 +121,7 @@ async function loadExistingReservations(reservations: Reservation[]): Promise<{
       .from("leads")
       .select("id,lead_id,mrn,metadata,booking_appointment_id,status,normalized_phone,created_at")
       .in("mrn", group)
+      .is("deleted_at", null)
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false });
     if (error) throw new Error(`syncReservation(find MRNs): ${error.message}`);
@@ -138,6 +140,7 @@ async function loadExistingReservations(reservations: Reservation[]): Promise<{
       .from("leads")
       .select("id,lead_id,metadata,booking_appointment_id,status,normalized_phone,created_at")
       .or(phoneFilters.join(","))
+      .is("deleted_at", null)
       .is("merged_into_lead_id", null)
       .order("created_at", { ascending: false });
     if (error) throw new Error(`syncReservation(find phones): ${error.message}`);

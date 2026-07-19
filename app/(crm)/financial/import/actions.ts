@@ -62,11 +62,11 @@ export interface ImportResult {
 async function resolveLead(row: ImportRowInput): Promise<string | null> {
   const db = supabaseAdmin();
   if (row.leadId) {
-    const { data } = await db.from("leads").select("lead_id").eq("lead_id", row.leadId.trim()).maybeSingle();
+    const { data } = await db.from("leads").select("lead_id").eq("lead_id", row.leadId.trim()).is("deleted_at", null).maybeSingle();
     if (data) return data.lead_id as string;
   }
   if (row.mrn) {
-    const { data } = await db.from("leads").select("lead_id").eq("mrn", row.mrn.trim()).maybeSingle();
+    const { data } = await db.from("leads").select("lead_id").eq("mrn", row.mrn.trim()).is("deleted_at", null).maybeSingle();
     if (data) return data.lead_id as string;
   }
   const phone = matchablePhoneDigits(row.phone);
@@ -74,6 +74,7 @@ async function resolveLead(row: ImportRowInput): Promise<string | null> {
     const query = db
       .from("leads")
       .select("lead_id,normalized_phone")
+      .is("deleted_at", null)
       .limit(1);
     const { data } = await (phone.length >= 7
       ? query.ilike("normalized_phone", `%${phone.slice(-9)}`)
@@ -107,6 +108,7 @@ async function applyLeadImportHints(leadId: string, row: ImportRowInput): Promis
     .from("leads")
     .select("id,mrn,service_name,initial_price")
     .eq("lead_id", leadId)
+    .is("deleted_at", null)
     .maybeSingle();
   if (!data) return;
   const patch: Record<string, unknown> = {};
