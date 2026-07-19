@@ -47,9 +47,17 @@ list, not `ls`:
    metadata **on top of** the baseline (e.g. `crm_lead_financials` has an FK to
    `leads`, created in `014`).
 
-The current repository ledger ends at `0043_lead_trash_retention.sql`. Apply
-`0043` before deploying the matching Lead Trash application code; it adds the
-recoverable state and service-role-only atomic trash, restore, and purge functions.
+The current repository ledger ends at
+`0044_repair_lead_trash_functions_and_metrics.sql`. Apply `0043` before the
+matching Lead Trash application code, then apply `0044` immediately afterward.
+`0044` is a function-only forward repair: it qualifies Trash restore/purge
+column references and restores the database-only exclusions in dashboard
+metrics. Do not use permanent delete or trust pipeline navigation counts in an
+environment that has `0043` without `0044`.
+
+Operator confirmation on 2026-07-20 records `0044` as applied to the live CRM
+database. Retain the environment's actual migration-ledger entry, backup id,
+and synthetic post-apply smoke evidence as the authoritative operational proof.
 
 `baseline/` is history, already applied — do not re-run it against the live
 database. New work goes in `migrations/` with the next `00NN_` number.
