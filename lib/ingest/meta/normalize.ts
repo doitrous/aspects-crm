@@ -29,6 +29,7 @@ import {
   type ThreadRole,
 } from "./types";
 import { resolveIdentity } from "./identity";
+import { buildMetaBusinessSuiteLink } from "./businessSuiteLinks";
 
 /* ── tiny, total accessors ──────────────────────────────────────────────── */
 
@@ -334,6 +335,22 @@ function normalizeMessage(input: Rec, now: () => Date): MetaMessageEvent {
     psid: str(o, "customer_psid"),
     instagramId: str(o, "customer_instagram_id"),
   });
+  const pageId = str(o, "page_id");
+  const recipientPageId = str(o, "recipient_page_id");
+  const selectedItemId = identity.isFallback ? null : identity.platformUserId;
+  const generatedConversationLink = buildMetaBusinessSuiteLink({
+    platform,
+    kind: "message",
+    selectedItemId,
+    pageId,
+    recipientPageId,
+  });
+  const generatedInboxLink = buildMetaBusinessSuiteLink({
+    platform,
+    kind: "message",
+    pageId,
+    recipientPageId,
+  });
 
   return {
     recordType: "message",
@@ -342,8 +359,8 @@ function normalizeMessage(input: Rec, now: () => Date): MetaMessageEvent {
     platform,
     source: str(o, "source"),
 
-    pageId: str(o, "page_id"),
-    recipientPageId: str(o, "recipient_page_id"),
+    pageId,
+    recipientPageId,
     instagramAccountId: str(o, "instagram_account_id"),
 
     identity,
@@ -352,9 +369,9 @@ function normalizeMessage(input: Rec, now: () => Date): MetaMessageEvent {
 
     conversationKey: str(o, "conversation_key"),
     chatLink: str(o, "chat_link"),
-    conversationLink: str(o, "conversation_link"),
-    fallbackInboxLink: str(o, "fallback_inbox_link"),
-    pageInboxLink: str(o, "page_inbox_link"),
+    conversationLink: selectedItemId ? generatedConversationLink : (str(o, "conversation_link") ?? generatedConversationLink),
+    fallbackInboxLink: str(o, "fallback_inbox_link") ?? generatedInboxLink,
+    pageInboxLink: str(o, "page_inbox_link") ?? generatedInboxLink,
 
     text,
     messageType: toMessageType(o, attachments, text),
@@ -461,6 +478,21 @@ function normalizeComment(input: Rec, now: () => Date): MetaCommentEvent {
     name: commenterName,
     username: commenterUsername,
   });
+  const pageId = str(o, "page_id");
+  const instagramAccountId = str(o, "instagram_account_id");
+  const postId = str(o, "post_id");
+  const mediaId = str(o, "media_id");
+  const adId = str(o, "ad_id");
+  const selectedItemId = platform === "instagram"
+    ? (mediaId ?? postId ?? str(o, "thread_root_comment_id") ?? commentId)
+    : (postId ?? str(o, "thread_root_comment_id") ?? commentId);
+  const generatedCommentLink = buildMetaBusinessSuiteLink({
+    platform,
+    kind: "comment",
+    selectedItemId,
+    pageId,
+    adId,
+  });
 
   return {
     recordType: "comment",
@@ -469,8 +501,8 @@ function normalizeComment(input: Rec, now: () => Date): MetaCommentEvent {
     platform,
     source: str(o, "source"),
 
-    pageId: str(o, "page_id"),
-    instagramAccountId: str(o, "instagram_account_id"),
+    pageId,
+    instagramAccountId,
 
     identity,
     commenterId: str(o, "commenter_id"),
@@ -488,8 +520,8 @@ function normalizeComment(input: Rec, now: () => Date): MetaCommentEvent {
     threadRole: toThreadRole(o, declaredIsReply, isBusiness),
     isReply: declaredIsReply,
 
-    postId: str(o, "post_id"),
-    mediaId: str(o, "media_id"),
+    postId,
+    mediaId,
 
     text: str(o, "comment_text", "message_text"),
     timestamp: toIso(o["comment_timestamp"] ?? o["message_timestamp"] ?? o["timestamp"], now),
@@ -504,8 +536,10 @@ function normalizeComment(input: Rec, now: () => Date): MetaCommentEvent {
     isEdited: bool(o, "is_edited") || action === "updated",
     isDeleted: bool(o, "is_deleted") || action === "deleted",
 
-    commentLink: str(o, "comment_link"),
-    fallbackInboxLink: str(o, "fallback_inbox_link"),
+    commentLink: selectedItemId ? generatedCommentLink : (str(o, "comment_link") ?? generatedCommentLink),
+    // Comment-only leads use this field for the drawer's "Open source" link;
+    // keep it as the exact Business Suite thread rather than a generic inbox.
+    fallbackInboxLink: selectedItemId ? generatedCommentLink : (str(o, "fallback_inbox_link") ?? generatedCommentLink),
     mediaPermalink: str(o, "media_permalink"),
     mediaCaption: str(o, "media_caption"),
     mediaType: str(o, "media_type"),
@@ -515,7 +549,7 @@ function normalizeComment(input: Rec, now: () => Date): MetaCommentEvent {
     attachmentCount: attachments.length || int(o, "attachment_count"),
 
     campaign: str(o, "campaign"),
-    adId: str(o, "ad_id"),
+    adId,
     adName: str(o, "ad_name"),
 
     webhookObject: str(o, "webhook_object"),

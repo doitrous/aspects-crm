@@ -7,6 +7,7 @@ import type { PipelineStage, ReferenceOption } from "@/lib/types";
 import { bookingCatalog } from "@/lib/booking/service";
 import { notifyLeadStatusChanged } from "@/lib/email/triggers";
 import { normalizeSafeExternalUrl } from "@/lib/security/externalUrl";
+import { parseOptionalLeadPhone } from "@/lib/data/leadProfile";
 
 type NoteKey = "clientNotes" | "medicalHistory" | "generalNotes";
 
@@ -137,9 +138,8 @@ export async function updateLeadProfile(input: {
   const actor = await writeLeadActor();
   const [lead, catalog] = await Promise.all([resolveLead(input.leadId), bookingCatalog()]);
   const name = input.name.trim();
-  const phone = input.phone.trim();
+  const phone = parseOptionalLeadPhone(input.phone);
   if (!name) throw new LeadMutationError("Patient name is required.");
-  if (!phone) throw new LeadMutationError("Phone number is required.");
   const mrn = input.mrn?.trim() || null;
   if (mrn && !/^\d{1,9}$/.test(mrn)) throw new LeadMutationError("MRN must contain 1 to 9 digits.");
   const specialty = catalog.specialties.find((row) => row.id === input.specialtyId);
@@ -150,8 +150,6 @@ export async function updateLeadProfile(input: {
   if (input.serviceIds.length && selectedServices.length !== uniqueServiceIds.length) throw new LeadMutationError("One or more selected services are not in the Admin service catalog.");
   const selectedDoctors = [...new Set(input.doctorIds)].map((id) => catalog.doctors.find((row) => row.id === id)).filter((row): row is NonNullable<typeof row> => Boolean(row));
   if (input.doctorIds.length && selectedDoctors.length !== new Set(input.doctorIds).size) throw new LeadMutationError("One or more selected doctors are not in the Admin doctor catalog.");
-  const digits = phone.replace(/\D/g, "");
-  const ccMatch = phone.match(/^\s*(\+\d{1,4})[\s-]+(.+)$/);
   const db = supabaseAdmin();
   const { error: assignmentSchemaError } = await db.from("crm_lead_treating_doctors").select("id").limit(1);
   if (assignmentSchemaError) throw new LeadMutationError("Treating-doctor storage is not available until migration 0019 is applied.");
@@ -179,9 +177,9 @@ export async function updateLeadProfile(input: {
   const patch = {
     name,
     mrn,
-    phone_country_code: ccMatch?.[1] ?? null,
-    phone_number: (ccMatch?.[2] ?? phone).replace(/\s+/g, " "),
-    normalized_phone: digits || null,
+    phone_country_code: phone?.countryCode ?? null,
+    phone_number: phone?.phoneNumber ?? null,
+    normalized_phone: phone?.normalizedPhone || null,
     gender: input.gender,
     service_name: selectedServices[0]?.nameEn ?? null,
     doctor_id: selectedDoctors[0]?.id ?? null,
@@ -198,19 +196,26 @@ export async function updateLeadProfile(input: {
   };
   const { error } = await db.from("leads").update(patch).eq("id", lead.id);
   if (error) throw new Error(`updateLeadProfile: ${error.message}`);
-  const primaryPhone = {
-    lead_id: lead.id,
-    country_code: ccMatch?.[1] ?? null,
-    phone_number: (ccMatch?.[2] ?? phone).replace(/\s+/g, " "),
-    normalized_phone: digits,
-    label: "Mobile",
-    is_primary: true,
-    updated_at: new Date().toISOString(),
-  };
-  const { error: clearPrimaryError } = await db.from("crm_lead_phones").update({ is_primary: false }).eq("lead_id", lead.id);
-  if (clearPrimaryError) throw new Error(`updateLeadProfile(phone primary): ${clearPrimaryError.message}`);
-  const { error: primaryPhoneError } = await db.from("crm_lead_phones").upsert(primaryPhone, { onConflict: "lead_id,normalized_phone" });
-  if (primaryPhoneError) throw new Error(`updateLeadProfile(phone): ${primaryPhoneError.message}`);
+  if (phone) {
+    const primaryPhone = {
+      lead_id: lead.id,
+      country_code: phone.countryCode,
+      phone_number: phone.phoneNumber,
+      normalized_phone: phone.normalizedPhone,
+      label: "Mobile",
+      is_primary: true,
+      updated_at: new Date().toISOString(),
+    };
+    const { error: clearPrimaryError } = await db.from("crm_lead_phones").update({ is_primary: false }).eq("lead_id", lead.id);
+    if (clearPrimaryError) throw new Error(`updateLeadProfile(phone primary): ${clearPrimaryError.message}`);
+    const { error: primaryPhoneError } = await db.from("crm_lead_phones").upsert(primaryPhone, { onConflict: "lead_id,normalized_phone" });
+    if (primaryPhoneError) throw new Error(`updateLeadProfile(phone): ${primaryPhoneError.message}`);
+  } else {
+    // Clearing the optional primary field must clear the canonical lead value
+    // and its mirrored primary identity row. Secondary numbers are retained.
+    const { error: clearPhoneError } = await db.from("crm_lead_phones").delete().eq("lead_id", lead.id).eq("is_primary", true);
+    if (clearPhoneError) throw new Error(`updateLeadProfile(clear phone): ${clearPhoneError.message}`);
+  }
   const additionalPhone = input.additionalPhone?.trim();
   if (additionalPhone) {
     const extraDigits = additionalPhone.replace(/\D/g, "");

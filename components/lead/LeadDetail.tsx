@@ -649,8 +649,8 @@ export function LeadDetail({ data: initialData, onClose }: { data: LeadDetailDat
                     </label>
                     <div className="text-[11.5px] font-semibold text-ink-500">
                       <label>
-                        Primary phone
-                        <input data-patient-content name="phone" required defaultValue={lead.phone} className="calm-field mt-1 h-9 w-full px-3 text-[12.5px]" />
+                        Primary phone <span className="font-normal text-ink-400">(optional)</span>
+                        <input data-patient-content name="phone" defaultValue={lead.phone} className="calm-field mt-1 h-9 w-full px-3 text-[12.5px]" />
                       </label>
                       {lead.phones && lead.phones.length > 1 && (
                         <div className="mt-1.5 flex flex-wrap gap-1">

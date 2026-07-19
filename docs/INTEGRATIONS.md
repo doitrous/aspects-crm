@@ -29,6 +29,13 @@ Normalized conversation content is stored in the canonical CRM
 conversation/message tables; receipts, reactions, and referrals remain distinct
 event records.
 
+The CRM rebuilds Business Suite deep links from normalized Meta identifiers,
+rather than trusting a legacy n8n URL. Messenger uses `FB_MESSAGE`, Instagram
+DM uses `IG_MESSAGE`, Facebook comments use `FB_PAGE_POST` or `FB_AD_POST`, and
+Instagram comments use `INSTAGRAM_POST`. Public routing identifiers can be
+overridden with `META_BUSINESS_SUITE_BUSINESS_ID`,
+`META_BUSINESS_SUITE_ASSET_ID`, and `META_BUSINESS_SUITE_MAILBOX_ID`.
+
 The production-safe, node-by-node n8n configuration is documented in
 `docs/META_N8N_SETUP.md`. The CRM accepts the complete n8n Webhook item, a raw
 Meta body, or normalized records. A partial database failure returns HTTP 500 so

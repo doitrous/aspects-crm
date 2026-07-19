@@ -27,9 +27,32 @@ npm install
 npm run dev       # http://localhost:3100
 npm run lint
 npm run test
-npx tsc --noEmit
+npm run typecheck
 npm run build
 ```
+
+## GitHub and MCP access
+
+The canonical repository is
+[`omary98/aspects-crm`](https://github.com/omary98/aspects-crm). Use its HTTPS
+remote and authenticate through GitHub CLI:
+
+```bash
+gh auth login --hostname github.com --git-protocol https --web
+gh auth setup-git
+git remote set-url origin https://github.com/omary98/aspects-crm.git
+git push -u origin HEAD
+```
+
+`gh auth status` must pass before pushing. The workflow in
+`.github/workflows/ci.yml` runs typechecking, linting, and the test suite for
+pull requests and pushes to `main`.
+
+The tracked `.codex/config.toml` exposes both current n8n MCP instances without
+committing credentials. Set `N8N_MCP_TOKEN` and `N8NSQ_MCP_TOKEN` locally,
+trust the repository, restart Codex, and verify with `/mcp` or
+`codex mcp list`. `n8n` is `n8neurocure.doitrous.com`; `n8n_sq` is
+`n8nsq.doitrous.com`.
 
 ## Production deployment
 
@@ -45,6 +68,11 @@ npm run build
 The booking integration and messaging/email integrations degrade independently
 when they are not configured; CRM authentication and the CRM service-role key
 are mandatory.
+
+The live origin is `https://crm.aspectsclinica.net`. The deployment provider,
+GitHub installation, automatic-deploy branch, backup owner, and rollback
+command still require confirmation; do not add a provider-specific deploy job
+or change production until those facts are recorded.
 
 See `.env.example`, `PERFORMANCE_AUDIT.md`,
 `CRM_IMPLEMENTATION_CHECKLIST.md`, and `docs/INTEGRATIONS.md` for deployment and

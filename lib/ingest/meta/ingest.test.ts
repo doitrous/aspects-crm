@@ -173,6 +173,10 @@ test("01 — FB incoming text creates the lead, one bubble, unread + SLA clock",
   assert.equal(lead.unreadMessageCount, 1);
   assert.equal(lead.unreadSince, T0);
   assert.equal(lead.replyOverdueAt, at(REPLY_SLA_MINUTES));
+  const sourceLink = new URL(lead.conversationLink!);
+  assert.equal(sourceLink.pathname, "/latest/inbox/all");
+  assert.equal(sourceLink.searchParams.get("selected_item_id"), "PSID_1");
+  assert.equal(sourceLink.searchParams.get("thread_type"), "FB_MESSAGE");
 
   const m = s.contentMessages()[0];
   assert.equal(m.direction, "incoming");
@@ -543,6 +547,10 @@ test("17 — new FB comment creates the lead and marks it unread", async () => {
   assert.equal(c.threadRole, "top_level");
   assert.equal(c.isReply, false);
   assert.equal(c.postId, "POST1");
+  const sourceLink = new URL(c.commentLink!);
+  assert.equal(sourceLink.pathname, "/latest/inbox/facebook");
+  assert.equal(sourceLink.searchParams.get("selected_item_id"), "POST1");
+  assert.equal(sourceLink.searchParams.get("thread_type"), "FB_PAGE_POST");
   assert.equal(s.leads[0].hasUnread, true, "a real customer comment is incoming content");
 });
 
@@ -635,6 +643,10 @@ test("22 — IG incoming DM creates the lead and marks it unread", async () => {
   assert.equal(s.leads[0].name, "@mona.skin", "username is the display name when no name is sent");
   assert.equal(s.contentMessages().length, 1);
   assert.equal(s.leads[0].hasUnread, true);
+  const sourceLink = new URL(s.leads[0].conversationLink!);
+  assert.equal(sourceLink.pathname, "/latest/inbox/instagram_direct");
+  assert.equal(sourceLink.searchParams.get("selected_item_id"), "IGSID_1");
+  assert.equal(sourceLink.searchParams.get("thread_type"), "IG_MESSAGE");
 });
 
 test("23 — IG outgoing echo clears unread and starts at 'sent'", async () => {
@@ -826,6 +838,10 @@ test("34 — new IG comment creates the lead", async () => {
   assert.equal(s.comments.length, 1);
   assert.equal(s.comments[0].platform, "instagram");
   assert.equal(s.comments[0].mediaId, "MEDIA1");
+  const sourceLink = new URL(s.comments[0].commentLink!);
+  assert.equal(sourceLink.pathname, "/latest/inbox/instagram");
+  assert.equal(sourceLink.searchParams.get("selected_item_id"), "MEDIA1");
+  assert.equal(sourceLink.searchParams.get("thread_type"), "INSTAGRAM_POST");
   assert.equal(s.leads.length, 1);
   assert.equal(s.leads[0].hasUnread, true);
 });
@@ -1169,7 +1185,7 @@ test("48 — an empty data property cannot hide a valid Meta entry envelope", as
   assert.equal(s.comments[0].commentId, "fbc_entry_wins");
 });
 
-test("49 — later n8n events repair broken conversation links on an existing lead", async () => {
+test("49 — CRM rebuilds a broken n8n conversation link for an existing lead", async () => {
   const s = newStore();
   await ingest(s, fbIncoming({ chat_link: "https://broken.invalid/PSID_1" }));
   await ingest(s, fbIncoming({
@@ -1183,7 +1199,11 @@ test("49 — later n8n events repair broken conversation links on an existing le
 
   assert.equal(s.leads.length, 1);
   assert.equal(s.contentMessages().length, 1);
-  assert.equal(s.leads[0].conversationLink, "https://www.facebook.com/PAGE1/inbox/THREAD1/?section=messages");
+  const repaired = new URL(s.leads[0].conversationLink!);
+  assert.equal(repaired.pathname, "/latest/inbox/all");
+  assert.equal(repaired.searchParams.get("asset_id"), "PAGE1");
+  assert.equal(repaired.searchParams.get("selected_item_id"), "PSID_1");
+  assert.equal(repaired.searchParams.get("thread_type"), "FB_MESSAGE");
   assert.equal(s.leads[0].fallbackInboxLink, "https://business.facebook.com/latest/inbox/all");
 });
 

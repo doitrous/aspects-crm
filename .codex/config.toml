@@ -1,0 +1,18 @@
+# Project-scoped MCP endpoints. Tokens remain in the local environment.
+[mcp_servers.n8n]
+url = "https://n8neurocure.doitrous.com/mcp-server/http"
+bearer_token_env_var = "N8N_MCP_TOKEN"
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+default_tools_approval_mode = "writes"
+
+[mcp_servers.n8n_sq]
+url = "https://n8nsq.doitrous.com/mcp-server/http"
+bearer_token_env_var = "N8NSQ_MCP_TOKEN"
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+default_tools_approval_mode = "writes"
